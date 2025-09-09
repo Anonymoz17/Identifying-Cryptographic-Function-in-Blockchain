@@ -1,7 +1,57 @@
 import customtkinter as ctk
+import os
+
+
+# Try to use a DnD-enabled root (app still runs without it)
+try:
+    from tkinterdnd2 import TkinterDnD
+    _HAS_TKINTERDND_ROOT = True
+except Exception:
+    TkinterDnD = None
+    _HAS_TKINTERDND_ROOT = False
+
+# Backend + DnD controller + fallback picker
+from file_handler import (
+    FileHandler,
+    FileDropController,
+    HAS_DND,         
+    open_file_picker,  
+)
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("green")
+
+# import Analyse.py function
+try:
+    from Analyse import Analyse as AnalysisPage  # preferred (your file name)
+except ModuleNotFoundError:
+    try:
+        from analyse import Analyse as AnalysisPage
+    except ModuleNotFoundError:
+        class AnalysisPage(ctk.CTkFrame):
+            """Fallback Analysis page (centered 'Analyzing…' box)."""
+            def __init__(self, master, switch_page_callback):
+                super().__init__(master)
+                content = ctk.CTkFrame(self, fg_color="transparent")
+                content.pack(fill="both", expand=True, padx=32, pady=24)
+                box = ctk.CTkFrame(
+                    content,
+                    width=420, height=240,
+                    corner_radius=16,
+                    border_width=2,
+                    border_color="#9aa0a6",
+                    fg_color=("white", "#000000"),
+                )
+                box.place(relx=0.5, rely=0.5, anchor="center")
+                box.pack_propagate(False)
+                ctk.CTkLabel(box, text="Analyzing…", font=("Roboto", 28)).place(
+                    relx=0.5, rely=0.5, anchor="center"
+                )
+                back = ctk.CTkButton(
+                    self, text="Back to Dashboard", width=180,
+                    command=lambda: switch_page_callback("dashboard")
+                )
+                back.pack(anchor="w", padx=32, pady=(0, 24))
 
 
 class LoginPage(ctk.CTkFrame):
@@ -34,35 +84,142 @@ class LoginPage(ctk.CTkFrame):
 
 
 class DashboardPage(ctk.CTkFrame):
-    def __init__(self, master, switch_page_callback):
+    def __init__(self, master, switch_page_callback, file_handler: FileHandler):
         super().__init__(master)
+        self.switch_page_callback = switch_page_callback
+        self.file_handler = file_handler
+        self.uploaded: list[dict] = []  # store uploaded metadata
 
-        # page title
+        # Title + status
         self.label = ctk.CTkLabel(self, text="Dashboard", font=("Roboto", 80))
-        self.label.pack(pady=20)
+        self.label.pack(pady=(20, 6))
 
+        self.status = ctk.CTkLabel(self, text="Drop files or GitHub URLs into the zone below.")
+        self.status.pack(pady=(0, 10))
+
+        # Drop zone
         self.dnd = ctk.CTkFrame(
             self,
-            width=900, height=600,
+            width=900, height=300,
             corner_radius=16,
             border_width=2,
             border_color="#9aa0a6",
-            fg_color=("white", "#000000")
+            fg_color=("white", "#000000"),
         )
-        self.dnd.pack(padx=40, pady=20)
-        self.dnd.pack_propagate(False)  # keep the fixed size above
+        self.dnd.pack(padx=40, pady=12)
+        self.dnd.pack_propagate(False)
 
         dz_label = ctk.CTkLabel(
             self.dnd,
-            text="Drag & Drop files here",
-            font=("Roboto", 28),
-            justify="center"
+            text=("Drag & Drop files here\n"
+                  "• Local file paths (e.g., .exe, .so, .zip, .py)\n"
+                  "• GitHub repo URLs (we’ll fetch main/master)"),
+            font=("Roboto", 24),
+            justify="center",
         )
         dz_label.place(relx=0.5, rely=0.5, anchor="center")
 
-        self.logout_button = ctk.CTkButton(self, text="Logout",
-                                           command=lambda: switch_page_callback("login"))
-        self.logout_button.pack(pady=10)
+        # Analyze button row 
+        self.actions = ctk.CTkFrame(self, fg_color="transparent")
+        self.actions.pack(padx=40, pady=(6, 6), fill="x")
+        self.analyze_btn = ctk.CTkButton(self.actions, text="Analyze", width=160, height=38,
+                                         command=self._analyze)
+        self.analyze_btn.pack(pady=2)
+
+        # Results 
+        self.results = ctk.CTkScrollableFrame(self, width=900, height=210, corner_radius=12)
+        self.results.pack(padx=40, pady=(8, 10), fill="x")
+        self._add_results_header()
+
+        # DnD + fallback
+        dnd_ok = False
+        if HAS_DND:
+            try:
+                # Register both the frame AND its label as drop targets
+                self.drop_controller = FileDropController(
+                    target_widget=self.dnd,
+                    file_handler=self.file_handler,
+                    on_processed=self._add_result_row,
+                    on_status=self._set_status,
+                    on_border=self._set_border,
+                )
+                # Label controller 
+                try:
+                    self.drop_controller_label = FileDropController(
+                        target_widget=dz_label,
+                        file_handler=self.file_handler,
+                        on_processed=self._add_result_row,
+                        on_status=self._set_status,
+                        on_border=self._set_border,
+                    )
+                except Exception:
+                    pass
+                dnd_ok = True
+            except Exception as e:
+                self._add_browse_fallback(str(e))
+        if not dnd_ok and not hasattr(self, "browse"):
+            self._add_browse_fallback("Drag & drop package (tkinterdnd2) not installed.")
+
+        # logout button
+        self.bottom_bar = ctk.CTkFrame(self, fg_color="transparent")
+        self.bottom_bar.pack(side="bottom", fill="x", padx=40, pady=(6, 16))
+        ctk.CTkLabel(self.bottom_bar, text="").pack(side="left", expand=True)
+        self.logout_button = ctk.CTkButton(
+            self.bottom_bar, text="Logout",
+            command=lambda: switch_page_callback("login"), width=120
+        )
+        self.logout_button.pack(side="right")
+
+    # ---- UI helpers ----
+    def _add_browse_fallback(self, reason: str):
+        self.browse = ctk.CTkButton(
+            self, text="Browse files…",
+            command=lambda: open_file_picker(
+                self, self.file_handler, self._add_result_row, self._set_status
+            )
+        )
+        self.browse.pack(pady=(6, 0))
+        self._set_status(reason, error=True)
+
+    def _set_border(self, color: str):
+        self.dnd.configure(border_color=color)
+
+    def _set_status(self, text: str, error: bool = False):
+        self.status.configure(text=text, text_color=("red" if error else "#202124"))
+
+    def _add_results_header(self):
+        header = ctk.CTkFrame(self.results, fg_color="transparent")
+        header.pack(fill="x", padx=8, pady=(6, 4))
+        for i, col in enumerate(("Name", "Category", "MIME/Type", "Size (bytes)", "Stored Path / Note")):
+            ctk.CTkLabel(header, text=col, font=("Roboto", 14, "bold")).grid(
+                row=0, column=i, sticky="w", padx=(8, 12)
+            )
+        for i in range(5):
+            header.grid_columnconfigure(i, weight=(2 if i == 4 else 1))
+
+    def _add_result_row(self, meta: dict):
+        self.uploaded.append(meta)  # keep a record for Analyze
+        row = ctk.CTkFrame(self.results, fg_color="transparent")
+        row.pack(fill="x", padx=8, pady=2)
+
+        name = meta.get("filename") or meta.get("repo_name") or os.path.basename(meta.get("stored_path", "")) or "-"
+        category = meta.get("category", "-")
+        mime = meta.get("filetype") or ("zip (repo)" if category == "github-repo" else "-")
+        size = str(meta.get("size", "-"))
+        stored = meta.get("stored_path") or meta.get("repo_url") or "-"
+
+        values = (name, category, mime, size, stored)
+        for i, val in enumerate(values):
+            ctk.CTkLabel(row, text=str(val)).grid(row=0, column=i, sticky="w", padx=(8, 12), pady=2)
+            row.grid_columnconfigure(i, weight=(2 if i == 4 else 1))
+
+    # ---- Analyze action: navigate to the Analysis page ----
+    def _analyze(self):
+        if not self.uploaded:
+            self._set_status("Nothing to analyze yet — add a file first.", error=True)
+            return
+        self.switch_page_callback("analysis")
+
 
 
 class RegisterPage(ctk.CTkFrame):
@@ -164,36 +321,54 @@ class RegisterPage(ctk.CTkFrame):
         self.password.delete(0, "end")
         self.password2.delete(0, "end")
 
+if _HAS_TKINTERDND_ROOT:
+    class App(TkinterDnD.Tk, ctk.CTk):
+        def __init__(self):
+            TkinterDnD.Tk.__init__(self)
+            ctk.CTk.__init__(self)
+            self._build()
+        def _build(self):
+            self.geometry("1500x900")
+            self.title("CryptoScope")
+            self.file_handler = FileHandler(upload_dir="uploads")
+            self.container = ctk.CTkFrame(self)
+            self.container.pack(fill="both", expand=True)
+            self.container.grid_rowconfigure(0, weight=1)
+            self.container.grid_columnconfigure(0, weight=1)
+            self.pages = {
+                "login":     LoginPage(self.container, self.show_page),
+                "dashboard": DashboardPage(self.container, self.show_page, self.file_handler),
+                "register":  RegisterPage(self.container, self.show_page),
+                "analysis":  AnalysisPage(self.container, self.show_page),
+            }
+            for page in self.pages.values():
+                page.grid(row=0, column=0, sticky="nsew")
+            self.show_page("login")
+        def show_page(self, name):
+            self.pages[name].tkraise()
 
-class App(ctk.CTk):
-    def __init__(self):
-        super().__init__()
-
-        self.geometry("1500x900")
-        self.title("CryptoScope")
-
-        # Single container for pages
-        self.container = ctk.CTkFrame(self)
-        self.container.pack(fill="both", expand=True)
-        self.container.grid_rowconfigure(0, weight=1)
-        self.container.grid_columnconfigure(0, weight=1)
-
-        # Build & stack pages once
-        self.pages = {
-            "login": LoginPage(self.container, self.show_page),
-            "dashboard": DashboardPage(self.container, self.show_page),
-            "register": RegisterPage(self.container, self.show_page),
-        }
-        for page in self.pages.values():
-            page.grid(row=0, column=0, sticky="nsew")  # stacked
-
-        self.show_page("login")
-
-    def show_page(self, name):
-        # Raise target frame; no layout thrash, minimal repaint
-        self.pages[name].tkraise()
-        # Optional: delay until idle to avoid mid-layout flicker
-        # self.after_idle(self.pages[name].tkraise)
+else:
+    class App(ctk.CTk):
+        def __init__(self):
+            super().__init__()
+            self.geometry("1500x900")
+            self.title("CryptoScope")
+            self.file_handler = FileHandler(upload_dir="uploads")
+            self.container = ctk.CTkFrame(self)
+            self.container.pack(fill="both", expand=True)
+            self.container.grid_rowconfigure(0, weight=1)
+            self.container.grid_columnconfigure(0, weight=1)
+            self.pages = {
+                "login":     LoginPage(self.container, self.show_page),
+                "dashboard": DashboardPage(self.container, self.show_page, self.file_handler),
+                "register":  RegisterPage(self.container, self.show_page),
+                "analysis":  AnalysisPage(self.container, self.show_page),
+            }
+            for page in self.pages.values():
+                page.grid(row=0, column=0, sticky="nsew")
+            self.show_page("login")
+        def show_page(self, name):
+            self.pages[name].tkraise()
 
 
 if __name__=="__main__":
