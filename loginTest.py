@@ -246,16 +246,50 @@ class RegisterPage(ctk.CTkFrame):
 class AnalysisPage(ctk.CTkFrame):
     def __init__(self, master, switch_page):
         super().__init__(master)
-        content = ctk.CTkFrame(self, fg_color="transparent")
-        content.pack(fill="both", expand=True, padx=32, pady=24)
-        box = ctk.CTkFrame(content, width=420, height=240, corner_radius=16,
-                           border_width=2, border_color="#9aa0a6",
-                           fg_color=("white", "#000000"))
-        box.place(relx=0.5, rely=0.5, anchor="center"); box.pack_propagate(False)
-        ctk.CTkLabel(box, text="Analyzing…", font=("Roboto", 28)).place(relx=0.5, rely=0.5, anchor="center")
 
-        ctk.CTkButton(self, text="Back to Dashboard", width=180,
-                      command=lambda: switch_page("dashboard")).pack(anchor="w", padx=32, pady=(0, 24))
+        # Wrapper that holds the centered content
+        content = ctk.CTkFrame(self, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=32, pady=(12, 8))
+
+        # Grid with weighted spacers (more space below to keep things higher)
+        content.grid_rowconfigure(0, weight=1, minsize=8)   # top spacer (light)
+        content.grid_rowconfigure(1, weight=0)              # title
+        content.grid_rowconfigure(2, weight=0)              # gap
+        content.grid_rowconfigure(3, weight=0)              # analysis box
+        content.grid_rowconfigure(4, weight=3, minsize=8)   # bottom spacer (heavier)
+        content.grid_columnconfigure(0, weight=1)
+
+        # Title — same font as your other big pages and centered
+        title = ctk.CTkLabel(content, text="Analysis", font=("Roboto", 80))
+        title.grid(row=1, column=0, sticky="n", pady=(0, 6))
+
+        # Gap between title and box (tweak height to taste)
+        gap = ctk.CTkFrame(content, height=10, fg_color="transparent")
+        gap.grid(row=2, column=0)
+
+        # Decently-sized analysis window, centered (not full-page)
+        self.analysis_box = ctk.CTkFrame(
+            content,
+            width=1100,  # adjust if needed
+            height=520,  # adjust if needed
+            corner_radius=16,
+            border_width=2,
+            border_color="#9aa0a6",
+            fg_color=("white", "#000000"),
+        )
+        self.analysis_box.grid(row=3, column=0)
+        self.analysis_box.pack_propagate(False)
+
+        # Bottom bar with Logout on the right (consistent with other pages)
+        bottom = ctk.CTkFrame(self, fg_color="transparent")
+        bottom.pack(side="bottom", fill="x", padx=40, pady=(4, 16))
+
+        ctk.CTkLabel(bottom, text="").pack(side="left", expand=True)  # spacer
+        ctk.CTkButton(
+            bottom, text="Logout", width=160, height=40,
+            command=lambda: switch_page("login")
+        ).pack(side="right")
+
 
 
 # ---------------------- App root ---------------------------------------------
