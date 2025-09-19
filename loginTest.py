@@ -1,4 +1,4 @@
-# loginTest.py (responsive layout – Analyze & Browse buttons same size)
+# loginTest.py (Supabase-wired, responsive)
 import os
 import customtkinter as ctk
 
@@ -8,12 +8,19 @@ from file_handler import (
     open_file_picker,
 )
 
+from api_client_supabase import (
+    register_user as sb_register,
+    login as sb_login,
+    get_my_role as sb_get_role,
+    admin_set_tier as sb_admin_set_tier,  # optional (for future admin page)
+)
+
 # Theme
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("green")
 
-
 # ---------------------- Helpers ---------------------------------------------
+
 def clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
@@ -22,6 +29,7 @@ def scaled_font(px, h, lo=12, hi=80):
 
 
 # ---------------------- Pages -----------------------------------------------
+
 class LoginPage(ctk.CTkFrame):
     def __init__(self, master, switch_page):
         super().__init__(master)
@@ -34,16 +42,16 @@ class LoginPage(ctk.CTkFrame):
         form.pack(fill="x", expand=False, padx=32, pady=8)
         form.grid_columnconfigure(0, weight=1)
 
-        self.user = ctk.CTkEntry(form, placeholder_text="Username", height=46)
-        self.user.grid(row=0, column=0, sticky="ew", padx=16, pady=(12, 8))
+        # Email-based login (Supabase Auth)
+        self.email = ctk.CTkEntry(form, placeholder_text="Email", height=46)
+        self.email.grid(row=0, column=0, sticky="ew", padx=16, pady=(12, 8))
 
         self.pw = ctk.CTkEntry(form, placeholder_text="Password", height=46, show="*")
         self.pw.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 12))
 
         row = ctk.CTkFrame(self, fg_color="transparent")
         row.pack(pady=10)
-        self.login_btn = ctk.CTkButton(row, text="Login",
-                                       command=lambda: self.switch_page("dashboard"))
+        self.login_btn = ctk.CTkButton(row, text="Login", command=self._do_login)
         self.login_btn.pack(side="left", padx=(0, 12))
         self.create_btn = ctk.CTkButton(row, text="Create an account",
                                         fg_color="transparent",
@@ -52,14 +60,72 @@ class LoginPage(ctk.CTkFrame):
                                         command=lambda: self.switch_page("register"))
         self.create_btn.pack(side="left")
 
+        # feedback
+        self.feedback = ctk.CTkLabel(self, text="", text_color="red")
+        self.feedback.pack(pady=(4, 0))
+
+    def _do_login(self):
+        email = (self.email.get() or "").strip()
+        pw = self.pw.get()
+
+        if "@" not in email:
+            self.feedback.configure(text="Please log in with your EMAIL (not username)."); return
+        if not email or not pw:
+            self.feedback.configure(text="Please enter email and password."); return
+
+        # progress hint
+        self.login_btn.configure(state="disabled", text="Logging in…")
+        self.update_idletasks()
+
+        ok, token_or_err, user = sb_login(email, pw)
+        if not ok:
+            self.feedback.configure(text=f"Login failed: {token_or_err}")
+            print("Login error:", token_or_err)
+            self.login_btn.configure(state="normal", text="Login")
+            return
+
+        # success
+        app = self.winfo_toplevel()
+        app.auth_token = token_or_err
+        app.current_user = user
+
+        # ensure role row exists, then read it (tolerant)
+        try:
+            from api_client_supabase import ensure_role_row
+            ensure_role_row(app.auth_token, user["id"])
+        except Exception as e:
+            print("ensure_role_row error:", e)
+        try:
+            app.current_user_role = sb_get_role(app.auth_token, user["id"])
+        except Exception as e:
+            print("get_my_role error:", e)
+            app.current_user_role = "free"
+
+        self.login_btn.configure(state="normal", text="Login")
+        self.switch_page("dashboard")
+
+
     def on_resize(self, w, h):
         self.title.configure(font=("Roboto", scaled_font(72, h, 28, 84)))
         ent_h = clamp(int(h * 0.05), 36, 56)
         btn_h = clamp(int(h * 0.05), 36, 56)
-        self.user.configure(height=ent_h)
-        self.pw.configure(height=ent_h)
+        for e in (self.email, self.pw):
+            e.configure(height=ent_h)
         self.login_btn.configure(height=btn_h, width=clamp(int(w * 0.12), 120, 200))
         self.create_btn.configure(height=btn_h, width=clamp(int(w * 0.18), 150, 260))
+
+    def clear_fields(self):
+        try:
+            self.email.delete(0, "end")
+            self.pw.delete(0, "end")
+        except Exception:
+            pass
+        self.feedback.configure(text="")
+        # ensure button text/state is normal next time
+        self.login_btn.configure(state="normal", text="Login")
+        # optional: focus the email box when returning
+        self.after(50, lambda: self.email.focus_set())
+
 
 
 class DashboardPage(ctk.CTkFrame):
@@ -69,20 +135,18 @@ class DashboardPage(ctk.CTkFrame):
         self.file_handler = file_handler
         self.uploaded = []
 
-        # ===== GRID LAYOUT =====
-        self.grid_rowconfigure(0, weight=1)  # main content
-        self.grid_rowconfigure(1, weight=0)  # bottom bar
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=0)
         self.grid_columnconfigure(0, weight=1)
 
-        # ===== CONTENT WRAPPER =====
         content = ctk.CTkFrame(self, fg_color="transparent")
         content.grid(row=0, column=0, sticky="nsew")
         content.grid_columnconfigure(0, weight=1)
 
-        # Title + status
         self.title = ctk.CTkLabel(content, text="Dashboard", font=("Roboto", 72))
         self.title.pack(pady=(12, 4))
 
+        # Role/Status
         self.status = ctk.CTkLabel(content, text="")
         self.status.pack(pady=(0, 6))
 
@@ -107,30 +171,26 @@ class DashboardPage(ctk.CTkFrame):
         )
         self.dz_label.place(relx=0.5, rely=0.5, anchor="center")
 
-        # Actions row (Analyze + Browse side-by-side)
         actions = ctk.CTkFrame(content, fg_color="transparent")
         actions.pack(pady=(6, 0))
+        self.analyze_btn = ctk.CTkButton(actions, text="Analyze", width=160, height=40, command=self._analyze)
+        self.analyze_btn.pack()
 
-        # keep references so we can resize them together
-        self.analyze_btn = ctk.CTkButton(
-            actions, text="Analyze", command=self._analyze
-        )
-        self.analyze_btn.pack(side="left", padx=(0, 10))
-
-        self.browse_btn = ctk.CTkButton(
-            actions, text="Browse files…",
-            command=lambda: open_file_picker(
-                self, self.file_handler, self._add_result_row, self._set_status
-            ),
-        )
-        self.browse_btn.pack(side="left")
-
-        # Results
         self.results = ctk.CTkScrollableFrame(content, corner_radius=12)
         self.results.pack(padx=24, pady=(8, 6), fill="both", expand=True)
         self._add_results_header()
 
-        # Try to enable Drag & Drop (buttons stay regardless)
+        below_results = ctk.CTkFrame(content, fg_color="transparent")
+        below_results.pack(pady=(0, 8))
+        self.browse_btn = ctk.CTkButton(
+            below_results, text="Browse files…", width=160, height=40,
+            command=lambda: open_file_picker(
+                self, self.file_handler, self._add_result_row, self._set_status
+            )
+        )
+        self.browse_btn.pack()
+
+        # Try DnD
         try:
             self.ctrl_zone = FileDropController(
                 target_widget=self.dnd,
@@ -150,26 +210,43 @@ class DashboardPage(ctk.CTkFrame):
             except Exception:
                 pass
         except Exception as e:
-            self._set_status(f"Drag & drop unavailable: {e}", error=True)
+            self._add_browse_fallback(str(e))
 
-        # ===== FIXED BOTTOM BAR =====
         bottom = ctk.CTkFrame(self, fg_color="transparent")
         bottom.grid(row=1, column=0, sticky="ew", padx=24, pady=(4, 10))
         bottom.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(bottom, text="").grid(row=0, column=0, sticky="w")
         self.logout_btn = ctk.CTkButton(
-            bottom, text="Logout", command=lambda: switch_page("login")
+            bottom, text="Logout", width=160, height=40,
+            command=self._logout
         )
         self.logout_btn.grid(row=0, column=1, sticky="e")
 
-        # Responsive params
         self._results_min_h = 120
         self._results_max_h = 480
 
-        # initial unified button size
-        self._sync_action_button_sizes(self.winfo_width(), self.winfo_height())
+    def _logout(self):
+        app = self.winfo_toplevel()
+        app.logout()
 
-    # ---------- helpers ----------
+    def reset_ui(self):
+        """Clear transient state when a user logs out."""
+        self.uploaded.clear()
+        # reset status + border color
+        self._set_status("")
+        self._set_border("#9aa0a6")
+        # clear results list (remove rows + header then re-add header)
+        try:
+            for w in self.results.winfo_children():
+                w.destroy()
+        except Exception:
+            pass
+        self._add_results_header()
+
+
+    def _add_browse_fallback(self, reason: str):
+        self._set_status(f"Drag & drop unavailable: {reason}", error=True)
+
     def _set_border(self, color: str):
         self.dnd.configure(border_color=color)
 
@@ -189,6 +266,8 @@ class DashboardPage(ctk.CTkFrame):
             header.grid_columnconfigure(i, weight=(2 if i == 4 else 1))
 
     def _add_result_row(self, meta: dict):
+        app = self.winfo_toplevel()
+        tier = getattr(app, "current_user_role", "free")
         self.uploaded.append(meta)
         row = ctk.CTkFrame(self.results, fg_color="transparent")
         row.pack(fill="x", padx=8, pady=2)
@@ -204,21 +283,20 @@ class DashboardPage(ctk.CTkFrame):
             row.grid_columnconfigure(i, weight=(2 if i == 4 else 1))
 
         self.update_idletasks()
+        # Example: nudge status based on tier
+        self._set_status(f"Logged in as {tier.upper()}")
 
     def _analyze(self):
-        if not self.uploaded:
-            self._set_status("Nothing to analyze yet — add a file first.", error=True)
+        app = self.winfo_toplevel()
+        if not getattr(app, "auth_token", None):
+            self._set_status("Please log in first.", error=True); return
+        # Example of gating: only premium/admin may analyze when > 1 uploaded, etc.
+        tier = getattr(app, "current_user_role", "free")
+        if tier == "free" and len(self.uploaded) > 1:
+            self._set_status("Free tier: analyze 1 file at a time. Upgrade to analyze multiple.", error=True)
             return
         self.switch_page("analysis")
 
-    # keep both action buttons exactly the same size
-    def _sync_action_button_sizes(self, w, h):
-        btn_w = max(160, min(260, int(w * 0.14)))
-        btn_h = max(40, min(56, int(h * 0.05)))
-        for b in (self.analyze_btn, self.browse_btn):
-            b.configure(width=btn_w, height=btn_h)
-
-    # ---------- responsiveness ----------
     def on_resize(self, w, h):
         title_size = max(28, min(84, int(72 * (h / 900.0))))
         self.title.configure(font=("Roboto", title_size))
@@ -230,7 +308,11 @@ class DashboardPage(ctk.CTkFrame):
         dz_label_size = max(16, min(28, int(24 * (h / 900.0))))
         self.dz_label.configure(font=("Roboto", dz_label_size))
 
-        self._sync_action_button_sizes(w, h)
+        btn_w = max(120, min(220, int(w * 0.12)))
+        btn_h = max(36, min(56, int(h * 0.05)))
+        self.analyze_btn.configure(width=btn_w, height=btn_h)
+        self.browse_btn.configure(width=btn_w, height=btn_h)
+        self.logout_btn.configure(width=btn_w, height=btn_h)
 
         target_h = max(self._results_min_h, min(self._results_max_h, int(h * 0.30)))
         self.results.configure(height=target_h)
@@ -309,8 +391,14 @@ class RegisterPage(ctk.CTkFrame):
         if pwd != pwd2:
             self.feedback.configure(text="Passwords do not match."); return
 
-        self.feedback.configure(text="Account created! You can log in now.", text_color="green")
-        self.password.delete(0, "end"); self.password2.delete(0, "end")
+        ok, data = sb_register(email=email, password=pwd, full_name=name, username=uname)
+        if ok:
+            self.feedback.configure(text="Account created! Redirecting to Login…", text_color="green")
+            self.password.delete(0, "end"); self.password2.delete(0, "end")
+            self.after(600, lambda: self.switch_page("login"))
+        else:
+            self.feedback.configure(text=str(data), text_color="red")
+
 
     def on_resize(self, w, h):
         self.title.configure(font=("Roboto", scaled_font(64, h, 26, 76)))
@@ -327,7 +415,6 @@ class AnalysisPage(ctk.CTkFrame):
         super().__init__(master)
         self.switch_page = switch_page
 
-        # Layout
         self.grid_rowconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=0)
         self.grid_columnconfigure(0, weight=1)
@@ -360,23 +447,29 @@ class AnalysisPage(ctk.CTkFrame):
         bottom.grid(row=1, column=0, sticky="ew", padx=24, pady=(4, 12))
         bottom.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(bottom, text="").grid(row=0, column=0, sticky="w")
-        self.logout_btn = ctk.CTkButton(bottom, text="Logout", command=lambda: switch_page("login"))
+        self.logout_btn = ctk.CTkButton(
+            bottom, text="Logout", width=160, height=40,
+            command=self._logout
+        )
         self.logout_btn.grid(row=0, column=1, sticky="e")
+
+    def _logout(self):
+        app = self.winfo_toplevel()
+        app.logout()
 
     def on_resize(self, w, h):
         title_px = max(28, min(84, int(72 * (h / 900.0))))
         self.title.configure(font=("Roboto", title_px))
-
         box_w = max(520, min(1400, int(w * 0.72)))
         box_h = max(260, min(700, int(h * 0.55)))
         self.analysis_box.configure(width=box_w, height=box_h)
-
         btn_w = max(120, min(220, int(w * 0.12)))
         btn_h = max(36, min(56, int(h * 0.05)))
         self.logout_btn.configure(width=btn_w, height=btn_h)
 
 
 # ---------------------- App root ---------------------------------------------
+
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -400,10 +493,13 @@ class App(ctk.CTk):
             page.grid(row=0, column=0, sticky="nsew")
         self.show_page("login")
 
-        # Global resize binding
+        # Auth state
+        self.auth_token = None
+        self.current_user = None
+        self.current_user_role = "free"
+
         self.bind("<Configure>", self._on_resize)
         self._last_wh = (0, 0)
-
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def show_page(self, name):
@@ -437,6 +533,28 @@ class App(ctk.CTk):
             pass
         self.after(120, self.destroy)
 
+    def logout(self):
+        try:
+            from api_client_supabase import logout as sb_logout
+            sb_logout()
+        except Exception:
+            pass
+        # wipe in-memory auth
+        self.auth_token = None
+        self.current_user = None
+        self.current_user_role = "free"
+
+        # reset per-page UI
+        if "dashboard" in self.pages and hasattr(self.pages["dashboard"], "reset_ui"):
+            self.pages["dashboard"].reset_ui()
+        if "login" in self.pages and hasattr(self.pages["login"], "clear_fields"):
+            self.pages["login"].clear_fields()
+
+        # navigate back to Login
+        self.show_page("login")
+
+
 
 if __name__ == "__main__":
-    App().mainloop()
+    app = App()
+    app.mainloop()
