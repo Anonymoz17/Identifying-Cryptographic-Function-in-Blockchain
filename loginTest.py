@@ -27,7 +27,6 @@ def clamp(v, lo, hi):
 def scaled_font(px, h, lo=12, hi=80):
     return clamp(int(px * (h / 900.0)), lo, hi)
 
-
 # ---------------------- Pages -----------------------------------------------
 
 class LoginPage(ctk.CTkFrame):
@@ -103,7 +102,6 @@ class LoginPage(ctk.CTkFrame):
 
         self.login_btn.configure(state="normal", text="Login")
         self.switch_page("dashboard")
-
 
     def on_resize(self, w, h):
         self.title.configure(font=("Roboto", scaled_font(72, h, 28, 84)))
