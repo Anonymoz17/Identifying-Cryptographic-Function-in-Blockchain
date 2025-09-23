@@ -133,10 +133,12 @@ class DashboardPage(ctk.CTkFrame):
         self.file_handler = file_handler
         self.uploaded = []
 
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=0)
+        # ====== Grid skeleton: content (row 0) + sticky bottom bar (row 1) ======
+        self.grid_rowconfigure(0, weight=1)   # content grows/scrolls
+        self.grid_rowconfigure(1, weight=0)   # bottom bar stays visible
         self.grid_columnconfigure(0, weight=1)
 
+        # ====== Content area ======
         content = ctk.CTkFrame(self, fg_color="transparent")
         content.grid(row=0, column=0, sticky="nsew")
         content.grid_columnconfigure(0, weight=1)
@@ -169,24 +171,10 @@ class DashboardPage(ctk.CTkFrame):
         )
         self.dz_label.place(relx=0.5, rely=0.5, anchor="center")
 
-        actions = ctk.CTkFrame(content, fg_color="transparent")
-        actions.pack(pady=(6, 0))
-        self.analyze_btn = ctk.CTkButton(actions, text="Analyze", width=160, height=40, command=self._analyze)
-        self.analyze_btn.pack()
-
+        # Results list (scrollable so the bottom bar never gets pushed off-screen)
         self.results = ctk.CTkScrollableFrame(content, corner_radius=12)
         self.results.pack(padx=24, pady=(8, 6), fill="both", expand=True)
         self._add_results_header()
-
-        below_results = ctk.CTkFrame(content, fg_color="transparent")
-        below_results.pack(pady=(0, 8))
-        self.browse_btn = ctk.CTkButton(
-            below_results, text="Browse files…", width=160, height=40,
-            command=lambda: open_file_picker(
-                self, self.file_handler, self._add_result_row, self._set_status
-            )
-        )
-        self.browse_btn.pack()
 
         # Try DnD
         try:
@@ -210,19 +198,34 @@ class DashboardPage(ctk.CTkFrame):
         except Exception as e:
             self._add_browse_fallback(str(e))
 
+        # ====== Sticky bottom action bar (always visible, like your Logout) ======
         bottom = ctk.CTkFrame(self, fg_color="transparent")
         bottom.grid(row=1, column=0, sticky="ew", padx=24, pady=(4, 10))
-        bottom.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(bottom, text="").grid(row=0, column=0, sticky="w")
-        self.logout_btn = ctk.CTkButton(
-            bottom, text="Logout", width=160, height=40,
-            command=self._logout
-        )
-        self.logout_btn.grid(row=0, column=1, sticky="e")
+        # Layout: [ Browse ] [  --stretch-- ] [ Analyze ] [ Logout ]
+        bottom.grid_columnconfigure(0, weight=0)  # Browse (left)
+        bottom.grid_columnconfigure(1, weight=1)  # spacer
+        bottom.grid_columnconfigure(2, weight=0)  # Analyze (right)
+        bottom.grid_columnconfigure(3, weight=0)  # Logout (far right)
 
+        self.browse_btn = ctk.CTkButton(
+            bottom, text="Browse files…",
+            command=lambda: open_file_picker(
+                self, self.file_handler, self._add_result_row, self._set_status
+            )
+        )
+        self.browse_btn.grid(row=0, column=0, sticky="w")
+
+        self.analyze_btn = ctk.CTkButton(bottom, text="Analyze", command=self._analyze)
+        self.analyze_btn.grid(row=0, column=2, sticky="e", padx=(8, 8))
+
+        self.logout_btn = ctk.CTkButton(bottom, text="Logout", command=self._logout)
+        self.logout_btn.grid(row=0, column=3, sticky="e")
+
+        # Size caps for results height
         self._results_min_h = 120
         self._results_max_h = 480
 
+    # ====== Actions ======
     def _logout(self):
         app = self.winfo_toplevel()
         app.logout()
@@ -230,17 +233,14 @@ class DashboardPage(ctk.CTkFrame):
     def reset_ui(self):
         """Clear transient state when a user logs out."""
         self.uploaded.clear()
-        # reset status + border color
         self._set_status("")
         self._set_border("#9aa0a6")
-        # clear results list (remove rows + header then re-add header)
         try:
             for w in self.results.winfo_children():
                 w.destroy()
         except Exception:
             pass
         self._add_results_header()
-
 
     def _add_browse_fallback(self, reason: str):
         self._set_status(f"Drag & drop unavailable: {reason}", error=True)
@@ -281,37 +281,40 @@ class DashboardPage(ctk.CTkFrame):
             row.grid_columnconfigure(i, weight=(2 if i == 4 else 1))
 
         self.update_idletasks()
-        # Example: nudge status based on tier
         self._set_status(f"Logged in as {tier.upper()}")
 
     def _analyze(self):
         app = self.winfo_toplevel()
         if not getattr(app, "auth_token", None):
             self._set_status("Please log in first.", error=True); return
-        # Example of gating: only premium/admin may analyze when > 1 uploaded, etc.
         tier = getattr(app, "current_user_role", "free")
         if tier == "free" and len(self.uploaded) > 1:
             self._set_status("Free tier: analyze 1 file at a time. Upgrade to analyze multiple.", error=True)
             return
         self.switch_page("analysis")
 
+    # ====== Responsive sizing ======
     def on_resize(self, w, h):
+        # Title scales with height but stays readable
         title_size = max(28, min(84, int(72 * (h / 900.0))))
         self.title.configure(font=("Roboto", title_size))
 
-        dz_w = max(520, min(1400, int(w * 0.72)))
-        dz_h = max(180, min(380, int(h * 0.28)))
+        # Drop zone scales with window size, with clamps for very small screens
+        dz_w = max(420, min(1400, int(w * 0.72)))
+        dz_h = max(150, min(340, int(h * 0.26)))
         self.dnd.configure(width=dz_w, height=dz_h)
 
-        dz_label_size = max(16, min(28, int(24 * (h / 900.0))))
+        # DZ label font clamp for small heights
+        dz_label_size = max(14, min(24, int(22 * (h / 900.0))))
         self.dz_label.configure(font=("Roboto", dz_label_size))
 
-        btn_w = max(120, min(220, int(w * 0.12)))
-        btn_h = max(36, min(56, int(h * 0.05)))
-        self.analyze_btn.configure(width=btn_w, height=btn_h)
-        self.browse_btn.configure(width=btn_w, height=btn_h)
-        self.logout_btn.configure(width=btn_w, height=btn_h)
+        # Buttons: keep minimum touch sizes so they stay usable on tiny windows
+        btn_w = max(110, min(200, int(w * 0.12)))
+        btn_h = max(34,  min(52,  int(h * 0.05)))
+        for b in (self.browse_btn, self.analyze_btn, self.logout_btn):
+            b.configure(width=btn_w, height=btn_h)
 
+        # Keep results area visible but not overwhelming
         target_h = max(self._results_min_h, min(self._results_max_h, int(h * 0.30)))
         self.results.configure(height=target_h)
 
