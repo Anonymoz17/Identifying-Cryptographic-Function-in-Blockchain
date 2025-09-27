@@ -1,3 +1,11 @@
 # Virtual envs
 .venv/
 venv/
+
+# IDE configs
+.idea/
+idea/
+
+# Python cache
+__pycache__/
+*.pyc
