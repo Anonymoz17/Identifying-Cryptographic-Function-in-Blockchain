@@ -22,6 +22,7 @@ class FileHandler:
         self.upload_dir = upload_dir
         os.makedirs(upload_dir, exist_ok=True)
 
+    #handle file input errors
     def handle_input(self, input_path: str) -> dict:
         input_path = input_path.strip()
         if input_path.startswith(("http://", "https://")):

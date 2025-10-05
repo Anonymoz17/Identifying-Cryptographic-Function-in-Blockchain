@@ -47,8 +47,20 @@ class DashboardPage(ctk.CTkFrame):
 
         actions = ctk.CTkFrame(content, fg_color="transparent")
         actions.pack(pady=(6, 0))
+
+        # Existing Analyze button
         self.analyze_btn = ctk.CTkButton(actions, text="Analyze", width=160, height=40, command=self._analyze)
         self.analyze_btn.pack()
+
+        # NEW: Try Advisor (beta) button — safe additive route
+        self.advisor_btn = ctk.CTkButton(
+            actions,
+            text="✨ Try Advisor (beta)",
+            width=160,
+            height=40,
+            command=lambda: self.switch_page("advisor")
+        )
+        self.advisor_btn.pack(pady=(6, 0))
 
         # Results area — light pane feel
         self.results = ctk.CTkScrollableFrame(
@@ -106,6 +118,13 @@ class DashboardPage(ctk.CTkFrame):
             )
         )
         self.compact_analyze_btn = ctk.CTkButton(bottom, text="Analyze", command=self._analyze)
+
+        # NEW (compact): Advisor quick access
+        self.compact_advisor_btn = ctk.CTkButton(
+            bottom, text="✨ Advisor",
+            command=lambda: self.switch_page("advisor")
+        )
+
         self._compact_visible = False
 
         self.logout_btn = ctk.CTkButton(bottom, text="Logout", command=self._logout)
@@ -186,9 +205,13 @@ class DashboardPage(ctk.CTkFrame):
             return
         if show:
             self.compact_browse_btn.grid(row=0, column=0, sticky="w")
+            # NEW: place Advisor in the middle stretch column
+            self.compact_advisor_btn.grid(row=0, column=1, sticky="w", padx=(8, 8))
             self.compact_analyze_btn.grid(row=0, column=2, sticky="e", padx=(8, 8))
         else:
             try: self.compact_browse_btn.grid_forget()
+            except Exception: pass
+            try: self.compact_advisor_btn.grid_forget()
             except Exception: pass
             try: self.compact_analyze_btn.grid_forget()
             except Exception: pass
@@ -217,7 +240,11 @@ class DashboardPage(ctk.CTkFrame):
 
         btn_w = max(120, min(220, int(w * 0.12)))
         btn_h = max(36,  min(56,  int(h * 0.05)))
-        for b in (self.analyze_btn, self.browse_btn, self.compact_analyze_btn, self.compact_browse_btn, self.logout_btn):
+        # include new advisor buttons in resize pass
+        for b in (
+            self.analyze_btn, self.browse_btn, self.compact_analyze_btn,
+            self.compact_browse_btn, self.logout_btn, self.advisor_btn, self.compact_advisor_btn
+        ):
             try:
                 b.configure(width=btn_w, height=btn_h)
             except Exception:

@@ -1,7 +1,7 @@
 # app.py
 import customtkinter as ctk
 from file_handler import FileHandler
-from pages import LoginPage, RegisterPage, DashboardPage, AnalysisPage
+from pages import LoginPage, RegisterPage, DashboardPage, AnalysisPage, AdvisorPage
 
 class App(ctk.CTk):
     def __init__(self):
@@ -18,12 +18,15 @@ class App(ctk.CTk):
 
         self.file_handler = FileHandler(upload_dir="./uploads")
 
+        # Instantiate all pages as frames (no lambdas/factories)
         self._pages = {
-            "login":      LoginPage(self, self.switch_page),
-            "register":   RegisterPage(self, self.switch_page),
-            "dashboard":  DashboardPage(self, self.switch_page, self.file_handler),
-            "analysis":   AnalysisPage(self, self.switch_page),
+            "login":     LoginPage(self, self.switch_page),
+            "register":  RegisterPage(self, self.switch_page),
+            "dashboard": DashboardPage(self, self.switch_page, self.file_handler),
+            "analysis":  AnalysisPage(self, self.switch_page),
+            "advisor":   AdvisorPage(self, self.switch_page),  # <-- fixed: real frame instance
         }
+
         for p in self._pages.values():
             p.grid(row=0, column=0, sticky="nsew")
             p.grid_remove()
