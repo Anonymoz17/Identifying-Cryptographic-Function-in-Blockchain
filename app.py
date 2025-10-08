@@ -13,7 +13,7 @@ class App(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
 
         self.auth_token = None
-        self.current_user_role = "free"
+        self.current_user_role = "premium"
         self.current_user_email = None
 
         self.file_handler = FileHandler(upload_dir="./uploads")
@@ -32,7 +32,7 @@ class App(ctk.CTk):
             p.grid_remove()
 
         # track which page is visible (for targeted resize)
-        self._current_page_name = "advisor"
+        self._current_page_name = "login"
         self.switch_page(self._current_page_name)
 
         # ---- Debounced resize handling ----
@@ -42,6 +42,19 @@ class App(ctk.CTk):
         # ---- Clean shutdown: stop timers before widgets die ----
         self._closing = False
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def get_role(self):
+        return self.current_user_role
+    
+    def set_role(self, role: str):
+        self.current_user_role = role
+        # Update current page if it supports role application
+        cur = getattr(self, "_current_page_name", None)
+        if cur:
+            page = self._pages.get(cur)
+            if page and hasattr(page, "apply_role"):
+                page.apply_role(role)
+
 
     def switch_page(self, name: str):
         self._current_page_name = name

@@ -1,8 +1,11 @@
 # pages/advisor.py
 import customtkinter as ctk
-from core.kb import list_algorithms
-from core.recommender import top_n, compare
+from roles import is_premium
+from ui.card import Card
+from ui.grid import grid_evenly
 
+from core.kb import list_algorithms
+from core.recommender import compare, top_n
 
 class AdvisorPage(ctk.CTkFrame):
     """
@@ -115,6 +118,43 @@ class AdvisorPage(ctk.CTkFrame):
                                       command=lambda: self.switch_page("dashboard"))
         self.back_btn.grid(row=0, column=0, sticky="w")
 
+        self.cards_wrap = ctk.CTkFrame(self, fg_color="transparent")
+
+        # append at the next row in the existing grid:
+        next_row = self.grid_size()[1]   # number of rows currently used
+        self.cards_wrap.grid(row=next_row, column=0, sticky="ew", padx=24, pady=12)
+        self.grid_columnconfigure(0, weight=1)          # make page root column stretch
+        self.cards_wrap.grid_columnconfigure(0, weight=1)
+
+        self.cards_frame = ctk.CTkFrame(self.cards_wrap, fg_color="transparent")
+        self.cards_frame.grid(row=0, column=0, sticky="ew")
+
+        # Cards (always present -> layout never shifts)
+        self.card_weights = Card(self.cards_frame,
+                                title="Adjust Weights",
+                                subtitle="Tune security/performance/adoption/risk/compatibility",
+                                command=self._open_weights_dialog)
+
+        self.card_top3 = Card(self.cards_frame,
+                            title="Top-3 Recommendations",
+                            subtitle="Best fits for your selected use case",
+                            command=self._show_top3)
+
+        self._cards = [self.card_weights, self.card_top3]
+
+        # First layout + apply current role
+        self._layout_cards()
+        self.apply_role(self.master.get_role() if hasattr(self.master, "get_role") else None)
+
+        # after you finish creating UI and the Card widgets:
+        if hasattr(self.master, "get_role"):
+            self.apply_role(self.master.get_role())
+        else:
+            self.apply_role(getattr(self.master, "current_user_role", None))
+
+
+        # Make it responsive
+        self.bind("<Configure>", lambda e: self._layout_cards())
         # ---- State / sizing guards ----
         self._last_title_px = None
         self._last_sub_px = None
@@ -199,3 +239,23 @@ class AdvisorPage(ctk.CTkFrame):
                     b.configure(width=btn_w, height=btn_h)
                 except Exception:
                     pass
+    
+    def apply_role(self, role: str | None):
+        premium = is_premium(role)
+        self.card_weights.set_locked(not premium, "🔒 Premium feature")
+        # If you want Top-3 to be Premium-only, lock it too; otherwise leave unlocked.
+        # self.card_top3.set_locked(not premium, "🔒 Premium feature")
+
+    def _layout_cards(self):
+        w = max(self.winfo_width(), 1)
+        cols = 1 if w < 640 else 2
+        grid_evenly(self.cards_frame, self._cards, num_cols=cols)
+
+    def _open_weights_dialog(self):
+        # TODO: show a small slider dialog to adjust weights (Premium)
+        pass
+
+    def _show_top3(self):
+        # TODO: call your recommender.top_n() + kb filters; render in a popup or side panel
+        pass
+
