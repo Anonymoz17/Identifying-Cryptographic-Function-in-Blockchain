@@ -3,6 +3,7 @@ import customtkinter as ctk
 from file_handler import FileHandler
 from pages import LoginPage, RegisterPage, DashboardPage, AnalysisPage, AdvisorPage
 
+
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
