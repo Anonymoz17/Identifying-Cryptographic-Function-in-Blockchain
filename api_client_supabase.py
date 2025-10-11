@@ -3,25 +3,46 @@ import os
 from typing import Tuple, Optional, Dict, Any
 
 from dotenv import load_dotenv
-from supabase import create_client, Client
 
-# Load .env once
+# NOTE: Importing the real supabase client at module import time will fail
+# if environment variables are not present. To make the project easier to
+# run locally for demos, we load environment variables and only create the
+# client if SUPABASE_URL and SUPABASE_ANON_KEY are provided. Otherwise we
+# set a _sb placeholder to None and functions will raise a clear error when
+# Supabase functionality is invoked.
 load_dotenv()
 
-SB_URL  = os.getenv("SUPABASE_URL")
+SB_URL = os.getenv("SUPABASE_URL")
 SB_ANON = os.getenv("SUPABASE_ANON_KEY")
 
-if not SB_URL or not SB_ANON:
-    raise RuntimeError("Missing SUPABASE_URL or SUPABASE_ANON_KEY. Set them in a .env file.")
-
-_sb: Client = create_client(SB_URL, SB_ANON)
+_sb = None
+if SB_URL and SB_ANON:
+    try:
+        from supabase import create_client, Client  # imported lazily
+        _sb: Client = create_client(SB_URL, SB_ANON)
+    except Exception:
+        # Keep _sb as None so callers can detect and show a helpful message
+        _sb = None
 
 # ----- helpers -----
-def _auth_with_token(token: Optional[str]):
+def _require_client():
+    """Raise a helpful error if the supabase client was not configured.
+
+    This keeps imports safe on machines without .env and makes the
+    failure mode explicit when calling Supabase-backed functions.
     """
-    Apply a user's access token to PostgREST so RLS sees auth.uid().
+    if _sb is None:
+        raise RuntimeError(
+            "Supabase client not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY in a .env file"
+        )
+
+
+def _auth_with_token(token: Optional[str]):
+    """Apply a user's access token to PostgREST so RLS sees auth.uid().
+
     Pass None to clear and go back to 'no user' (unauthenticated) state.
     """
+    _require_client()
     _sb.postgrest.auth(token)
 
 # ----- auth & user profile -----
@@ -31,6 +52,7 @@ def register_user(email: str, password: str, full_name: str, username: str) -> T
     Returns (ok, data_or_error)
     """
     # 1) sign up
+    _require_client()
     res = _sb.auth.sign_up({"email": email, "password": password})
     user = res.user
     session = getattr(res, "session", None)
@@ -75,6 +97,7 @@ def login(identifier_email: str, password: str) -> Tuple[bool, Any, Optional[Dic
     Email+password login (Supabase Auth uses email). Returns (ok, token_or_error, user_dict)
     """
     try:
+        _require_client()
         res = _sb.auth.sign_in_with_password({"email": identifier_email, "password": password})
         if not res.session:
             return False, "Invalid credentials", None
@@ -90,6 +113,7 @@ def get_my_role(token: str, user_id: str) -> str:
     If no row exists, default to 'free' without throwing.
     """
     try:
+        _require_client()
         _auth_with_token(token)
         res = _sb.table("user_roles").select("tier").eq("id", user_id).execute()
         data = getattr(res, "data", None)
@@ -109,6 +133,7 @@ def get_my_role(token: str, user_id: str) -> str:
 def ensure_role_row(token: str, user_id: str):
     """Create a 'free' role row if missing (safe to call every login)."""
     try:
+        _require_client()
         _auth_with_token(token)
         _sb.table("user_roles").upsert({"id": user_id, "tier": "free"}).execute()
     finally:
@@ -124,6 +149,7 @@ def admin_set_tier(token: str, target_user_id: str, new_tier: str) -> Tuple[bool
     if new_tier not in ("free", "premium", "admin"):
         return False, "Invalid tier"
     try:
+        _require_client()
         _auth_with_token(token)
         _sb.table("user_roles").update({"tier": new_tier}).eq("id", target_user_id).execute()
         return True, "OK"

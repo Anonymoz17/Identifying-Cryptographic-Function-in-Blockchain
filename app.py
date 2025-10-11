@@ -1,7 +1,7 @@
 # app.py
 import customtkinter as ctk
 from file_handler import FileHandler
-from pages import LoginPage, RegisterPage, DashboardPage, AnalysisPage
+from pages import LoginPage, RegisterPage, DashboardPage, AnalysisPage, AdvisorPage
 
 class App(ctk.CTk):
     def __init__(self):
@@ -13,23 +13,26 @@ class App(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
 
         self.auth_token = None
-        self.current_user_role = "free"
+        self.current_user_role = "premium"
         self.current_user_email = None
 
         self.file_handler = FileHandler(upload_dir="./uploads")
 
+        # Instantiate all pages as frames (no lambdas/factories)
         self._pages = {
-            "login":      LoginPage(self, self.switch_page),
-            "register":   RegisterPage(self, self.switch_page),
-            "dashboard":  DashboardPage(self, self.switch_page, self.file_handler),
-            "analysis":   AnalysisPage(self, self.switch_page),
+            "login":     LoginPage(self, self.switch_page),
+            "register":  RegisterPage(self, self.switch_page),
+            "dashboard": DashboardPage(self, self.switch_page, self.file_handler),
+            "analysis":  AnalysisPage(self, self.switch_page),
+            "advisor":   AdvisorPage(self, self.switch_page),  # <-- fixed: real frame instance
         }
+
         for p in self._pages.values():
             p.grid(row=0, column=0, sticky="nsew")
             p.grid_remove()
 
         # track which page is visible (for targeted resize)
-        self._current_page_name = "login"
+        self._current_page_name = "dashboard"
         self.switch_page(self._current_page_name)
 
         # ---- Debounced resize handling ----
@@ -39,6 +42,19 @@ class App(ctk.CTk):
         # ---- Clean shutdown: stop timers before widgets die ----
         self._closing = False
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def get_role(self):
+        return self.current_user_role
+    
+    def set_role(self, role: str):
+        self.current_user_role = role
+        # Update current page if it supports role application
+        cur = getattr(self, "_current_page_name", None)
+        if cur:
+            page = self._pages.get(cur)
+            if page and hasattr(page, "apply_role"):
+                page.apply_role(role)
+
 
     def switch_page(self, name: str):
         self._current_page_name = name
