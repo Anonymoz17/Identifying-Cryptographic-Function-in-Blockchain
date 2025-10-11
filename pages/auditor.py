@@ -71,18 +71,40 @@ class AuditorPage(ctk.CTkFrame):
         actions.grid(row=7, column=0, columnspan=3, sticky="we", padx=8, pady=(12,8))
         actions.grid_columnconfigure(0, weight=1)
 
-    self.start_btn = ctk.CTkButton(actions, text="Start Engagement & Intake", command=self._on_start_clicked)
-    self.start_btn.grid(row=0, column=0, sticky="w")
+        # Start / Cancel buttons
+        self.start_btn = ctk.CTkButton(actions, text="Start Engagement & Intake", command=self._on_start_clicked)
+        self.start_btn.grid(row=0, column=0, sticky="w")
 
-    self.status = ctk.CTkLabel(content, text="")
-    self.status.grid(row=8, column=0, columnspan=3, sticky="we", padx=8, pady=(8,6))
+        self.cancel_btn = ctk.CTkButton(actions, text="Cancel", fg_color="#ff6b6b", hover_color="#ff4c4c", command=self._on_cancel_clicked)
+        self.cancel_btn.grid(row=0, column=1, sticky="w", padx=(8,0))
+        self.cancel_btn.configure(state="disabled")
 
-    # Preview & progress labels
-    self.preview_label = ctk.CTkLabel(content, text="Preview: 0 files")
-    self.preview_label.grid(row=9, column=0, columnspan=3, sticky="w", padx=8, pady=(2,2))
+        self.status = ctk.CTkLabel(content, text="")
+        self.status.grid(row=8, column=0, columnspan=3, sticky="we", padx=8, pady=(8,6))
 
-    self.progress_label = ctk.CTkLabel(content, text="")
-    self.progress_label.grid(row=10, column=0, columnspan=3, sticky="we", padx=8, pady=(2,12))
+        # Preview & progress labels
+        self.preview_label = ctk.CTkLabel(content, text="Preview: 0 files")
+        self.preview_label.grid(row=9, column=0, columnspan=3, sticky="w", padx=8, pady=(2,2))
+
+        self.progress_label = ctk.CTkLabel(content, text="")
+        self.progress_label.grid(row=10, column=0, columnspan=3, sticky="we", padx=8, pady=(2,12))
+
+        # Progress bar
+        self.progress = ctk.CTkProgressBar(content, width=480)
+        self.progress.grid(row=11, column=0, columnspan=2, sticky="w", padx=8, pady=(2,12))
+        self.progress.set(0.0)
+
+        # Quick actions: Open workdir, View audit log
+        quick = ctk.CTkFrame(content, fg_color="transparent")
+        quick.grid(row=12, column=0, columnspan=3, sticky="we", padx=8, pady=(4,12))
+        quick.grid_columnconfigure((0,1,2), weight=1)
+        self.open_workdir_btn = ctk.CTkButton(quick, text="Open workdir", command=self._open_workdir)
+        self.open_workdir_btn.grid(row=0, column=0, sticky="w")
+        self.view_auditlog_btn = ctk.CTkButton(quick, text="View audit log", command=self._view_auditlog)
+        self.view_auditlog_btn.grid(row=0, column=1, sticky="w", padx=(8,0))
+
+        # cancellation event holder
+        self._cancel_event = None
 
     def _browse_policy(self):
         from tkinter import filedialog
@@ -104,6 +126,10 @@ class AuditorPage(ctk.CTkFrame):
             self.preview_label.configure(text="Preview: (error counting files)")
         # start background processing
         self._set_status('Starting engagement (background)...')
+        # prepare cancel event and toggle buttons
+        self._cancel_event = threading.Event()
+        self.cancel_btn.configure(state="normal")
+        self.start_btn.configure(state="disabled")
         t = threading.Thread(target=self._run_engagement_flow, daemon=True)
         t.start()
 
@@ -124,14 +150,20 @@ class AuditorPage(ctk.CTkFrame):
             al.append('engagement.created', {'case_id': case_id, 'client': client, 'scope': scope, 'airgapped': bool(self.airgapped_var.get())})
 
             # Enumerate + hash with progress updates
-            def progress_cb(count, path):
-                if count % 10 == 0:
-                    try:
-                        self.after(0, lambda: self.progress_label.configure(text=f'Processed {count} files...'))
-                    except Exception:
-                        pass
+            def progress_cb(count, path, total=None):
+                # update textual progress every 5 files, update progress bar when total is known
+                try:
+                    if total:
+                        frac = min(1.0, float(count) / float(total)) if total and total > 0 else 0.0
+                        self.after(0, lambda: self.progress.set(frac))
+                        self.after(0, lambda: self.progress_label.configure(text=f'Processed {count}/{total} files...'))
+                    else:
+                        if count % 5 == 0:
+                            self.after(0, lambda: self.progress_label.configure(text=f'Processed {count} files...'))
+                except Exception:
+                    pass
 
-            items = enumerate_inputs([scope], progress_cb=progress_cb)
+            items = enumerate_inputs([scope], progress_cb=progress_cb, cancel_event=self._cancel_event)
             manifest_path = os.path.join(wd, 'inputs.manifest.json')
             write_manifest(manifest_path, items)
             al.append('inputs.ingested', {'manifest': os.path.basename(manifest_path), 'count': len(items)})
@@ -139,6 +171,10 @@ class AuditorPage(ctk.CTkFrame):
             # final UI update
             try:
                 self.after(0, lambda: self.progress_label.configure(text=f'Engagement started in {wd} — {len(items)} files recorded'))
+                self.after(0, lambda: self.progress.set(1.0))
+                # reset buttons
+                self.after(0, lambda: self.cancel_btn.configure(state="disabled"))
+                self.after(0, lambda: self.start_btn.configure(state="normal"))
             except Exception:
                 pass
         except Exception as e:
@@ -146,6 +182,43 @@ class AuditorPage(ctk.CTkFrame):
                 self.after(0, lambda: self.progress_label.configure(text=f'Error: {e}'))
             except Exception:
                 pass
+
+    def _on_cancel_clicked(self):
+        if self._cancel_event is not None:
+            try:
+                self._cancel_event.set()
+                self._set_status('Cancellation requested')
+                self.cancel_btn.configure(state="disabled")
+            except Exception:
+                pass
+
+    def _open_workdir(self):
+        wd = self.workdir_entry.get().strip() or './case_demo'
+        wd = os.path.abspath(wd)
+        try:
+            # Windows explorer; cross-platform fallback
+            if os.name == 'nt':
+                os.startfile(wd)  # type: ignore
+            else:
+                import subprocess
+                subprocess.Popen(['xdg-open' if os.name == 'posix' else 'open', wd])
+        except Exception:
+            self._set_status(f'Could not open folder: {wd}', error=True)
+
+    def _view_auditlog(self):
+        wd = self.workdir_entry.get().strip() or './case_demo'
+        path = os.path.join(os.path.abspath(wd), 'auditlog.ndjson')
+        try:
+            if os.path.exists(path):
+                if os.name == 'nt':
+                    os.startfile(path)  # type: ignore
+                else:
+                    import subprocess
+                    subprocess.Popen(['xdg-open' if os.name == 'posix' else 'open', path])
+            else:
+                self._set_status('No auditlog found in workdir', error=True)
+        except Exception:
+            self._set_status('Could not open audit log', error=True)
 
     def on_resize(self, w, h):
         # no-op: keep layout flexible via grid/pack
