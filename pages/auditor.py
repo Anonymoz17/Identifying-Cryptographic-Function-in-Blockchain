@@ -210,15 +210,48 @@ class AuditorPage(ctk.CTkFrame):
         path = os.path.join(os.path.abspath(wd), 'auditlog.ndjson')
         try:
             if os.path.exists(path):
-                if os.name == 'nt':
-                    os.startfile(path)  # type: ignore
-                else:
-                    import subprocess
-                    subprocess.Popen(['xdg-open' if os.name == 'posix' else 'open', path])
+                # show an in-app viewer modal
+                try:
+                    self._show_auditlog_viewer(path)
+                except Exception:
+                    # fallback to external opener
+                    if os.name == 'nt':
+                        os.startfile(path)  # type: ignore
+                    else:
+                        import subprocess
+                        subprocess.Popen(['xdg-open' if os.name == 'posix' else 'open', path])
             else:
                 self._set_status('No auditlog found in workdir', error=True)
         except Exception:
             self._set_status('Could not open audit log', error=True)
+
+    def _show_auditlog_viewer(self, path: str):
+        # modal window with scrollable text and a Verify button
+        top = tk.Toplevel(self)
+        top.title('Audit Log Viewer')
+        top.geometry('800x500')
+        txt = tk.Text(top, wrap='none')
+        txt.pack(fill='both', expand=True, side='top')
+
+        # read file and populate
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                lines = [l for l in f.readlines() if l.strip()]
+            for l in lines:
+                txt.insert('end', l)
+        except Exception as e:
+            txt.insert('end', f'Error reading audit log: {e}\n')
+
+        def on_verify():
+            try:
+                al = AuditLog(path)
+                ok = al.verify()
+                self._set_status('Audit log verification: OK' if ok else 'Audit log verification: FAILED', error=not ok)
+            except Exception as e:
+                self._set_status(f'Verify error: {e}', error=True)
+
+        btn = ctk.CTkButton(top, text='Verify Chain', command=on_verify)
+        btn.pack(side='bottom', pady=8)
 
     def on_resize(self, w, h):
         # no-op: keep layout flexible via grid/pack

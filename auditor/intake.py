@@ -16,15 +16,21 @@ from typing import List, Dict, Any, Optional
 import threading
 
 
-def hash_file_sha256(path: str, chunk_size: int = 8192) -> str:
+def hash_file_sha256(path: str, chunk_size: int = 8192, cancel_event: Optional[threading.Event] = None) -> str:
     h = hashlib.sha256()
     with open(path, 'rb') as f:
         while True:
+            if cancel_event is not None and cancel_event.is_set():
+                raise OperationCancelled()
             chunk = f.read(chunk_size)
             if not chunk:
                 break
             h.update(chunk)
     return h.hexdigest()
+
+
+class OperationCancelled(Exception):
+    """Raised when a cooperative operation was cancelled via an Event."""
 
 
 def enumerate_inputs(paths: List[str], progress_cb=None, cancel_event: Optional["threading.Event"] = None) -> List[Dict[str, Any]]:
@@ -59,7 +65,12 @@ def enumerate_inputs(paths: List[str], progress_cb=None, cancel_event: Optional[
                     fp = os.path.join(root, fn)
                     try:
                         stat = os.stat(fp)
-                        sha = hash_file_sha256(fp)
+                        # pass cancel_event into hashing so long files can be aborted
+                        try:
+                            sha = hash_file_sha256(fp, cancel_event=cancel_event)
+                        except OperationCancelled:
+                            # propagate cancellation to outer loop
+                            raise
                         item = {
                             'path': os.path.abspath(fp),
                             'size': stat.st_size,
@@ -73,6 +84,9 @@ def enumerate_inputs(paths: List[str], progress_cb=None, cancel_event: Optional[
                                 progress_cb(count, item['path'], total)
                             except Exception:
                                 pass
+                    except OperationCancelled:
+                        # stop processing immediately on cancellation
+                        return out
                     except Exception:
                         # skip unreadable
                         continue
@@ -83,7 +97,10 @@ def enumerate_inputs(paths: List[str], progress_cb=None, cancel_event: Optional[
                 break
             try:
                 stat = os.stat(p)
-                sha = hash_file_sha256(p)
+                try:
+                    sha = hash_file_sha256(p, cancel_event=cancel_event)
+                except OperationCancelled:
+                    return out
                 item = {
                     'path': os.path.abspath(p),
                     'size': stat.st_size,
