@@ -94,9 +94,11 @@ def categorize_file(path: str, mime_type: str) -> str:
 # -------- Drag & Drop (Tk / tkinterdnd2) -------------------------------------
 
 def parse_drop_data(data: str):
-    """
+    r"""
     Convert tkdnd event data -> list of paths/URLs.
     Works with `{C:\My File.txt}` and plain tokens.
+    Use a raw docstring so backslashes (Windows paths) don't create
+    invalid escape sequence warnings.
     """
     if not data:
         return []

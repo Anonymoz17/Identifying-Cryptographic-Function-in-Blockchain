@@ -2,7 +2,13 @@
 import os
 from typing import Tuple, Optional, Dict, Any
 
-from dotenv import load_dotenv
+# Attempt to import load_dotenv if available; otherwise provide a no-op so
+# the module can be imported on systems without python-dotenv installed.
+try:
+    from dotenv import load_dotenv  # type: ignore
+except Exception:
+    def load_dotenv():
+        return None
 
 # NOTE: Importing the real supabase client at module import time will fail
 # if environment variables are not present. To make the project easier to
@@ -42,7 +48,11 @@ def _auth_with_token(token: Optional[str]):
 
     Pass None to clear and go back to 'no user' (unauthenticated) state.
     """
-    _require_client()
+    # If client isn't configured, silently no-op. This lets callers call
+    # _auth_with_token(None) in finally blocks without raising import-time
+    # errors on machines without Supabase configured.
+    if _sb is None:
+        return
     _sb.postgrest.auth(token)
 
 # ----- auth & user profile -----
@@ -162,10 +172,14 @@ def admin_set_tier(token: str, target_user_id: str, new_tier: str) -> Tuple[bool
 
 def logout():
     """Sign out from Supabase in this client and clear PostgREST auth."""
+    # If no client is configured, nothing to do.
+    if _sb is None:
+        return
     try:
         _sb.auth.sign_out()
     except Exception:
         pass
     finally:
+        # clear PostgREST auth token
         _auth_with_token(None)
 

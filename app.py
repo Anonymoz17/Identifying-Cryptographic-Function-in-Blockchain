@@ -32,7 +32,7 @@ class App(ctk.CTk):
             p.grid_remove()
 
         # track which page is visible (for targeted resize)
-        self._current_page_name = "dashboard"
+        self._current_page_name = "login"
         self.switch_page(self._current_page_name)
 
         # ---- Debounced resize handling ----
