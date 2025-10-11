@@ -17,6 +17,7 @@ from typing import Optional
 from auditor.case import Engagement
 from auditor.auditlog import AuditLog
 from auditor.intake import enumerate_inputs, write_manifest, count_inputs
+from auditor.preproc import preprocess_items
 
 
 class AuditorPage(ctk.CTkFrame):
@@ -167,6 +168,28 @@ class AuditorPage(ctk.CTkFrame):
             manifest_path = os.path.join(wd, 'inputs.manifest.json')
             write_manifest(manifest_path, items)
             al.append('inputs.ingested', {'manifest': os.path.basename(manifest_path), 'count': len(items)})
+
+            # Run preprocessing scaffold (cancellable, with progress)
+            try:
+                self.after(0, lambda: self._set_status('Running preprocessing scaffold...'))
+
+                def preproc_progress(processed, total):
+                    try:
+                        if total and total > 0:
+                            frac = min(1.0, float(processed) / float(total))
+                            self.after(0, lambda: self.progress.set(frac))
+                            self.after(0, lambda: self.progress_label.configure(text=f'Preproc {processed}/{total}'))
+                        else:
+                            self.after(0, lambda: self.progress_label.configure(text=f'Preproc {processed}'))
+                    except Exception:
+                        pass
+
+                preproc_index = preprocess_items(items, wd, progress_cb=preproc_progress, cancel_event=self._cancel_event)
+                al.append('preproc.completed', {'index_lines': len(preproc_index)})
+                self.after(0, lambda: self._set_status('Preprocessing completed'))
+            except Exception as e:
+                al.append('preproc.failed', {'error': str(e)})
+                self.after(0, lambda: self._set_status(f'Preproc error: {e}', True))
 
             # final UI update
             try:

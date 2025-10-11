@@ -13,6 +13,7 @@ import os
 from auditor.case import Engagement
 from auditor.auditlog import AuditLog
 from auditor.intake import enumerate_inputs, write_manifest
+from auditor.preproc import preprocess_items
 
 
 def main(argv=None):
@@ -39,6 +40,13 @@ def main(argv=None):
     manifest_path = os.path.join(wd, 'inputs.manifest.json')
     write_manifest(manifest_path, items)
     al.append('inputs.ingested', {'manifest': os.path.basename(manifest_path), 'count': len(items)})
+
+    # run preprocessing scaffold
+    try:
+        preproc_index = preprocess_items(items, wd)
+        al.append('preproc.completed', {'index_lines': len(preproc_index)})
+    except Exception as e:
+        al.append('preproc.failed', {'error': str(e)})
 
     print(f"Wrote engagement to {wd}; {len(items)} inputs recorded")
 
