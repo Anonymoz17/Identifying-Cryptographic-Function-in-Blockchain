@@ -9,13 +9,14 @@ and run a simple intake that produces `inputs.manifest.json` and appends to
 from __future__ import annotations
 
 import os
+import threading
 import tkinter as tk
 import customtkinter as ctk
 from typing import Optional
 
 from auditor.case import Engagement
 from auditor.auditlog import AuditLog
-from auditor.intake import enumerate_inputs, write_manifest
+from auditor.intake import enumerate_inputs, write_manifest, count_inputs
 
 
 class AuditorPage(ctk.CTkFrame):
@@ -70,11 +71,18 @@ class AuditorPage(ctk.CTkFrame):
         actions.grid(row=7, column=0, columnspan=3, sticky="we", padx=8, pady=(12,8))
         actions.grid_columnconfigure(0, weight=1)
 
-        self.start_btn = ctk.CTkButton(actions, text="Start Engagement & Intake", command=self._start_engagement)
-        self.start_btn.grid(row=0, column=0, sticky="w")
+    self.start_btn = ctk.CTkButton(actions, text="Start Engagement & Intake", command=self._on_start_clicked)
+    self.start_btn.grid(row=0, column=0, sticky="w")
 
-        self.status = ctk.CTkLabel(content, text="")
-        self.status.grid(row=8, column=0, columnspan=3, sticky="we", padx=8, pady=(8,12))
+    self.status = ctk.CTkLabel(content, text="")
+    self.status.grid(row=8, column=0, columnspan=3, sticky="we", padx=8, pady=(8,6))
+
+    # Preview & progress labels
+    self.preview_label = ctk.CTkLabel(content, text="Preview: 0 files")
+    self.preview_label.grid(row=9, column=0, columnspan=3, sticky="w", padx=8, pady=(2,2))
+
+    self.progress_label = ctk.CTkLabel(content, text="")
+    self.progress_label.grid(row=10, column=0, columnspan=3, sticky="we", padx=8, pady=(2,12))
 
     def _browse_policy(self):
         from tkinter import filedialog
@@ -86,7 +94,20 @@ class AuditorPage(ctk.CTkFrame):
     def _set_status(self, text: str, error: bool = False):
         self.status.configure(text=text, text_color=("red" if error else "#202124"))
 
-    def _start_engagement(self):
+    def _on_start_clicked(self):
+        # Show preview count then start background job
+        scope = self.scope_entry.get().strip() or '.'
+        try:
+            total = count_inputs([scope])
+            self.preview_label.configure(text=f"Preview: {total} files")
+        except Exception:
+            self.preview_label.configure(text="Preview: (error counting files)")
+        # start background processing
+        self._set_status('Starting engagement (background)...')
+        t = threading.Thread(target=self._run_engagement_flow, daemon=True)
+        t.start()
+
+    def _run_engagement_flow(self):
         wd = self.workdir_entry.get().strip() or './case_demo'
         case_id = self.case_entry.get().strip() or 'CASE-000'
         client = self.client_entry.get().strip() or 'Unknown'
@@ -99,20 +120,32 @@ class AuditorPage(ctk.CTkFrame):
             if policy:
                 eng.import_policy_baseline(policy)
 
-            # init audit log and append an event
             al = AuditLog(os.path.join(wd, 'auditlog.ndjson'))
             al.append('engagement.created', {'case_id': case_id, 'client': client, 'scope': scope, 'airgapped': bool(self.airgapped_var.get())})
 
-            # Run intake: enumerate inputs and write manifest
-            items = enumerate_inputs([scope])
+            # Enumerate + hash with progress updates
+            def progress_cb(count, path):
+                if count % 10 == 0:
+                    try:
+                        self.after(0, lambda: self.progress_label.configure(text=f'Processed {count} files...'))
+                    except Exception:
+                        pass
+
+            items = enumerate_inputs([scope], progress_cb=progress_cb)
             manifest_path = os.path.join(wd, 'inputs.manifest.json')
             write_manifest(manifest_path, items)
-
             al.append('inputs.ingested', {'manifest': os.path.basename(manifest_path), 'count': len(items)})
 
-            self._set_status(f'Engagement started in {wd} — {len(items)} files recorded')
+            # final UI update
+            try:
+                self.after(0, lambda: self.progress_label.configure(text=f'Engagement started in {wd} — {len(items)} files recorded'))
+            except Exception:
+                pass
         except Exception as e:
-            self._set_status(f'Error: {e}', error=True)
+            try:
+                self.after(0, lambda: self.progress_label.configure(text=f'Error: {e}'))
+            except Exception:
+                pass
 
     def on_resize(self, w, h):
         # no-op: keep layout flexible via grid/pack

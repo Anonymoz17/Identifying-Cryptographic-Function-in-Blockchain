@@ -26,8 +26,14 @@ def hash_file_sha256(path: str, chunk_size: int = 8192) -> str:
     return h.hexdigest()
 
 
-def enumerate_inputs(paths: List[str]) -> List[Dict[str, Any]]:
+def enumerate_inputs(paths: List[str], progress_cb=None) -> List[Dict[str, Any]]:
+    """Enumerate files and compute SHA-256.
+
+    If progress_cb is provided it will be called as progress_cb(count, path)
+    after each file is processed so callers can update UI or logs.
+    """
     out: List[Dict[str, Any]] = []
+    count = 0
     for p in paths:
         if os.path.isdir(p):
             for root, _dirs, files in os.walk(p):
@@ -35,27 +41,55 @@ def enumerate_inputs(paths: List[str]) -> List[Dict[str, Any]]:
                     fp = os.path.join(root, fn)
                     try:
                         stat = os.stat(fp)
-                        out.append({
+                        sha = hash_file_sha256(fp)
+                        item = {
                             'path': os.path.abspath(fp),
                             'size': stat.st_size,
                             'mtime': datetime.datetime.utcfromtimestamp(stat.st_mtime).isoformat() + 'Z',
-                            'sha256': hash_file_sha256(fp),
-                        })
+                            'sha256': sha,
+                        }
+                        out.append(item)
+                        count += 1
+                        if callable(progress_cb):
+                            try:
+                                progress_cb(count, item['path'])
+                            except Exception:
+                                pass
                     except Exception:
                         # skip unreadable
                         continue
         elif os.path.isfile(p):
             try:
                 stat = os.stat(p)
-                out.append({
+                sha = hash_file_sha256(p)
+                item = {
                     'path': os.path.abspath(p),
                     'size': stat.st_size,
                     'mtime': datetime.datetime.utcfromtimestamp(stat.st_mtime).isoformat() + 'Z',
-                    'sha256': hash_file_sha256(p),
-                })
+                    'sha256': sha,
+                }
+                out.append(item)
+                count += 1
+                if callable(progress_cb):
+                    try:
+                        progress_cb(count, item['path'])
+                    except Exception:
+                        pass
             except Exception:
-                continue
+                pass
     return out
+
+
+def count_inputs(paths: List[str]) -> int:
+    """Quickly count files under paths without hashing (fast preview)."""
+    total = 0
+    for p in paths:
+        if os.path.isdir(p):
+            for _root, _dirs, files in os.walk(p):
+                total += len(files)
+        elif os.path.isfile(p):
+            total += 1
+    return total
 
 
 def write_manifest(manifest_path: str, items: List[Dict[str, Any]]) -> None:

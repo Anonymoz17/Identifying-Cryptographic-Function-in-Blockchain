@@ -62,6 +62,16 @@ class DashboardPage(ctk.CTkFrame):
         )
         self.advisor_btn.pack(pady=(6, 0))
 
+        # NEW: Auditor quick access
+        self.auditor_btn = ctk.CTkButton(
+            actions,
+            text="🛡️ Auditor",
+            width=160,
+            height=40,
+            command=lambda: self.switch_page("auditor")
+        )
+        self.auditor_btn.pack(pady=(6, 0))
+
         # Results area — light pane feel
         self.results = ctk.CTkScrollableFrame(
             content, corner_radius=12,
@@ -123,6 +133,12 @@ class DashboardPage(ctk.CTkFrame):
         self.compact_advisor_btn = ctk.CTkButton(
             bottom, text="✨ Advisor",
             command=lambda: self.switch_page("advisor")
+        )
+
+        # NEW (compact): Auditor quick access
+        self.compact_auditor_btn = ctk.CTkButton(
+            bottom, text="🛡️ Auditor",
+            command=lambda: self.switch_page("auditor")
         )
 
         self._compact_visible = False
