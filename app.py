@@ -1,7 +1,8 @@
 # app.py
 import customtkinter as ctk
 from file_handler import FileHandler
-from pages import LoginPage, RegisterPage, DashboardPage, AnalysisPage, AdvisorPage
+from pages import LoginPage, RegisterPage, DashboardPage, AnalysisPage, AdvisorPage, AuditorPage
+
 
 class App(ctk.CTk):
     def __init__(self):
@@ -25,6 +26,7 @@ class App(ctk.CTk):
             "dashboard": DashboardPage(self, self.switch_page, self.file_handler),
             "analysis":  AnalysisPage(self, self.switch_page),
             "advisor":   AdvisorPage(self, self.switch_page),  # <-- fixed: real frame instance
+            "auditor":   AuditorPage(self, self.switch_page),
         }
 
         for p in self._pages.values():
@@ -32,7 +34,7 @@ class App(ctk.CTk):
             p.grid_remove()
 
         # track which page is visible (for targeted resize)
-        self._current_page_name = "login"
+        self._current_page_name = "auditor"
         self.switch_page(self._current_page_name)
 
         # ---- Debounced resize handling ----
