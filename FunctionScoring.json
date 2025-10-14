@@ -1,0 +1,55 @@
+{
+  "hash_functions": {
+    "MD2": { "status": "deprecated", "security": 0, "performance": 9, "adoption": 3, "oss": 2.4, "risk_level": "critical", "verdict": "Obsolete and insecure", "recommend": ["SHA-256", "SHA-3"] },
+    "MD4": { "status": "deprecated", "security": 1, "performance": 9, "adoption": 4, "oss": 3.0, "risk_level": "critical", "verdict": "Broken; predecessor of MD5", "recommend": ["SHA-256", "SHA-3"] },
+    "MD5": { "status": "deprecated", "security": 1, "performance": 10, "adoption": 5, "oss": 3.3, "risk_level": "critical", "verdict": "Broken (collisions trivial)", "recommend": ["SHA-256", "SHA-3"] },
+    "SHA-1": { "status": "deprecated", "security": 2, "performance": 9, "adoption": 7, "oss": 3.8, "risk_level": "critical", "verdict": "Proven collisions (SHAttered, SHAmbles)", "recommend": ["SHA-256", "SHA-3"] },
+    "SHA-224": { "status": "active", "security": 9, "performance": 7, "adoption": 8, "oss": 8.4, "risk_level": "safe", "verdict": "Truncated SHA-2 variant", "recommend": ["SHA-256", "SHA-3"] },
+    "SHA-256": { "status": "active", "security": 9, "performance": 7, "adoption": 10, "oss": 8.6, "risk_level": "safe", "verdict": "Standard secure hash (Bitcoin, TLS)", "recommend": ["SHA-3", "BLAKE3"] },
+    "SHA-384": { "status": "active", "security": 9, "performance": 6, "adoption": 8, "oss": 8.1, "risk_level": "safe", "verdict": "Longer output for stronger hashes", "recommend": ["SHA-512", "SHA-3"] },
+    "SHA-512": { "status": "active", "security": 10, "performance": 7, "adoption": 9, "oss": 8.9, "risk_level": "safe", "verdict": "High security SHA-2 variant", "recommend": ["SHA-3", "BLAKE3"] },
+    "SHA-3": { "status": "active", "security": 10, "performance": 7, "adoption": 8, "oss": 8.9, "risk_level": "safe", "verdict": "Newest NIST standard (Keccak)", "recommend": [] },
+    "SHAKE128": { "status": "modern", "security": 9, "performance": 8, "adoption": 5, "oss": 8.1, "risk_level": "safe", "verdict": "Extendable output function (XOF)", "recommend": [] },
+    "BLAKE2b": { "status": "active", "security": 9, "performance": 9, "adoption": 7, "oss": 8.6, "risk_level": "safe", "verdict": "Fast SHA-3 competitor", "recommend": ["BLAKE3"] },
+    "BLAKE3": { "status": "modern", "security": 9, "performance": 10, "adoption": 5, "oss": 8.3, "risk_level": "safe", "verdict": "Parallel, next-gen hash", "recommend": [] },
+    "Whirlpool": { "status": "legacy", "security": 8, "performance": 5, "adoption": 5, "oss": 6.8, "risk_level": "moderate", "verdict": "Secure but slow; limited use", "recommend": ["SHA-3", "BLAKE2"] },
+    "Tiger": { "status": "legacy", "security": 7, "performance": 9, "adoption": 4, "oss": 6.9, "risk_level": "moderate", "verdict": "Fast 64-bit design; aging", "recommend": ["BLAKE3"] },
+    "RIPEMD-160": { "status": "legacy", "security": 7, "performance": 8, "adoption": 7, "oss": 7.5, "risk_level": "moderate", "verdict": "Used in Bitcoin addresses; aging", "recommend": ["SHA-256"] }
+  },
+
+  "digital_signatures": {
+    "RSA-1024": { "status": "deprecated", "security": 4, "performance": 4, "adoption": 9, "oss": 4.9, "risk_level": "critical", "verdict": "Too small key size", "recommend": ["RSA-2048", "ECDSA"] },
+    "RSA-2048": { "status": "legacy", "security": 8, "performance": 6, "adoption": 10, "oss": 7.9, "risk_level": "moderate", "verdict": "Secure but slower than ECC", "recommend": ["RSA-3072", "EdDSA"] },
+    "RSA-3072": { "status": "active", "security": 9, "performance": 5, "adoption": 7, "oss": 7.9, "risk_level": "safe", "verdict": "Stronger RSA variant (NIST min)", "recommend": ["EdDSA"] },
+    "ECDSA": { "status": "active", "security": 9, "performance": 8, "adoption": 10, "oss": 8.9, "risk_level": "safe", "verdict": "Used in Bitcoin/Ethereum", "recommend": ["EdDSA", "Schnorr"] },
+    "Ed25519": { "status": "modern", "security": 10, "performance": 9, "adoption": 8, "oss": 9.3, "risk_level": "safe", "verdict": "Strong and deterministic", "recommend": [] },
+    "Ed448": { "status": "modern", "security": 10, "performance": 8, "adoption": 5, "oss": 8.6, "risk_level": "safe", "verdict": "High-security EdDSA variant", "recommend": [] },
+    "Schnorr": { "status": "modern", "security": 10, "performance": 8, "adoption": 7, "oss": 8.9, "risk_level": "safe", "verdict": "Supports multisig aggregation", "recommend": [] }
+  },
+
+  "key_derivation": {
+    "Diffie-Hellman": { "status": "legacy", "security": 7, "performance": 6, "adoption": 8, "oss": 7.0, "risk_level": "moderate", "verdict": "Acceptable but slower", "recommend": ["ECDH", "X25519"] },
+    "ECDH": { "status": "active", "security": 9, "performance": 8, "adoption": 9, "oss": 8.7, "risk_level": "safe", "verdict": "Efficient and strong", "recommend": ["X25519"] },
+    "X25519": { "status": "modern", "security": 10, "performance": 9, "adoption": 8, "oss": 9.1, "risk_level": "safe", "verdict": "Curve25519 key exchange", "recommend": [] },
+    "X448": { "status": "modern", "security": 10, "performance": 8, "adoption": 5, "oss": 8.6, "risk_level": "safe", "verdict": "Higher-security ECC variant", "recommend": [] },
+    "PBKDF2": { "status": "legacy", "security": 8, "performance": 6, "adoption": 9, "oss": 7.7, "risk_level": "moderate", "verdict": "Secure but slow", "recommend": ["bcrypt", "Argon2id"] },
+    "bcrypt": { "status": "legacy", "security": 8, "performance": 7, "adoption": 9, "oss": 8.0, "risk_level": "moderate", "verdict": "Still secure but older", "recommend": ["Argon2id"] },
+    "Argon2id": { "status": "modern", "security": 10, "performance": 7, "adoption": 8, "oss": 8.9, "risk_level": "safe", "verdict": "Best KDF (PHC winner)", "recommend": [] }
+  },
+
+  "symmetric_ciphers": {
+    "DES": { "status": "deprecated", "security": 1, "performance": 8, "adoption": 5, "oss": 3.3, "risk_level": "critical", "verdict": "56-bit key easily broken", "recommend": ["AES-256"] },
+    "3DES": { "status": "weak", "security": 5, "performance": 5, "adoption": 7, "oss": 5.8, "risk_level": "critical", "verdict": "Deprecated by NIST (2023)", "recommend": ["AES-256"] },
+    "RC4": { "status": "deprecated", "security": 3, "performance": 10, "adoption": 5, "oss": 5.2, "risk_level": "critical", "verdict": "Key-stream bias; insecure", "recommend": ["AES-GCM", "ChaCha20-Poly1305"] },
+    "AES-128": { "status": "active", "security": 9, "performance": 10, "adoption": 10, "oss": 9.4, "risk_level": "safe", "verdict": "Fast, secure, standard", "recommend": ["AES-256"] },
+    "AES-256": { "status": "active", "security": 10, "performance": 9, "adoption": 10, "oss": 9.5, "risk_level": "safe", "verdict": "Gold-standard block cipher", "recommend": [] },
+    "AES-GCM": { "status": "modern", "security": 10, "performance": 9, "adoption": 9, "oss": 9.5, "risk_level": "safe", "verdict": "Authenticated encryption mode for AES", "recommend": [] },
+    "ChaCha20-Poly1305": { "status": "modern", "security": 10, "performance": 10, "adoption": 9, "oss": 9.7, "risk_level": "safe", "verdict": "TLS 1.3 default; fast on all CPUs", "recommend": [] },
+    "Twofish": { "status": "legacy", "security": 9, "performance": 8, "adoption": 6, "oss": 8.0, "risk_level": "safe", "verdict": "AES finalist; secure alternative", "recommend": [] },
+    "Serpent": { "status": "legacy", "security": 9, "performance": 6, "adoption": 5, "oss": 7.5, "risk_level": "moderate", "verdict": "Very secure but slower", "recommend": ["AES-256"] },
+    "Camellia": { "status": "active", "security": 9, "performance": 8, "adoption": 6, "oss": 8.1, "risk_level": "safe", "verdict": "ISO-standard AES alternative", "recommend": [] },
+    "Poly1305": { "status": "modern", "security": 10, "performance": 10, "adoption": 8, "oss": 9.4, "risk_level": "safe", "verdict": "MAC used with ChaCha20", "recommend": [] },
+    "HMAC-SHA256": { "status": "active", "security": 9, "performance": 8, "adoption": 10, "oss": 8.9, "risk_level": "safe", "verdict": "Standard message authentication", "recommend": ["HMAC-SHA3"] },
+    "KangarooTwelve": { "status": "modern", "security": 10, "performance": 9, "adoption": 5, "oss": 8.7, "risk_level": "safe", "verdict": "Keccak XOF optimized for speed", "recommend": [] }
+  }
+}
