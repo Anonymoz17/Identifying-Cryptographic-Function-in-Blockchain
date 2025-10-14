@@ -20,7 +20,6 @@ import shutil
 import json
 import datetime
 from typing import List, Dict, Any, Optional, Callable
-import threading
 
 
 def _atomic_write(path: Path, data: str) -> None:
@@ -97,7 +96,7 @@ def preprocess_items(items: List[Dict[str, Any]], workdir: str, progress_cb: Opt
 
         meta_path = art_dir / 'metadata.json'
         try:
-            _atomic_write(str(meta_path), json.dumps(meta, sort_keys=True, indent=2))
+            _atomic_write(meta_path, json.dumps(meta, sort_keys=True, indent=2))
         except Exception:
             # best-effort
             pass

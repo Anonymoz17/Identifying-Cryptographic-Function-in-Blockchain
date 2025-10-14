@@ -41,7 +41,6 @@ def enumerate_inputs(paths: List[str], progress_cb=None, cancel_event: Optional[
     is provided (a threading.Event) the function will check it periodically and
     abort early if set. This keeps long-running scans cancellable from a UI.
     """
-    import threading  # imported here to avoid top-level requirement for threading in some contexts
 
     out: List[Dict[str, Any]] = []
     count = 0
@@ -74,7 +73,7 @@ def enumerate_inputs(paths: List[str], progress_cb=None, cancel_event: Optional[
                         item = {
                             'path': os.path.abspath(fp),
                             'size': stat.st_size,
-                            'mtime': datetime.datetime.utcfromtimestamp(stat.st_mtime).isoformat() + 'Z',
+                            'mtime': datetime.datetime.fromtimestamp(stat.st_mtime, datetime.timezone.utc).isoformat(),
                             'sha256': sha,
                         }
                         out.append(item)
@@ -104,7 +103,7 @@ def enumerate_inputs(paths: List[str], progress_cb=None, cancel_event: Optional[
                 item = {
                     'path': os.path.abspath(p),
                     'size': stat.st_size,
-                    'mtime': datetime.datetime.utcfromtimestamp(stat.st_mtime).isoformat() + 'Z',
+                    'mtime': datetime.datetime.fromtimestamp(stat.st_mtime, datetime.timezone.utc).isoformat(),
                     'sha256': sha,
                 }
                 out.append(item)
@@ -133,7 +132,7 @@ def count_inputs(paths: List[str]) -> int:
 
 def write_manifest(manifest_path: str, items: List[Dict[str, Any]]) -> None:
     with open(manifest_path, 'w', encoding='utf-8') as f:
-        json.dump({'generated_at': datetime.datetime.utcnow().isoformat() + 'Z', 'items': items}, f, indent=2)
+        json.dump({'generated_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'items': items}, f, indent=2)
 
 
 if __name__ == '__main__':
