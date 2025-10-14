@@ -152,7 +152,9 @@ class AuditorPage(ctk.CTkFrame):
             if policy:
                 eng.import_policy_baseline(policy)
 
-            auditlog_path = str(Path(wd) / 'auditlog.ndjson')
+            # Use the case-specific workdir created by Engagement so exporter/Workspace sees canonical files
+            case_dir = eng.workdir
+            auditlog_path = str(case_dir / 'auditlog.ndjson')
             al = AuditLog(auditlog_path)
             al.append('engagement.created', {'case_id': case_id, 'client': client, 'scope': scope, 'airgapped': bool(self.airgapped_var.get())})
 
@@ -170,8 +172,9 @@ class AuditorPage(ctk.CTkFrame):
                 except Exception:
                     pass
 
+            # enumerate inputs from the scope but write the manifest into the case directory
             items = enumerate_inputs([scope], progress_cb=progress_cb, cancel_event=self._cancel_event)
-            manifest_path = str(Path(wd) / 'inputs.manifest.json')
+            manifest_path = str(case_dir / 'inputs.manifest.json')
             write_manifest(manifest_path, items)
             al.append('inputs.ingested', {'manifest': Path(manifest_path).name, 'count': len(items)})
 
@@ -190,7 +193,7 @@ class AuditorPage(ctk.CTkFrame):
                     except Exception:
                         pass
 
-                preproc_index = preprocess_items(items, str(Path(wd)), progress_cb=preproc_progress, cancel_event=self._cancel_event)
+                preproc_index = preprocess_items(items, str(case_dir), progress_cb=preproc_progress, cancel_event=self._cancel_event)
                 al.append('preproc.completed', {'index_lines': len(preproc_index)})
                 self.after(0, self._set_status, 'Preprocessing completed')
             except Exception as e:

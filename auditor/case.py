@@ -30,8 +30,11 @@ class Engagement:
     """
 
     def __init__(self, workdir: str, case_id: str, client: str, scope: str):
-        self.workdir = Path(workdir).resolve()
+        # Ensure engagement files live under a case-specific directory: <workdir>/<case_id>
+        base = Path(workdir).resolve()
+        self.workdir = base / str(case_id)
         self.workdir.mkdir(parents=True, exist_ok=True)
+
         self.case_id = case_id
         self.client = client
         self.scope = scope
