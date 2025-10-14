@@ -48,22 +48,8 @@ class DashboardPage(ctk.CTkFrame):
             header, text="Logout", width=74, height=28, corner_radius=8,
             fg_color=OUTLINE_BG, hover_color=OUTLINE_H, text_color=OUTLINE_TX,
             border_width=1, border_color=OUTLINE_BR, command=self._logout
-        # NEW: Auditor quick access
-        self.auditor_btn = ctk.CTkButton(
-            actions,
-            text="🛡️ Auditor",
-            width=160,
-            height=40,
-            command=lambda: self.switch_page("auditor")
         )
-        self.auditor_btn.pack(pady=(6, 0))
-
-        # Results area — light pane feel
-        self.results = ctk.CTkScrollableFrame(
-            content, corner_radius=12,
-            border_width=1, border_color="#cdd5e0",
-            fg_color=("#f7f9fc", "#121212")
-        )
+        # (Auditor quick access and results area are added later below.)
         header.grid_columnconfigure(0, weight=1)
         logout_btn.grid(row=0, column=1, rowspan=2, sticky="e")
 
@@ -187,16 +173,16 @@ class DashboardPage(ctk.CTkFrame):
             command=self._go_analyze
         )
         self.analyze_btn.pack(side="right", padx=(10, 8))
-        # NEW (compact): Auditor quick access
+        # NEW (compact): Auditor quick access (use footer 'actions' frame)
         self.compact_auditor_btn = ctk.CTkButton(
-            bottom, text="🛡️ Auditor",
+            actions, text="🛡️ Auditor",
             command=lambda: self.switch_page("auditor")
         )
-
         self._compact_visible = False
 
-        self.logout_btn = ctk.CTkButton(bottom, text="Logout", command=self._logout)
-        self.logout_btn.grid(row=0, column=3, sticky="e")
+        # Logout in footer (pack to the right so it lines up with other action buttons)
+        self.logout_btn = ctk.CTkButton(actions, text="Logout", command=self._logout)
+        self.logout_btn.pack(side="right", padx=(8, 0))
 
         # selection holder
         self._selected_meta: Optional[Dict[str, Any]] = None
