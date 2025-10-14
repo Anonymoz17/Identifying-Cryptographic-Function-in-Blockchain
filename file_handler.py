@@ -1,10 +1,8 @@
 import os
-import re
-import glob
 import shutil
 import datetime
-import tempfile
 import mimetypes
+from pathlib import Path
 
 
 try:
@@ -19,50 +17,53 @@ except Exception:
 class FileHandler:
     """Copy uploads into ./uploads and detect basic metadata."""
     def __init__(self, upload_dir="uploads"):
-        self.upload_dir = upload_dir
-        os.makedirs(upload_dir, exist_ok=True)
+        # accept str or Path and store as Path
+        self.upload_dir = Path(upload_dir) if not isinstance(upload_dir, Path) else upload_dir
+        self.upload_dir.mkdir(parents=True, exist_ok=True)
 
     #handle file input errors
     def handle_input(self, input_path: str) -> dict:
-        input_path = input_path.strip()
+        input_path = (input_path or "").strip()
         if input_path.startswith(("http://", "https://")):
             raise ValueError("HTTP/HTTPS not implemented in this minimal sample.")
 
-        if os.path.isfile(input_path):
-            return self._handle_file(input_path)
+        p = Path(input_path)
+        if p.is_file():
+            return self._handle_file(p)
 
         raise ValueError(f"Unsupported input: {input_path}")
 
-    def _handle_file(self, filepath: str) -> dict:
-        filename = os.path.basename(filepath)
+    def _handle_file(self, filepath: Path) -> dict:
+        filename = filepath.name
 
-
-        stored_path = os.path.join(self.upload_dir, filename)
-        base, ext = os.path.splitext(stored_path)
+        stored_path = self.upload_dir / filename
+        base = stored_path.with_suffix('')
+        ext = stored_path.suffix
         i = 1
-        while os.path.exists(stored_path):
-            stored_path = f"{base}({i}){ext}"
+        # find non-colliding filename
+        while stored_path.exists():
+            stored_path = self.upload_dir / f"{base.name}({i}){ext}"
             i += 1
-        shutil.copy2(filepath, stored_path)
+        shutil.copy2(str(filepath), str(stored_path))
 
         # MIME
         if _HAS_MAGIC:
             try:
-                mime = magic.from_file(stored_path, mime=True)
+                mime = magic.from_file(str(stored_path), mime=True)
             except Exception:
-                mime = mimetypes.guess_type(stored_path)[0] or "application/octet-stream"
+                mime = mimetypes.guess_type(str(stored_path))[0] or "application/octet-stream"
         else:
-            mime = mimetypes.guess_type(stored_path)[0] or "application/octet-stream"
+            mime = mimetypes.guess_type(str(stored_path))[0] or "application/octet-stream"
 
-        category = categorize_file(stored_path, mime)
+        category = categorize_file(str(stored_path), mime)
 
         return {
-            "filename": os.path.basename(stored_path),
+            "filename": stored_path.name,
             "filetype": mime,
             "category": category,
-            "size": os.path.getsize(stored_path),
+            "size": stored_path.stat().st_size,
             "uploaded_at": datetime.datetime.now().isoformat(timespec="seconds"),
-            "stored_path": stored_path,
+            "stored_path": str(stored_path),
         }
 
 
@@ -107,15 +108,48 @@ def parse_drop_data(data: str):
     if data.startswith(("http://", "https://", "file://")):
         return [data]
 
-    parts = re.findall(r"\{([^}]*)\}|([^\s]+)", data)
+    # Simple, explicit parser: tokens are either braced {like this} or
+    # whitespace-separated. This avoids regex portability issues.
     out = []
-    for brace, plain in parts:
-        token = brace or plain
-        if token.startswith("file://"):
-            token = token.replace("file://", "", 1)
-            if token.startswith("/") and len(token) > 3 and token[2] == ":":
-                token = token[1:]  
-        out.append(token)
+    buf = []
+    in_brace = False
+    i = 0
+    while i < len(data):
+        ch = data[i]
+        if in_brace:
+            if ch == '}':
+                token = ''.join(buf)
+                buf = []
+                in_brace = False
+                # strip file:// prefix if present
+                if token.startswith('file://'):
+                    token = token.replace('file://', '', 1)
+                    # Windows file:// may have leading /C:/
+                    if token.startswith('/') and len(token) > 3 and token[2] == ':':
+                        token = token[1:]
+                out.append(token)
+            else:
+                buf.append(ch)
+        else:
+            if ch == '{':
+                # start braced token
+                in_brace = True
+                # flush any accumulated plain token
+                if buf:
+                    out.append(''.join(buf))
+                    buf = []
+            elif ch.isspace():
+                if buf:
+                    out.append(''.join(buf))
+                    buf = []
+            else:
+                buf.append(ch)
+        i += 1
+
+    # final flush
+    if buf:
+        out.append(''.join(buf))
+
     return out or [data]
 
 

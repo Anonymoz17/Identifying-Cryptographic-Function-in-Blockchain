@@ -8,16 +8,19 @@ and run a simple intake that produces `inputs.manifest.json` and appends to
 """
 from __future__ import annotations
 
-import os
+from pathlib import Path
 import threading
 import tkinter as tk
 import customtkinter as ctk
-from typing import Optional
+import webbrowser
+from functools import partial
 
 from auditor.case import Engagement
 from auditor.auditlog import AuditLog
 from auditor.intake import enumerate_inputs, write_manifest, count_inputs
 from auditor.preproc import preprocess_items
+from auditor.workspace import Workspace
+from auditor.evidence import build_evidence_pack
 
 
 class AuditorPage(ctk.CTkFrame):
@@ -38,7 +41,7 @@ class AuditorPage(ctk.CTkFrame):
         ctk.CTkLabel(content, text="Workdir:").grid(row=1, column=0, sticky="e", padx=8, pady=6)
         self.workdir_entry = ctk.CTkEntry(content, width=420)
         self.workdir_entry.grid(row=1, column=1, sticky="we", padx=8, pady=6)
-        self.workdir_entry.insert(0, os.path.abspath("./case_demo"))
+        self.workdir_entry.insert(0, str(Path.cwd() / "case_demo"))
 
         ctk.CTkLabel(content, text="Case ID:").grid(row=2, column=0, sticky="e", padx=8, pady=6)
         self.case_entry = ctk.CTkEntry(content, width=240)
@@ -53,7 +56,7 @@ class AuditorPage(ctk.CTkFrame):
         ctk.CTkLabel(content, text="Scope (path):").grid(row=4, column=0, sticky="e", padx=8, pady=6)
         self.scope_entry = ctk.CTkEntry(content, width=420)
         self.scope_entry.grid(row=4, column=1, sticky="we", padx=8, pady=6)
-        self.scope_entry.insert(0, os.path.abspath("."))
+        self.scope_entry.insert(0, str(Path.cwd()))
 
         # Policy baseline selector
         ctk.CTkLabel(content, text="Policy baseline (optional):").grid(row=5, column=0, sticky="e", padx=8, pady=6)
@@ -103,6 +106,8 @@ class AuditorPage(ctk.CTkFrame):
         self.open_workdir_btn.grid(row=0, column=0, sticky="w")
         self.view_auditlog_btn = ctk.CTkButton(quick, text="View audit log", command=self._view_auditlog)
         self.view_auditlog_btn.grid(row=0, column=1, sticky="w", padx=(8,0))
+        self.export_evidence_btn = ctk.CTkButton(quick, text="Export Evidence Pack", command=self._on_export_evidence)
+        self.export_evidence_btn.grid(row=0, column=2, sticky="w", padx=(8,0))
 
         # cancellation event holder
         self._cancel_event = None
@@ -135,10 +140,10 @@ class AuditorPage(ctk.CTkFrame):
         t.start()
 
     def _run_engagement_flow(self):
-        wd = self.workdir_entry.get().strip() or './case_demo'
+        wd = self.workdir_entry.get().strip() or str(Path.cwd() / 'case_demo')
         case_id = self.case_entry.get().strip() or 'CASE-000'
         client = self.client_entry.get().strip() or 'Unknown'
-        scope = self.scope_entry.get().strip() or '.'
+        scope = self.scope_entry.get().strip() or str(Path.cwd())
 
         try:
             eng = Engagement(workdir=wd, case_id=case_id, client=client, scope=scope)
@@ -147,7 +152,8 @@ class AuditorPage(ctk.CTkFrame):
             if policy:
                 eng.import_policy_baseline(policy)
 
-            al = AuditLog(os.path.join(wd, 'auditlog.ndjson'))
+            auditlog_path = str(Path(wd) / 'auditlog.ndjson')
+            al = AuditLog(auditlog_path)
             al.append('engagement.created', {'case_id': case_id, 'client': client, 'scope': scope, 'airgapped': bool(self.airgapped_var.get())})
 
             # Enumerate + hash with progress updates
@@ -156,53 +162,53 @@ class AuditorPage(ctk.CTkFrame):
                 try:
                     if total:
                         frac = min(1.0, float(count) / float(total)) if total and total > 0 else 0.0
-                        self.after(0, lambda: self.progress.set(frac))
-                        self.after(0, lambda: self.progress_label.configure(text=f'Processed {count}/{total} files...'))
+                        self.after(0, self.progress.set, frac)
+                        self.after(0, partial(self.progress_label.configure, text=f'Processed {count}/{total} files...'))
                     else:
                         if count % 5 == 0:
-                            self.after(0, lambda: self.progress_label.configure(text=f'Processed {count} files...'))
+                            self.after(0, partial(self.progress_label.configure, text=f'Processed {count} files...'))
                 except Exception:
                     pass
 
             items = enumerate_inputs([scope], progress_cb=progress_cb, cancel_event=self._cancel_event)
-            manifest_path = os.path.join(wd, 'inputs.manifest.json')
+            manifest_path = str(Path(wd) / 'inputs.manifest.json')
             write_manifest(manifest_path, items)
-            al.append('inputs.ingested', {'manifest': os.path.basename(manifest_path), 'count': len(items)})
+            al.append('inputs.ingested', {'manifest': Path(manifest_path).name, 'count': len(items)})
 
             # Run preprocessing scaffold (cancellable, with progress)
             try:
-                self.after(0, lambda: self._set_status('Running preprocessing scaffold...'))
+                self.after(0, self._set_status, 'Running preprocessing scaffold...')
 
                 def preproc_progress(processed, total):
                     try:
                         if total and total > 0:
                             frac = min(1.0, float(processed) / float(total))
-                            self.after(0, lambda: self.progress.set(frac))
-                            self.after(0, lambda: self.progress_label.configure(text=f'Preproc {processed}/{total}'))
+                            self.after(0, self.progress.set, frac)
+                            self.after(0, partial(self.progress_label.configure, text=f'Preproc {processed}/{total}'))
                         else:
-                            self.after(0, lambda: self.progress_label.configure(text=f'Preproc {processed}'))
+                            self.after(0, partial(self.progress_label.configure, text=f'Preproc {processed}'))
                     except Exception:
                         pass
 
-                preproc_index = preprocess_items(items, wd, progress_cb=preproc_progress, cancel_event=self._cancel_event)
+                preproc_index = preprocess_items(items, str(Path(wd)), progress_cb=preproc_progress, cancel_event=self._cancel_event)
                 al.append('preproc.completed', {'index_lines': len(preproc_index)})
-                self.after(0, lambda: self._set_status('Preprocessing completed'))
+                self.after(0, self._set_status, 'Preprocessing completed')
             except Exception as e:
                 al.append('preproc.failed', {'error': str(e)})
-                self.after(0, lambda: self._set_status(f'Preproc error: {e}', True))
+                self.after(0, partial(self._set_status, f'Preproc error: {e}', True))
 
             # final UI update
             try:
-                self.after(0, lambda: self.progress_label.configure(text=f'Engagement started in {wd} — {len(items)} files recorded'))
-                self.after(0, lambda: self.progress.set(1.0))
+                self.after(0, partial(self.progress_label.configure, text=f'Engagement started in {wd} — {len(items)} files recorded'))
+                self.after(0, self.progress.set, 1.0)
                 # reset buttons
-                self.after(0, lambda: self.cancel_btn.configure(state="disabled"))
-                self.after(0, lambda: self.start_btn.configure(state="normal"))
+                self.after(0, partial(self.cancel_btn.configure, state="disabled"))
+                self.after(0, partial(self.start_btn.configure, state="normal"))
             except Exception:
                 pass
         except Exception as e:
             try:
-                self.after(0, lambda: self.progress_label.configure(text=f'Error: {e}'))
+                self.after(0, partial(self.progress_label.configure, text=f'Error: {e}'))
             except Exception:
                 pass
 
@@ -216,33 +222,25 @@ class AuditorPage(ctk.CTkFrame):
                 pass
 
     def _open_workdir(self):
-        wd = self.workdir_entry.get().strip() or './case_demo'
-        wd = os.path.abspath(wd)
+        wd = self.workdir_entry.get().strip() or str(Path.cwd() / 'case_demo')
+        wd = str(Path(wd).resolve())
         try:
-            # Windows explorer; cross-platform fallback
-            if os.name == 'nt':
-                os.startfile(wd)  # type: ignore
-            else:
-                import subprocess
-                subprocess.Popen(['xdg-open' if os.name == 'posix' else 'open', wd])
+            # Use webbrowser to open the folder via file:// URL which is portable
+            webbrowser.open(Path(wd).as_uri())
         except Exception:
             self._set_status(f'Could not open folder: {wd}', error=True)
 
     def _view_auditlog(self):
-        wd = self.workdir_entry.get().strip() or './case_demo'
-        path = os.path.join(os.path.abspath(wd), 'auditlog.ndjson')
+        wd = self.workdir_entry.get().strip() or str(Path.cwd() / 'case_demo')
+        path = str(Path(wd).resolve() / 'auditlog.ndjson')
         try:
-            if os.path.exists(path):
+            if Path(path).exists():
                 # show an in-app viewer modal
                 try:
                     self._show_auditlog_viewer(path)
                 except Exception:
                     # fallback to external opener
-                    if os.name == 'nt':
-                        os.startfile(path)  # type: ignore
-                    else:
-                        import subprocess
-                        subprocess.Popen(['xdg-open' if os.name == 'posix' else 'open', path])
+                    webbrowser.open(Path(path).as_uri())
             else:
                 self._set_status('No auditlog found in workdir', error=True)
         except Exception:
@@ -275,6 +273,57 @@ class AuditorPage(ctk.CTkFrame):
 
         btn = ctk.CTkButton(top, text='Verify Chain', command=on_verify)
         btn.pack(side='bottom', pady=8)
+
+    def _on_export_evidence(self):
+        # spawn background worker to build evidence pack
+        self.export_evidence_btn.configure(state="disabled")
+        t = threading.Thread(target=self._export_evidence, daemon=True)
+        t.start()
+
+    def _export_evidence(self):
+        wd = self.workdir_entry.get().strip() or str(Path.cwd() / 'case_demo')
+        case_id = self.case_entry.get().strip() or 'CASE-000'
+        ws = Workspace(Path(wd), case_id)
+        ws.ensure()
+        paths = ws.paths()
+
+        try:
+            # collect files to include
+            files = []
+            for key in ('engagement', 'auditlog', 'inputs_manifest', 'preproc_index', 'policy_baseline'):
+                p = paths.get(key)
+                if p and p.exists():
+                    files.append(p)
+
+            # include all preproc artifacts
+            preproc_dir = paths.get('preproc_dir')
+            if preproc_dir and preproc_dir.exists():
+                for p in preproc_dir.rglob('*'):
+                    if p.is_file():
+                        files.append(p)
+
+            # ensure unique
+            unique_files = list(dict.fromkeys([Path(f) for f in files]))
+
+            # build pack
+            self.after(0, partial(self._set_status, 'Building evidence pack...'))
+            zip_path, zip_sha = build_evidence_pack(ws.root, case_id, unique_files, out_dir=paths.get('evidence_dir'))
+
+            # append auditlog event
+            al = AuditLog(str(paths.get('auditlog')))
+            al.append('evidence.packaged', {'zip': zip_path.name, 'sha256': zip_sha})
+
+            # UI update: show pack location
+            self.after(0, partial(self._set_status, f'Evidence pack created: {zip_path.name}'))
+            # open evidence folder (portable)
+            try:
+                webbrowser.open(paths.get('evidence_dir').as_uri())
+            except Exception:
+                pass
+        except Exception as e:
+            self.after(0, partial(self._set_status, f'Export failed: {e}', True))
+        finally:
+            self.after(0, partial(self.export_evidence_btn.configure, state="normal"))
 
     def on_resize(self, w, h):
         # no-op: keep layout flexible via grid/pack

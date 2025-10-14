@@ -8,10 +8,17 @@ This is a small scaffold to start implementing the Auditor Edition pipeline.
 from __future__ import annotations
 
 import json
-import os
+from pathlib import Path
 import datetime
+from datetime import timezone
 import hashlib
 from typing import Dict, Any
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    tmp = path.with_suffix(path.suffix + '.tmp')
+    tmp.write_text(text, encoding='utf-8')
+    tmp.replace(path)
 
 
 class Engagement:
@@ -23,13 +30,13 @@ class Engagement:
     """
 
     def __init__(self, workdir: str, case_id: str, client: str, scope: str):
-        self.workdir = os.path.abspath(workdir)
-        os.makedirs(self.workdir, exist_ok=True)
+        self.workdir = Path(workdir).resolve()
+        self.workdir.mkdir(parents=True, exist_ok=True)
         self.case_id = case_id
         self.client = client
         self.scope = scope
-        self.created_at = datetime.datetime.utcnow().isoformat() + "Z"
-        self.metadata_path = os.path.join(self.workdir, "engagement.json")
+        self.created_at = datetime.datetime.now(timezone.utc).isoformat()
+        self.metadata_path = self.workdir / "engagement.json"
 
     def write_metadata(self) -> str:
         payload: Dict[str, Any] = {
@@ -38,25 +45,23 @@ class Engagement:
             "scope": self.scope,
             "created_at": self.created_at,
         }
-        with open(self.metadata_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
-        return self.metadata_path
+        # deterministic JSON
+        text = json.dumps(payload, sort_keys=True, ensure_ascii=False, indent=2)
+        _atomic_write_text(self.metadata_path, text)
+        return str(self.metadata_path)
 
     def import_policy_baseline(self, baseline_path: str) -> str:
         """Copy the policy baseline into the workdir as `policy.baseline.json`.
 
         Returns the path to the copied file.
         """
-        dest = os.path.join(self.workdir, "policy.baseline.json")
-        with open(baseline_path, "rb") as r, open(dest, "wb") as w:
-            data = r.read()
-            w.write(data)
+        dest = self.workdir / "policy.baseline.json"
+        data = Path(baseline_path).read_bytes()
+        dest.write_bytes(data)
         # record digest for immutability reference
         d = hashlib.sha256(data).hexdigest()
-        # write a small sidecar with the digest
-        with open(dest + ".sha256", "w", encoding="utf-8") as sf:
-            sf.write(d)
-        return dest
+        (dest.with_suffix(dest.suffix + '.sha256')).write_text(d, encoding='utf-8')
+        return str(dest)
 
 
 if __name__ == "__main__":

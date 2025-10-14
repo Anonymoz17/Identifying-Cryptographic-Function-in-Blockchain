@@ -2,6 +2,7 @@
 import customtkinter as ctk
 from file_handler import FileHandler
 from pages import LoginPage, RegisterPage, DashboardPage, AnalysisPage, AdvisorPage, AuditorPage
+from pathlib import Path
 
 
 class App(ctk.CTk):
@@ -14,10 +15,13 @@ class App(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
 
         self.auth_token = None
-        self.current_user_role = "premium"
+        # safer default for local usage
+        self.current_user_role = "free"
         self.current_user_email = None
 
-        self.file_handler = FileHandler(upload_dir="./uploads")
+        # Use pathlib.Path for cross-platform paths
+        uploads_dir = Path(".") / "uploads"
+        self.file_handler = FileHandler(upload_dir=uploads_dir)
 
         # Instantiate all pages as frames (no lambdas/factories)
         self._pages = {
@@ -81,8 +85,10 @@ class App(ctk.CTk):
             self._pages["login"].reset_ui()
 
         self.switch_page("login")
-        # blur inputs so caret doesn't appear automatically
-        self.after(10, lambda: getattr(self._pages["login"], "blur_inputs", lambda: None)())
+        # blur inputs so caret doesn't appear automatically; pass callable to after
+        blur_cb = getattr(self._pages["login"], "blur_inputs", lambda: None)
+        # pass the callable directly to tkinter.after (no args)
+        self.after(10, blur_cb)
 
     # ---------- Resize (debounced) ----------
     def _on_configure(self, event):
@@ -95,6 +101,7 @@ class App(ctk.CTk):
                 self.after_cancel(self._resize_job)
             except Exception:
                 pass
+        # schedule resize using a callable reference
         self._resize_job = self.after(30, self._do_resize)
 
     def _do_resize(self):
