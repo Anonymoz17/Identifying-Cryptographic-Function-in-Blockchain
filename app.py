@@ -1,7 +1,7 @@
 # app.py
 import customtkinter as ctk
 from file_handler import FileHandler
-from pages import LoginPage, RegisterPage, DashboardPage, AnalysisPage, AdvisorPage
+from pages import LoginPage, RegisterPage, DashboardPage, AnalysisPage, AdvisorPage, AuditorPage
 
 class App(ctk.CTk):
     def __init__(self):
@@ -27,7 +27,8 @@ class App(ctk.CTk):
             "register":  RegisterPage(self, self.switch_page),
             "dashboard": DashboardPage(self, self.switch_page, self.file_handler),
             "analysis":  AnalysisPage(self, self.switch_page),
-            "advisor":   AdvisorPage(self, self.switch_page),
+            "advisor":   AdvisorPage(self, self.switch_page),  # <-- fixed: real frame instance
+            "auditor":   AuditorPage(self, self.switch_page),
         }
 
         for p in self._pages.values():

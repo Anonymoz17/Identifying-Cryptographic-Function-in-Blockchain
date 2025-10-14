@@ -9,3 +9,6 @@ idea/
 # Python cache
 __pycache__/
 *.pyc
+
+.case_demo/
+case_demo/*
