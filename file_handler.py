@@ -1,14 +1,17 @@
+# file_handler.py
 import os
 import re
-import glob
 import shutil
 import datetime
-import tempfile
 import mimetypes
+import urllib.request
+import zipfile
+import io
+import time
 
-
+# Optional MIME detector (python-magic / python-magic-bin)
 try:
-    import magic  # python-magic / python-magic-bin
+    import magic  # type: ignore
     _HAS_MAGIC = True
 except Exception:
     _HAS_MAGIC = False
@@ -17,35 +20,58 @@ except Exception:
 # -------- Core file handling --------------------------------------------------
 
 class FileHandler:
-    """Copy uploads into ./uploads and detect basic metadata."""
+    """
+    Handles uploads into ./uploads and detects basic metadata.
+    Now also supports GitHub repo URLs:
+      - https://github.com/<owner>/<repo>
+      - https://github.com/<owner>/<repo>/tree/<branch>
+      - https://github.com/<owner>/<repo>@<branch>
+    Downloads ZIP from codeload.github.com and extracts to uploads/.
+    """
     def __init__(self, upload_dir="uploads"):
         self.upload_dir = upload_dir
         os.makedirs(upload_dir, exist_ok=True)
 
-    #handle file input errors
     def handle_input(self, input_path: str) -> dict:
-        input_path = input_path.strip()
-        if input_path.startswith(("http://", "https://")):
-            raise ValueError("HTTP/HTTPS not implemented in this minimal sample.")
+        """
+        Accepts:
+          - Local files: absolute/relative path to a file.
+          - GitHub URLs (see formats above).
+        Returns a metadata dict including:
+          - filename, filetype (MIME), category, size, uploaded_at, stored_path
+          - source info for GitHub (owner/repo/branch)
+        """
+        input_path = (input_path or "").strip()
+        if not input_path:
+            raise ValueError("Empty input.")
 
+        # --- GitHub repo URL support ---
+        if input_path.startswith(("http://", "https://")):
+            if "github.com/" in input_path:
+                return self._handle_github_repo(input_path)
+            raise ValueError("Only GitHub repo URLs are supported for HTTP(S) sources in this app.")
+
+        # Local file path
         if os.path.isfile(input_path):
             return self._handle_file(input_path)
 
         raise ValueError(f"Unsupported input: {input_path}")
 
+    # ---- Local file path handling -------------------------------------------
     def _handle_file(self, filepath: str) -> dict:
         filename = os.path.basename(filepath)
 
-
+        # Ensure unique target name inside uploads/
         stored_path = os.path.join(self.upload_dir, filename)
         base, ext = os.path.splitext(stored_path)
         i = 1
         while os.path.exists(stored_path):
             stored_path = f"{base}({i}){ext}"
             i += 1
+
         shutil.copy2(filepath, stored_path)
 
-        # MIME
+        # MIME type detection
         if _HAS_MAGIC:
             try:
                 mime = magic.from_file(stored_path, mime=True)
@@ -65,6 +91,71 @@ class FileHandler:
             "stored_path": stored_path,
         }
 
+    # ---- GitHub repo URL handling -------------------------------------------
+    def _handle_github_repo(self, url: str) -> dict:
+        """
+        Downloads a GitHub repository ZIP for the selected branch and extracts it.
+
+        Supported URL forms:
+          - https://github.com/<owner>/<repo>
+          - https://github.com/<owner>/<repo>/tree/<branch>
+          - https://github.com/<owner>/<repo>@<branch>
+
+        Returns metadata with 'stored_path' pointing to the extracted folder.
+        """
+        import re
+
+        m = re.search(r"github\.com/([^/]+)/([^/]+)", url)
+        if not m:
+            raise ValueError("Invalid GitHub URL.")
+        owner = m.group(1)
+        repo = m.group(2).replace(".git", "")
+
+        # Branch detection
+        branch = "main"
+        m2 = re.search(r"/tree/([^/]+)", url)
+        if m2:
+            branch = m2.group(1)
+        m3 = re.search(r"@([A-Za-z0-9._\-\/]+)$", url)
+        if m3:
+            branch = m3.group(1)
+
+        # Build codeload URL for ZIP
+        # Note: This fetches the whole branch. (Subdir filtering can be added later if needed.)
+        zip_url = f"https://codeload.github.com/{owner}/{repo}/zip/refs/heads/{branch}"
+
+        # Download ZIP (in-memory)
+        try:
+            with urllib.request.urlopen(zip_url) as resp:
+                data = resp.read()
+        except Exception as e:
+            raise ValueError(f"Failed to download repo ZIP: {e}")
+
+        # Extract to uploads/<repo>-<branch>-<ts>/
+        ts = int(time.time())
+        dest_dir = os.path.join(self.upload_dir, f"{repo}-{branch}-{ts}")
+        os.makedirs(dest_dir, exist_ok=True)
+
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                zf.extractall(dest_dir)
+        except Exception as e:
+            raise ValueError(f"Failed to extract ZIP: {e}")
+
+        # GitHub zips usually unpack to a single top-level folder: repo-branch/
+        inner_dirs = [os.path.join(dest_dir, d) for d in os.listdir(dest_dir) if os.path.isdir(os.path.join(dest_dir, d))]
+        root_path = inner_dirs[0] if len(inner_dirs) == 1 else dest_dir
+
+        return {
+            "filename": f"{repo}-{branch}.zip",
+            "filetype": "application/zip",
+            "category": "archive-zip",
+            "size": len(data),
+            "uploaded_at": datetime.datetime.now().isoformat(timespec="seconds"),
+            "stored_path": root_path,  # <-- folder your scanner should walk
+            "source": {"type": "github", "url": url, "owner": owner, "repo": repo, "branch": branch},
+        }
+
 
 def categorize_file(path: str, mime_type: str) -> str:
     ext = os.path.splitext(path)[1].lower()
@@ -78,15 +169,19 @@ def categorize_file(path: str, mime_type: str) -> str:
         return "binary-mach-o"
 
     # Source
-    if ext == ".py": return "source-python"
-    if ext == ".c":  return "source-c"
-    if ext == ".cpp": return "source-cpp"
-    if ext == ".rs": return "source-rust"
-    if ext == ".go": return "source-go"
+    if ext == ".py":   return "source-python"
+    if ext == ".c":    return "source-c"
+    if ext == ".cpp":  return "source-cpp"
+    if ext == ".rs":   return "source-rust"
+    if ext == ".go":   return "source-go"
     if ext == ".java": return "source-java"
+    if ext == ".js":   return "source-js"
+    if ext == ".ts":   return "source-ts"
 
     # Archives
-    if ext == ".zip": return "archive-zip"
+    if ext == ".zip":  return "archive-zip"
+    if ext == ".tar":  return "archive-tar"
+    if ext in (".tgz", ".tar.gz"): return "archive-tgz"
 
     return "unknown"
 
@@ -112,7 +207,7 @@ def parse_drop_data(data: str):
         if token.startswith("file://"):
             token = token.replace("file://", "", 1)
             if token.startswith("/") and len(token) > 3 and token[2] == ":":
-                token = token[1:]  
+                token = token[1:]
         out.append(token)
     return out or [data]
 
@@ -130,7 +225,7 @@ def ensure_tkdnd_loaded(tk_interp) -> str:
         pass
 
     try:
-        import tkinterdnd2 as _tkdnd
+        import tkinterdnd2 as _tkdnd  # type: ignore
     except Exception as e:
         raise RuntimeError(f"tkinterdnd2 not importable: {e}")
 
@@ -195,7 +290,7 @@ class FileDropController:
 
         # Import tkinterdnd2 lazily
         try:
-            import tkinterdnd2 as _tkdnd
+            import tkinterdnd2 as _tkdnd  # type: ignore
             self.DND_FILES = _tkdnd.DND_FILES
             self.DND_TEXT = _tkdnd.DND_TEXT
         except Exception as e:
