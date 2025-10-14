@@ -1,67 +1,53 @@
 # pages/dashboard.py
-import os
 import customtkinter as ctk
-from file_handler import FileHandler, FileDropController, open_file_picker
+from typing import Optional, Dict, Any
+
+from file_handler import FileDropController, open_file_picker
+
+
+# --- Color system (dark UI) ---
+BG         = "#0B0F1A"   # page
+CARD_BG    = "#111827"
+BORDER     = "#1F2937"
+MUTED      = "#9CA3AF"
+TEXT       = "#E5E7EB"
+
+PRIMARY    = "#22C55E"   # green
+PRIMARY_H  = "#16A34A"
+
+SECONDARY  = "#334155"   # slate
+SECONDARY_H= "#1F2937"
+
+OUTLINE_BG = "transparent"
+OUTLINE_BR = "#334155"
+OUTLINE_TX = TEXT
+OUTLINE_H  = "#243244"
+
 
 class DashboardPage(ctk.CTkFrame):
-    def __init__(self, master, switch_page, file_handler: FileHandler):
-        super().__init__(master)
+    def __init__(self, master, switch_page, file_handler):
+        super().__init__(master, fg_color=BG)
         self.switch_page = switch_page
-        self.file_handler = file_handler
-        self.uploaded = []
+        self.fh = file_handler
 
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=0)
-        self.grid_columnconfigure(0, weight=1)
+        # ---------- Header ----------
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.pack(fill="x", padx=22, pady=(16, 0))
 
-        content = ctk.CTkFrame(self, fg_color="transparent")
-        content.grid(row=0, column=0, sticky="nsew")
-        content.grid_columnconfigure(0, weight=1)
-
-        self.title = ctk.CTkLabel(content, text="Dashboard", font=("Roboto", 72))
-        self.title.pack(pady=(12, 4))
-
-        self.status = ctk.CTkLabel(content, text="")
-        self.status.pack(pady=(0, 6))
-
-        # Drop zone — softer background + subtle border (window-like)
-        self.dnd = ctk.CTkFrame(
-            content,
-            corner_radius=16,
-            border_width=1,
-            border_color="#cdd5e0",
-            fg_color=("#f5f7fb", "#1a1a1a"),  # light / dark
+        title = ctk.CTkLabel(header, text="Dashboard", font=("Segoe UI", 28, "bold"), text_color=TEXT)
+        subtitle = ctk.CTkLabel(
+            header,
+            text="Upload a project or analyze directly from a GitHub repository URL.",
+            font=("Segoe UI", 12),
+            text_color=MUTED,
         )
-        self.dnd.pack(padx=24, pady=6, fill="x")
-        self.dnd.pack_propagate(False)
+        title.grid(row=0, column=0, sticky="w", pady=(2, 0))
+        subtitle.grid(row=1, column=0, sticky="w", pady=(0, 6))
 
-        self.dz_label = ctk.CTkLabel(
-            self.dnd,
-            text=("Drag & Drop files here\n"
-                  "• Local file paths (e.g., .exe, .so, .zip, .py)\n"
-                  "• GitHub repo URLs (not implemented in this sample)"),
-            font=("Roboto", 24),
-            justify="center",
-        )
-        self.dz_label.place(relx=0.5, rely=0.5, anchor="center")
-
-        actions = ctk.CTkFrame(content, fg_color="transparent")
-        actions.pack(pady=(6, 0))
-
-        # Existing Analyze button
-        self.analyze_btn = ctk.CTkButton(actions, text="Analyze", width=160, height=40, command=self._analyze)
-        self.analyze_btn.pack()
-
-        # NEW: Try Advisor (beta) button — safe additive route
-        self.advisor_btn = ctk.CTkButton(
-            actions,
-            text="✨ Try Advisor (beta)",
-            width=160,
-            height=40,
-            command=lambda: self.switch_page("advisor")
-        )
-        self.advisor_btn.pack(pady=(6, 0))
-
+        logout_btn = ctk.CTkButton(
+            header, text="Logout", width=74, height=28, corner_radius=8,
+            fg_color=OUTLINE_BG, hover_color=OUTLINE_H, text_color=OUTLINE_TX,
+            border_width=1, border_color=OUTLINE_BR, command=self._logout
         # NEW: Auditor quick access
         self.auditor_btn = ctk.CTkButton(
             actions,
@@ -78,63 +64,129 @@ class DashboardPage(ctk.CTkFrame):
             border_width=1, border_color="#cdd5e0",
             fg_color=("#f7f9fc", "#121212")
         )
-        self.results.pack(padx=24, pady=(8, 6), fill="both", expand=True)
-        self._add_results_header()
+        header.grid_columnconfigure(0, weight=1)
+        logout_btn.grid(row=0, column=1, rowspan=2, sticky="e")
 
-        below_results = ctk.CTkFrame(content, fg_color="transparent")
-        below_results.pack(pady=(0, 8))
-        self.browse_btn = ctk.CTkButton(
-            below_results, text="Browse files…", width=160, height=40,
-            command=lambda: open_file_picker(
-                self, self.file_handler, self._add_result_row, self._set_status
-            )
+        # ---------- Upload card ----------
+        upload_card = ctk.CTkFrame(self, corner_radius=16, border_width=1,
+                                   border_color=BORDER, fg_color=CARD_BG)
+        upload_card.pack(fill="x", padx=22, pady=(16, 10))
+
+        ctk.CTkLabel(upload_card, text="Analyze by Upload",
+                     font=("Segoe UI", 18, "bold"), text_color=TEXT)\
+            .grid(row=0, column=0, sticky="w", padx=16, pady=(14, 2))
+        ctk.CTkLabel(upload_card, text="Drop a source folder/file or choose from disk.",
+                     font=("Segoe UI", 12), text_color=MUTED)\
+            .grid(row=1, column=0, sticky="w", padx=16, pady=(0, 8))
+
+        body = ctk.CTkFrame(upload_card, fg_color="transparent")
+        body.grid(row=2, column=0, sticky="nsew", padx=16, pady=(6, 16))
+        upload_card.grid_columnconfigure(0, weight=1)
+
+        # smaller drag zone
+        self.drop_area = ctk.CTkFrame(
+            body, width=480, height=150, corner_radius=12,
+            border_width=1, border_color=BORDER, fg_color=BG
         )
-        self.browse_btn.pack()
+        self.drop_area.grid(row=0, column=0, sticky="w")
+        self.drop_area.grid_propagate(False)
 
-        # Try DnD
-        try:
-            self.ctrl_zone = FileDropController(
-                target_widget=self.dnd,
-                file_handler=self.file_handler,
-                on_processed=self._add_result_row,
-                on_status=self._set_status,
-                on_border=self._set_border,
-            )
-            try:
-                self.ctrl_label = FileDropController(
-                    target_widget=self.dz_label,
-                    file_handler=self.file_handler,
-                    on_processed=self._add_result_row,
-                    on_status=self._set_status,
-                    on_border=self._set_border,
-                )
-            except Exception:
-                pass
-        except Exception as e:
-            self._add_browse_fallback(str(e))
+        self.drop_label = ctk.CTkLabel(self.drop_area, text="Drag & drop here",
+                                       font=("Segoe UI", 14, "bold"), text_color=TEXT)
+        self.drop_label.place(relx=0.5, rely=0.5, anchor="center")
+        ctk.CTkLabel(self.drop_area, text="Supported: local files, or paste a GitHub URL below",
+                     font=("Segoe UI", 11), text_color=MUTED)\
+            .place(relx=0.5, rely=0.5, y=22, anchor="center")
 
-        # Sticky bottom bar with compact duplicates for tiny windows
-        bottom = ctk.CTkFrame(self, fg_color="transparent")
-        bottom.grid(row=1, column=0, sticky="ew", padx=24, pady=(4, 10))
-        bottom.grid_columnconfigure(0, weight=0)
-        bottom.grid_columnconfigure(1, weight=1)
-        bottom.grid_columnconfigure(2, weight=0)
-        bottom.grid_columnconfigure(3, weight=0)
-
-        self.compact_browse_btn = ctk.CTkButton(
-            bottom, text="Browse files…",
-            command=lambda: open_file_picker(
-                self, self.file_handler, self._add_result_row, self._set_status
-            )
+        pick_btn = ctk.CTkButton(
+            body, text="Choose files…", width=150, height=36, corner_radius=10,
+            fg_color=PRIMARY, hover_color=PRIMARY_H, text_color="#041007",
+            command=lambda: open_file_picker(self, self.fh, self._on_processed, self._set_status),
         )
-        self.compact_analyze_btn = ctk.CTkButton(bottom, text="Analyze", command=self._analyze)
+        pick_btn.grid(row=0, column=1, padx=(12, 0), sticky="e")
 
-        # NEW (compact): Advisor quick access
-        self.compact_advisor_btn = ctk.CTkButton(
-            bottom, text="✨ Advisor",
+        body.grid_columnconfigure(0, weight=0)
+        body.grid_columnconfigure(1, weight=1)
+
+        # ---------- Divider "or" ----------
+        or_row = ctk.CTkFrame(self, fg_color="transparent")
+        or_row.pack(fill="x", padx=22, pady=(6, 8))
+        ctk.CTkFrame(or_row, height=1, fg_color=BORDER).pack(side="left", fill="x", expand=True, padx=(0, 10))
+        ctk.CTkLabel(or_row, text="or", font=("Segoe UI", 11), text_color=MUTED).pack(side="left")
+        ctk.CTkFrame(or_row, height=1, fg_color=BORDER).pack(side="left", fill="x", expand=True, padx=(10, 0))
+
+        # ---------- GitHub card ----------
+        gh_card = ctk.CTkFrame(self, corner_radius=16, border_width=1,
+                               border_color=BORDER, fg_color=CARD_BG)
+        gh_card.pack(fill="x", padx=22, pady=(4, 8))
+
+        ctk.CTkLabel(gh_card, text="Analyze from GitHub repo URL",
+                     font=("Segoe UI", 16, "bold"), text_color=TEXT)\
+            .grid(row=0, column=0, sticky="w", padx=16, pady=(14, 2))
+        ctk.CTkLabel(gh_card,
+                     text="Examples: https://github.com/bitcoin/bitcoin  •  …/tree/branch  •  …@branch",
+                     font=("Segoe UI", 11), text_color=MUTED)\
+            .grid(row=1, column=0, sticky="w", padx=16, pady=(0, 6))
+
+        gh_row = ctk.CTkFrame(gh_card, fg_color="transparent")
+        gh_row.grid(row=2, column=0, sticky="ew", padx=16, pady=(4, 16))
+        gh_card.grid_columnconfigure(0, weight=1)
+
+        self.gh_entry = ctk.CTkEntry(gh_row, placeholder_text="Paste GitHub URL…",
+                                     height=36, width=520, corner_radius=10,
+                                     fg_color=BG, border_color=BORDER, border_width=1, text_color=TEXT)
+        self.gh_entry.pack(side="left", fill="x", expand=True)
+
+        gh_btn = ctk.CTkButton(gh_row, text="Analyze", width=120, height=36, corner_radius=10,
+                               fg_color=SECONDARY, hover_color=SECONDARY_H, text_color=TEXT,
+                               command=self._on_github_analyze)
+        gh_btn.pack(side="left", padx=(12, 0))
+
+        # ---------- Details box (single card) ----------
+        self.details = ctk.CTkFrame(self, corner_radius=16, border_width=1,
+                                    border_color=BORDER, fg_color=CARD_BG)
+        self.details.pack(fill="x", padx=22, pady=(10, 6))
+        for i in range(2):
+            self.details.grid_columnconfigure(i, weight=(0 if i == 0 else 1))
+
+        def _kv(row, key_text, attr_name):
+            k = ctk.CTkLabel(self.details, text=key_text, font=("Segoe UI", 11, "bold"), text_color="#D1D5DB")
+            v = ctk.CTkLabel(self.details, text="—", font=("Segoe UI", 11), text_color=TEXT)
+            k.grid(row=row, column=0, sticky="w", padx=(14, 10), pady=(10 if row == 0 else 6, 0))
+            v.grid(row=row, column=1, sticky="w", padx=(0, 14), pady=(10 if row == 0 else 6, 0))
+            setattr(self, attr_name, v)
+
+        _kv(0, "Name:",  "dv_name")
+        _kv(1, "Type:",  "dv_type")
+        _kv(2, "Size:",  "dv_size")
+        _kv(3, "Added:", "dv_added")
+        _kv(4, "Path:",  "dv_path")
+        ctk.CTkFrame(self.details, height=12, fg_color="transparent").grid(row=5, column=0, columnspan=2)
+
+        # ---------- Footer actions ----------
+        actions = ctk.CTkFrame(self, fg_color="transparent")
+        actions.pack(fill="x", padx=22, pady=(10, 20))
+
+        self.status = ctk.CTkLabel(actions, text="", font=("Segoe UI", 11), text_color=TEXT)
+        self.status.pack(side="left")
+
+        spacer = ctk.CTkFrame(actions, fg_color="transparent")
+        spacer.pack(side="left", expand=True, fill="x")
+
+        self.try_beta = ctk.CTkButton(
+            actions, text="Try beta", height=36, corner_radius=10,
+            fg_color=OUTLINE_BG, hover_color=OUTLINE_H, text_color=OUTLINE_TX,
+            border_width=1, border_color=OUTLINE_BR,
             command=lambda: self.switch_page("advisor")
         )
+        self.try_beta.pack(side="right")
 
+        self.analyze_btn = ctk.CTkButton(
+            actions, text="Analyze", height=36, corner_radius=10,
+            fg_color=PRIMARY, hover_color=PRIMARY_H, text_color="#041007",
+            command=self._go_analyze
+        )
+        self.analyze_btn.pack(side="right", padx=(10, 8))
         # NEW (compact): Auditor quick access
         self.compact_auditor_btn = ctk.CTkButton(
             bottom, text="🛡️ Auditor",
@@ -146,135 +198,88 @@ class DashboardPage(ctk.CTkFrame):
         self.logout_btn = ctk.CTkButton(bottom, text="Logout", command=self._logout)
         self.logout_btn.grid(row=0, column=3, sticky="e")
 
-        self._results_min_h = 120
-        self._results_max_h = 480
-        self._compact_height_threshold = 720
-        self._compact_force = False
+        # selection holder
+        self._selected_meta: Optional[Dict[str, Any]] = None
 
-    def _logout(self):
-        app = self.winfo_toplevel()
-        app.logout()
-
-    def reset_ui(self):
-        self.uploaded.clear()
-        self._set_status("")
-        self._set_border("#cdd5e0")
+        # DnD wiring
         try:
-            for w in self.results.winfo_children():
-                w.destroy()
+            self._dnd = FileDropController(
+                target_widget=self.drop_area,
+                file_handler=self.fh,
+                on_processed=self._on_processed,
+                on_status=self._set_status,
+                on_border=self._set_drop_border,
+            )
+        except Exception as e:
+            self._set_status(f"Drag & drop unavailable: {e}", True)
+
+    # ---- helpers ----
+    def _set_drop_border(self, color: str):
+        try:
+            self.drop_area.configure(border_color=color)
         except Exception:
             pass
-        self._add_results_header()
 
-    def _add_browse_fallback(self, reason: str):
-        self._set_status(f"Drag & drop unavailable: {reason}", error=True)
+    def _set_status(self, msg: str, error: bool = False):
+        self.status.configure(text=msg, text_color=("red" if error else TEXT))
 
-    def _set_border(self, color: str):
-        self.dnd.configure(border_color=color)
+    def _show_details(self, meta: Dict[str, Any]):
+        self.dv_name.configure(text=meta.get("filename", "—"))
+        self.dv_type.configure(text=meta.get("filetype", meta.get("category", "—")))
+        size = meta.get("size")
+        self.dv_size.configure(text=(f"{size} bytes" if isinstance(size, int) else "—"))
+        self.dv_added.configure(text=meta.get("uploaded_at", "—"))
+        self.dv_path.configure(text=meta.get("stored_path", meta.get("url", "—")))
 
-    def _set_status(self, text: str, error: bool = False):
-        low = (text or "").lower()
-        if low.startswith("tkdnd") or "dnd ready" in low:
+    def _on_processed(self, meta: Dict[str, Any]):
+        self._selected_meta = meta
+        self._show_details(meta)
+        self._set_status(f"Loaded: {meta.get('filename') or meta.get('url') or 'item'}")
+
+    def _handle_github_url(self, url: str) -> Dict[str, Any]:
+        return {
+            "filename": url.split("/")[-1] or "repo",
+            "filetype": "text/uri-list",
+            "category": "github-url",
+            "size": 0,
+            "uploaded_at": "",
+            "stored_path": "",
+            "url": url,
+        }
+
+    def _on_github_analyze(self):
+        url = (self.gh_entry.get() or "").strip()
+        if not url:
+            self._set_status("Enter a GitHub repository URL.", True)
             return
-        self.status.configure(text=text, text_color=("red" if error else "#202124"))
+        try:
+            meta = self._handle_github_url(url)
+            self._on_processed(meta)
+        except Exception as e:
+            self._set_status(f"GitHub URL error: {e}", True)
 
-    def _add_results_header(self):
-        header = ctk.CTkFrame(self.results, fg_color="transparent")
-        header.pack(fill="x", padx=8, pady=(6, 4))
-        for i, col in enumerate(("Name", "Category", "MIME/Type", "Size (bytes)", "Stored Path / Note")):
-            ctk.CTkLabel(header, text=col, font=("Roboto", 14, "bold")).grid(
-                row=0, column=i, sticky="w", padx=(8, 12))
-        for i in range(5):
-            header.grid_columnconfigure(i, weight=(2 if i == 4 else 1))
-
-    def _add_result_row(self, meta: dict):
-        app = self.winfo_toplevel()
-        tier = getattr(app, "current_user_role", "free")
-        self.uploaded.append(meta)
-        row = ctk.CTkFrame(self.results, fg_color="transparent")
-        row.pack(fill="x", padx=8, pady=2)
-
-        name = meta.get("filename") or os.path.basename(meta.get("stored_path", "")) or "-"
-        category = meta.get("category", "-")
-        mime = meta.get("filetype", "-")
-        size = str(meta.get("size", "-"))
-        stored = meta.get("stored_path") or "-"
-
-        for i, val in enumerate((name, category, mime, size, stored)):
-            ctk.CTkLabel(row, text=str(val)).grid(row=0, column=i, sticky="w", padx=(8, 12), pady=2)
-            row.grid_columnconfigure(i, weight=(2 if i == 4 else 1))
-
-        self._set_status(f"Logged in as {tier.upper()}")
-
-    def _analyze(self):
-        app = self.winfo_toplevel()
-        if not getattr(app, "auth_token", None):
-            self._set_status("Please log in first.", error=True); return
-        tier = getattr(app, "current_user_role", "free")
-        if tier == "free" and len(self.uploaded) > 1:
-            self._set_status("Free tier: analyze 1 file at a time. Upgrade to analyze multiple.", error=True)
+    def _go_analyze(self):
+        if not self._selected_meta:
+            self._set_status("Please choose a file or paste a GitHub URL first.", True)
             return
+        app = self.winfo_toplevel()
+        app.current_scan_meta = self._selected_meta
         self.switch_page("analysis")
 
-    def _toggle_compact_actions(self, show: bool):
-        if show == self._compact_visible:
-            return
-        if show:
-            self.compact_browse_btn.grid(row=0, column=0, sticky="w")
-            # NEW: place Advisor in the middle stretch column
-            self.compact_advisor_btn.grid(row=0, column=1, sticky="w", padx=(8, 8))
-            self.compact_analyze_btn.grid(row=0, column=2, sticky="e", padx=(8, 8))
-        else:
-            try: self.compact_browse_btn.grid_forget()
-            except Exception: pass
-            try: self.compact_advisor_btn.grid_forget()
-            except Exception: pass
-            try: self.compact_analyze_btn.grid_forget()
-            except Exception: pass
-        self._compact_visible = show
-
-    def on_resize(self, w, h):
-        if not self.winfo_exists():
-            return
-        # title font bucket
-        new_size = max(28, min(84, int(72 * (h / 900.0))))
-        if getattr(self, "_last_title_size", None) != new_size:
-            self._last_title_size = new_size
-            try:
-                self.title.configure(font=("Roboto", new_size))
-            except Exception:
-                pass
-
-        dz_w = max(520, min(1400, int(w * 0.72)))
-        dz_h = max(180, min(380, int(h * 0.28)))
+    def _logout(self):
         try:
-            self.dnd.configure(width=dz_w, height=dz_h)
-            dz_label_size = max(16, min(28, int(24 * (h / 900.0))))
-            self.dz_label.configure(font=("Roboto", dz_label_size))
-        except Exception:
-            return  # tearing down
-
-        btn_w = max(120, min(220, int(w * 0.12)))
-        btn_h = max(36,  min(56,  int(h * 0.05)))
-        # include new advisor buttons in resize pass
-        for b in (
-            self.analyze_btn, self.browse_btn, self.compact_analyze_btn,
-            self.compact_browse_btn, self.logout_btn, self.advisor_btn, self.compact_advisor_btn
-        ):
-            try:
-                b.configure(width=btn_w, height=btn_h)
-            except Exception:
-                pass
-
-        target_h = max(getattr(self, "_results_min_h", 120),
-                       min(getattr(self, "_results_max_h", 480), int(h * 0.30)))
-        try:
-            self.results.configure(height=target_h)
+            self.winfo_toplevel().logout()
         except Exception:
             pass
 
-        show_compact = getattr(self, "_compact_force", False) or (h < getattr(self, "_compact_height_threshold", 720))
-        try:
-            self._toggle_compact_actions(show_compact)
-        except Exception:
-            pass
+    # external hooks
+    def reset_ui(self):
+        self._selected_meta = None
+        for v in (self.dv_name, self.dv_type, self.dv_size, self.dv_added, self.dv_path):
+            v.configure(text="—")
+        try: self.gh_entry.delete(0, "end")
+        except Exception: pass
+        self._set_status("")
+
+    def on_enter(self): pass
+    def on_resize(self, w, h): pass
