@@ -15,19 +15,17 @@ in later stages (disassembly, normalized byte slices, emulation traces).
 """
 from __future__ import annotations
 
-import os
+from pathlib import Path
 import shutil
 import json
 import datetime
 from typing import List, Dict, Any, Optional, Callable
-import threading
 
 
-def _atomic_write(path: str, data: str) -> None:
-    tmp = path + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
-        f.write(data)
-    os.replace(tmp, path)
+def _atomic_write(path: Path, data: str) -> None:
+    tmp = path.with_suffix(path.suffix + '.tmp')
+    tmp.write_text(data, encoding='utf-8')
+    tmp.replace(path)
 
 
 def preprocess_items(items: List[Dict[str, Any]], workdir: str, progress_cb: Optional[Callable[[int, int], None]] = None, cancel_event: Optional["threading.Event"] = None) -> List[Dict[str, Any]]:
@@ -41,9 +39,10 @@ def preprocess_items(items: List[Dict[str, Any]], workdir: str, progress_cb: Opt
     """
     import threading
 
-    preproc_dir = os.path.join(workdir, 'preproc')
-    os.makedirs(preproc_dir, exist_ok=True)
-    index_path = os.path.join(workdir, 'preproc.index.jsonl')
+    wd = Path(workdir)
+    preproc_dir = wd / 'preproc'
+    preproc_dir.mkdir(parents=True, exist_ok=True)
+    index_path = wd / 'preproc.index.jsonl'
     index_entries: List[Dict[str, Any]] = []
 
     total = len(items)
@@ -64,11 +63,11 @@ def preprocess_items(items: List[Dict[str, Any]], workdir: str, progress_cb: Opt
             continue
 
         # deterministic artifact dir per sha
-        art_dir = os.path.join(preproc_dir, sha)
-        os.makedirs(art_dir, exist_ok=True)
+        art_dir = preproc_dir / sha
+        art_dir.mkdir(parents=True, exist_ok=True)
 
         src = it.get('path')
-        if not src or not os.path.exists(src):
+        if not src or not Path(src).exists():
             processed += 1
             if callable(progress_cb):
                 try:
@@ -78,24 +77,24 @@ def preprocess_items(items: List[Dict[str, Any]], workdir: str, progress_cb: Opt
             continue
 
         # copy the original file as input.bin if not present
-        dst_input = os.path.join(art_dir, 'input.bin')
+        dst_input = art_dir / 'input.bin'
         try:
-            if not os.path.exists(dst_input):
-                shutil.copy2(src, dst_input)
+            if not dst_input.exists():
+                shutil.copy2(str(src), str(dst_input))
         except Exception:
             # skip on copy failure; continue to write metadata
             pass
 
         meta = {
-            'path': os.path.abspath(src),
+            'path': str(Path(src).resolve()),
             'sha256': sha,
             'size': it.get('size'),
             'mtime': it.get('mtime'),
-            'artifact_dir': os.path.relpath(art_dir, workdir),
-            'generated_at': datetime.datetime.utcnow().isoformat() + 'Z',
+            'artifact_dir': str(art_dir.relative_to(wd)),
+            'generated_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
         }
 
-        meta_path = os.path.join(art_dir, 'metadata.json')
+        meta_path = art_dir / 'metadata.json'
         try:
             _atomic_write(meta_path, json.dumps(meta, sort_keys=True, indent=2))
         except Exception:
@@ -103,16 +102,16 @@ def preprocess_items(items: List[Dict[str, Any]], workdir: str, progress_cb: Opt
             pass
 
         idx = {
-            'input_path': os.path.abspath(src),
+            'input_path': str(Path(src).resolve()),
             'sha256': sha,
-            'artifact_dir': os.path.relpath(art_dir, workdir),
-            'ts': datetime.datetime.utcnow().isoformat() + 'Z',
+            'artifact_dir': str(art_dir.relative_to(wd)),
+            'ts': datetime.datetime.now(datetime.timezone.utc).isoformat(),
         }
         index_entries.append(idx)
 
         # append to index file (ndjson)
         try:
-            with open(index_path, 'a', encoding='utf-8') as f:
+            with index_path.open('a', encoding='utf-8') as f:
                 f.write(json.dumps(idx, sort_keys=True, ensure_ascii=False) + '\n')
         except Exception:
             pass

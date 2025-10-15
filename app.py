@@ -2,6 +2,7 @@
 import customtkinter as ctk
 from file_handler import FileHandler
 from pages import LoginPage, RegisterPage, DashboardPage, AnalysisPage, AdvisorPage, AuditorPage
+from pathlib import Path
 
 class App(ctk.CTk):
     def __init__(self):
@@ -14,12 +15,14 @@ class App(ctk.CTk):
 
         # --- Session + scan state ---
         self.auth_token = None
+        # safer default for local usage
         self.current_user_role = "free"
         self.current_user_email = None
         self.current_scan_meta = None
 
-        # Shared file handler for uploads + GitHub URL
-        self.file_handler = FileHandler(upload_dir="./uploads")
+        # Use pathlib.Path for cross-platform paths
+        uploads_dir = Path(".") / "uploads"
+        self.file_handler = FileHandler(upload_dir=uploads_dir)
 
         # --- Instantiate pages ---
         self._pages = {
@@ -78,21 +81,23 @@ class App(ctk.CTk):
                     pass
 
         self.switch_page("login")
+        # blur inputs so caret doesn't appear automatically; pass callable to after
+        blur_cb = getattr(self._pages["login"], "blur_inputs", lambda: None)
+        # pass the callable directly to tkinter.after (no args)
+        self.after(10, blur_cb)
 
-        # Optional: sink focus so caret doesn't appear in login inputs
-        try:
-            login = self._pages.get("login")
-            if login and hasattr(login, "blur_inputs"):
-                login.blur_inputs()
-        except Exception:
-            pass
-
-    # -------- Resize (debounced) --------
-    def _on_configure(self, _event):
-        if self._closing: return
+    # ---------- Resize (debounced) ----------
+    def _on_configure(self, event):
+        # Ignore noisy events triggered during closing
+        if self._closing:
+            return
+        # Debounce: schedule a single resize after 30ms
         if self._resize_job is not None:
-            try: self.after_cancel(self._resize_job)
-            except Exception: pass
+            try:
+                self.after_cancel(self._resize_job)
+            except Exception:
+                pass
+        # schedule resize using a callable reference
         self._resize_job = self.after(30, self._do_resize)
 
     def _do_resize(self):
