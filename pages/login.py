@@ -1,15 +1,14 @@
 # pages/login.py
 import os
+
 import customtkinter as ctk
 from PIL import Image, ImageDraw
 
-from api_client_supabase import (
-    login as sb_login,
-    get_my_role as sb_get_role,
-    ensure_role_row,
-)
-from api_client_google import login_with_google
 from api_client_github import login_with_github
+from api_client_google import login_with_google
+from api_client_supabase import ensure_role_row
+from api_client_supabase import get_my_role as sb_get_role
+from api_client_supabase import login as sb_login
 
 # ---------------------------------------------
 # Icon loader (looks in assets/ and assests/)
@@ -17,8 +16,11 @@ from api_client_github import login_with_github
 HERE = os.path.dirname(os.path.abspath(__file__))
 ASSET_DIRS = [
     os.path.normpath(os.path.join(HERE, "..", "assets")),
-    os.path.normpath(os.path.join(HERE, "..", "assests")),  # fallback if old folder name
+    os.path.normpath(
+        os.path.join(HERE, "..", "assests")
+    ),  # fallback if old folder name
 ]
+
 
 def _find_asset(name: str):
     for d in ASSET_DIRS:
@@ -26,6 +28,7 @@ def _find_asset(name: str):
         if os.path.exists(p):
             return p
     return None
+
 
 def _load_icon(name: str, size=(28, 28), circle_bg="#F3F4F6"):
     """
@@ -71,55 +74,89 @@ class LoginPage(ctk.CTkFrame):
         container.place(relx=0.5, rely=0.5, anchor="center")
 
         # Card
-        card = ctk.CTkFrame(container, corner_radius=16, border_width=1, border_color="#374151")
+        card = ctk.CTkFrame(
+            container, corner_radius=16, border_width=1, border_color="#374151"
+        )
         card.grid(row=0, column=0, padx=16, pady=16, sticky="nsew")
         card.grid_columnconfigure(0, weight=1)
 
-        title = ctk.CTkLabel(card, text="Welcome to CryptoScope", font=("Segoe UI", 24, "bold"))
+        title = ctk.CTkLabel(
+            card, text="Welcome to CryptoScope", font=("Segoe UI", 24, "bold")
+        )
         subtitle = ctk.CTkLabel(card, text="Sign in to continue", font=("Segoe UI", 12))
         title.grid(row=0, column=0, padx=20, pady=(20, 6), sticky="w")
         subtitle.grid(row=1, column=0, padx=20, pady=(0, 10), sticky="w")
 
         # Email / Password
-        self.email = ctk.CTkEntry(card, placeholder_text="Email", height=40, width=420, corner_radius=10)
-        self.pw    = ctk.CTkEntry(card, placeholder_text="Password", show="•", height=40, width=420, corner_radius=10)
+        self.email = ctk.CTkEntry(
+            card, placeholder_text="Email", height=40, width=420, corner_radius=10
+        )
+        self.pw = ctk.CTkEntry(
+            card,
+            placeholder_text="Password",
+            show="•",
+            height=40,
+            width=420,
+            corner_radius=10,
+        )
         self.email.grid(row=2, column=0, padx=20, pady=(8, 6))
         self.pw.grid(row=3, column=0, padx=20, pady=(0, 8))
 
-        ctk.CTkButton(card, text="Sign in", height=40, corner_radius=10, command=self._do_login)\
-            .grid(row=4, column=0, padx=20, pady=(4, 10), sticky="ew")
+        ctk.CTkButton(
+            card, text="Sign in", height=40, corner_radius=10, command=self._do_login
+        ).grid(row=4, column=0, padx=20, pady=(4, 10), sticky="ew")
 
         # Divider
-        ctk.CTkFrame(card, height=1, fg_color="#1F2937")\
-            .grid(row=5, column=0, padx=20, pady=(6, 6), sticky="ew")
-        ctk.CTkLabel(card, text="Or continue with", font=("Segoe UI", 11))\
-            .grid(row=6, column=0, padx=20, pady=(0, 6), sticky="w")
+        ctk.CTkFrame(card, height=1, fg_color="#1F2937").grid(
+            row=5, column=0, padx=20, pady=(6, 6), sticky="ew"
+        )
+        ctk.CTkLabel(card, text="Or continue with", font=("Segoe UI", 11)).grid(
+            row=6, column=0, padx=20, pady=(0, 6), sticky="w"
+        )
 
         # Icon buttons row
         row = ctk.CTkFrame(card, fg_color="transparent")
         row.grid(row=7, column=0, padx=20, pady=(0, 10), sticky="w")
 
-        g_icon  = _load_icon("google.png")
+        g_icon = _load_icon("google.png")
         gh_icon = _load_icon("github.png")
 
         self.google_btn = ctk.CTkButton(
-            row, width=44, height=44, corner_radius=22, text="", image=g_icon,
-            command=self._do_google_signin, fg_color="#ffffff", hover_color="#f3f4f6",
-            border_width=1, border_color="#E5E7EB"
+            row,
+            width=44,
+            height=44,
+            corner_radius=22,
+            text="",
+            image=g_icon,
+            command=self._do_google_signin,
+            fg_color="#ffffff",
+            hover_color="#f3f4f6",
+            border_width=1,
+            border_color="#E5E7EB",
         )
         self.google_btn.pack(side="left", padx=(0, 8))
 
         self.github_btn = ctk.CTkButton(
-            row, width=44, height=44, corner_radius=22, text="", image=gh_icon,
-            command=self._do_github_signin, fg_color="#ffffff", hover_color="#f3f4f6",
-            border_width=1, border_color="#E5E7EB"
+            row,
+            width=44,
+            height=44,
+            corner_radius=22,
+            text="",
+            image=gh_icon,
+            command=self._do_github_signin,
+            fg_color="#ffffff",
+            hover_color="#f3f4f6",
+            border_width=1,
+            border_color="#E5E7EB",
         )
         self.github_btn.pack(side="left", padx=(0, 8))
 
         # Register link (brighter text for dark mode)
         reg_row = ctk.CTkFrame(card, fg_color="transparent")
         reg_row.grid(row=8, column=0, padx=20, pady=(4, 16), sticky="ew")
-        ctk.CTkLabel(reg_row, text="No account?", font=("Segoe UI", 11)).pack(side="left")
+        ctk.CTkLabel(reg_row, text="No account?", font=("Segoe UI", 11)).pack(
+            side="left"
+        )
         ctk.CTkButton(
             reg_row,
             text="Create account",

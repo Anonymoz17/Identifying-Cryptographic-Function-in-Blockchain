@@ -16,12 +16,12 @@ class Workspace:
         # normalize
         self.base = self.base.resolve()
         # sanitize case_id to a safe filename
-        safe = case_id.replace('/', '_').replace('\\', '_')
+        safe = case_id.replace("/", "_").replace("\\", "_")
         self.case_id = safe
         self.root = self.base / self.case_id
         # primary dirs
-        self.preproc_dir = self.root / 'preproc'
-        self.evidence_dir = self.root / 'evidence'
+        self.preproc_dir = self.root / "preproc"
+        self.evidence_dir = self.root / "evidence"
 
     def ensure(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
@@ -30,16 +30,15 @@ class Workspace:
 
     def paths(self) -> Dict[str, Path]:
         return {
-            'root': self.root,
-            'engagement': self.root / 'engagement.json',
-            'auditlog': self.root / 'auditlog.ndjson',
-            'inputs_manifest': self.root / 'inputs.manifest.json',
-            'preproc_index': self.root / 'preproc.index.jsonl',
-            'preproc_dir': self.preproc_dir,
-            'policy_baseline': self.root / 'policy.baseline.json',
-            'evidence_dir': self.evidence_dir,
+            "root": self.root,
+            "engagement": self.root / "engagement.json",
+            "auditlog": self.root / "auditlog.ndjson",
+            "inputs_manifest": self.root / "inputs.manifest.json",
+            "preproc_index": self.root / "preproc.index.jsonl",
+            "preproc_dir": self.preproc_dir,
+            "policy_baseline": self.root / "policy.baseline.json",
+            "evidence_dir": self.evidence_dir,
         }
 
     def __repr__(self) -> str:
         return f"Workspace(root={self.root!s})"
-

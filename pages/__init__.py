@@ -4,18 +4,18 @@ This module exposes the main CTk Frame classes used by `app.py` so the
 application can instantiate pages with a stable import.
 """
 
+from .advisor import AdvisorPage
+from .analysis import AnalysisPage
+from .auditor import AuditorPage
+from .dashboard import DashboardPage
 from .login import LoginPage
 from .register import RegisterPage
-from .dashboard import DashboardPage
-from .analysis import AnalysisPage
-from .advisor import AdvisorPage
-from .auditor import AuditorPage
 
 __all__ = [
-	"LoginPage",
-	"RegisterPage",
-	"DashboardPage",
-	"AnalysisPage",
-	"AdvisorPage",
-	"AuditorPage",
+    "LoginPage",
+    "RegisterPage",
+    "DashboardPage",
+    "AnalysisPage",
+    "AdvisorPage",
+    "AuditorPage",
 ]

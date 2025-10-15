@@ -13,22 +13,33 @@ mapping input -> artifact directory and timestamp.
 This scaffold is intentionally minimal to be replaced by richer transforms
 in later stages (disassembly, normalized byte slices, emulation traces).
 """
+
 from __future__ import annotations
 
-from pathlib import Path
-import shutil
-import json
 import datetime
-from typing import List, Dict, Any, Optional, Callable
+import json
+import shutil
+import threading
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
 
 
 def _atomic_write(path: Path, data: str) -> None:
-    tmp = path.with_suffix(path.suffix + '.tmp')
-    tmp.write_text(data, encoding='utf-8')
+    """Write data to a temporary file and rename into place.
+
+    This avoids partial writes when multiple processes/threads are involved.
+    """
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(data, encoding="utf-8")
     tmp.replace(path)
 
 
-def preprocess_items(items: List[Dict[str, Any]], workdir: str, progress_cb: Optional[Callable[[int, int], None]] = None, cancel_event: Optional["threading.Event"] = None) -> List[Dict[str, Any]]:
+def preprocess_items(
+    items: List[Dict[str, Any]],
+    workdir: str,
+    progress_cb: Optional[Callable[[int, int], None]] = None,
+    cancel_event: Optional[threading.Event] = None,
+) -> List[Dict[str, Any]]:  # noqa: C901 (complexity; split into helpers later)
     """Process items and write per-file artifacts.
 
     progress_cb, if provided, will be called as progress_cb(processed_count, total)
@@ -37,12 +48,11 @@ def preprocess_items(items: List[Dict[str, Any]], workdir: str, progress_cb: Opt
 
     Returns list of index entries written to preproc.index.jsonl.
     """
-    import threading
 
     wd = Path(workdir)
-    preproc_dir = wd / 'preproc'
+    preproc_dir = wd / "preproc"
     preproc_dir.mkdir(parents=True, exist_ok=True)
-    index_path = wd / 'preproc.index.jsonl'
+    index_path = wd / "preproc.index.jsonl"
     index_entries: List[Dict[str, Any]] = []
 
     total = len(items)
@@ -52,7 +62,7 @@ def preprocess_items(items: List[Dict[str, Any]], workdir: str, progress_cb: Opt
         if cancel_event is not None and cancel_event.is_set():
             break
 
-        sha = it.get('sha256')
+        sha = it.get("sha256")
         if not sha:
             processed += 1
             if callable(progress_cb):
@@ -66,7 +76,7 @@ def preprocess_items(items: List[Dict[str, Any]], workdir: str, progress_cb: Opt
         art_dir = preproc_dir / sha
         art_dir.mkdir(parents=True, exist_ok=True)
 
-        src = it.get('path')
+        src = it.get("path")
         if not src or not Path(src).exists():
             processed += 1
             if callable(progress_cb):
@@ -77,7 +87,7 @@ def preprocess_items(items: List[Dict[str, Any]], workdir: str, progress_cb: Opt
             continue
 
         # copy the original file as input.bin if not present
-        dst_input = art_dir / 'input.bin'
+        dst_input = art_dir / "input.bin"
         try:
             if not dst_input.exists():
                 shutil.copy2(str(src), str(dst_input))
@@ -86,15 +96,15 @@ def preprocess_items(items: List[Dict[str, Any]], workdir: str, progress_cb: Opt
             pass
 
         meta = {
-            'path': str(Path(src).resolve()),
-            'sha256': sha,
-            'size': it.get('size'),
-            'mtime': it.get('mtime'),
-            'artifact_dir': str(art_dir.relative_to(wd)),
-            'generated_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "path": str(Path(src).resolve()),
+            "sha256": sha,
+            "size": it.get("size"),
+            "mtime": it.get("mtime"),
+            "artifact_dir": str(art_dir.relative_to(wd)),
+            "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         }
 
-        meta_path = art_dir / 'metadata.json'
+        meta_path = art_dir / "metadata.json"
         try:
             _atomic_write(meta_path, json.dumps(meta, sort_keys=True, indent=2))
         except Exception:
@@ -102,17 +112,17 @@ def preprocess_items(items: List[Dict[str, Any]], workdir: str, progress_cb: Opt
             pass
 
         idx = {
-            'input_path': str(Path(src).resolve()),
-            'sha256': sha,
-            'artifact_dir': str(art_dir.relative_to(wd)),
-            'ts': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "input_path": str(Path(src).resolve()),
+            "sha256": sha,
+            "artifact_dir": str(art_dir.relative_to(wd)),
+            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         }
         index_entries.append(idx)
 
         # append to index file (ndjson)
         try:
-            with index_path.open('a', encoding='utf-8') as f:
-                f.write(json.dumps(idx, sort_keys=True, ensure_ascii=False) + '\n')
+            with index_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(idx, sort_keys=True, ensure_ascii=False) + "\n")
         except Exception:
             pass
 
@@ -126,5 +136,5 @@ def preprocess_items(items: List[Dict[str, Any]], workdir: str, progress_cb: Opt
     return index_entries
 
 
-if __name__ == '__main__':
-    print('preproc module: call preprocess_items(items, workdir)')
+if __name__ == "__main__":
+    print("preproc module: call preprocess_items(items, workdir)")

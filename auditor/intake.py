@@ -6,19 +6,22 @@ SHA-256 hashes plus basic metadata (mtime, size). Writes `inputs.manifest.json`.
 This is intentionally minimal: production code should add owners, UID/GID,
 platform-specific metadata, SBOM capture hooks, and exclusion rules.
 """
+
 from __future__ import annotations
 
-import os
-import json
-import hashlib
 import datetime
-from typing import List, Dict, Any, Optional
+import hashlib
+import json
+import os
 import threading
+from typing import Any, Dict, List, Optional
 
 
-def hash_file_sha256(path: str, chunk_size: int = 8192, cancel_event: Optional[threading.Event] = None) -> str:
+def hash_file_sha256(
+    path: str, chunk_size: int = 8192, cancel_event: Optional[threading.Event] = None
+) -> str:
     h = hashlib.sha256()
-    with open(path, 'rb') as f:
+    with open(path, "rb") as f:
         while True:
             if cancel_event is not None and cancel_event.is_set():
                 raise OperationCancelled()
@@ -33,7 +36,9 @@ class OperationCancelled(Exception):
     """Raised when a cooperative operation was cancelled via an Event."""
 
 
-def enumerate_inputs(paths: List[str], progress_cb=None, cancel_event: Optional["threading.Event"] = None) -> List[Dict[str, Any]]:
+def enumerate_inputs(
+    paths: List[str], progress_cb=None, cancel_event: Optional["threading.Event"] = None
+) -> List[Dict[str, Any]]:  # noqa: C901 (complexity: refactor later)
     """Enumerate files and compute SHA-256.
 
     If progress_cb is provided it will be called as progress_cb(count, path, total)
@@ -53,7 +58,11 @@ def enumerate_inputs(paths: List[str], progress_cb=None, cancel_event: Optional[
 
     for p in paths:
         # cancellation check
-        if cancel_event is not None and hasattr(cancel_event, 'is_set') and cancel_event.is_set():
+        if (
+            cancel_event is not None
+            and hasattr(cancel_event, "is_set")
+            and cancel_event.is_set()
+        ):
             break
 
         if os.path.isdir(p):
@@ -71,16 +80,18 @@ def enumerate_inputs(paths: List[str], progress_cb=None, cancel_event: Optional[
                             # propagate cancellation to outer loop
                             raise
                         item = {
-                            'path': os.path.abspath(fp),
-                            'size': stat.st_size,
-                            'mtime': datetime.datetime.fromtimestamp(stat.st_mtime, datetime.timezone.utc).isoformat(),
-                            'sha256': sha,
+                            "path": os.path.abspath(fp),
+                            "size": stat.st_size,
+                            "mtime": datetime.datetime.fromtimestamp(
+                                stat.st_mtime, datetime.timezone.utc
+                            ).isoformat(),
+                            "sha256": sha,
                         }
                         out.append(item)
                         count += 1
                         if callable(progress_cb):
                             try:
-                                progress_cb(count, item['path'], total)
+                                progress_cb(count, item["path"], total)
                             except Exception:
                                 pass
                     except OperationCancelled:
@@ -101,16 +112,18 @@ def enumerate_inputs(paths: List[str], progress_cb=None, cancel_event: Optional[
                 except OperationCancelled:
                     return out
                 item = {
-                    'path': os.path.abspath(p),
-                    'size': stat.st_size,
-                    'mtime': datetime.datetime.fromtimestamp(stat.st_mtime, datetime.timezone.utc).isoformat(),
-                    'sha256': sha,
+                    "path": os.path.abspath(p),
+                    "size": stat.st_size,
+                    "mtime": datetime.datetime.fromtimestamp(
+                        stat.st_mtime, datetime.timezone.utc
+                    ).isoformat(),
+                    "sha256": sha,
                 }
                 out.append(item)
                 count += 1
                 if callable(progress_cb):
                     try:
-                        progress_cb(count, item['path'], total)
+                        progress_cb(count, item["path"], total)
                     except Exception:
                         pass
             except Exception:
@@ -131,12 +144,21 @@ def count_inputs(paths: List[str]) -> int:
 
 
 def write_manifest(manifest_path: str, items: List[Dict[str, Any]]) -> None:
-    with open(manifest_path, 'w', encoding='utf-8') as f:
-        json.dump({'generated_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'items': items}, f, indent=2)
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "generated_at": datetime.datetime.now(
+                    datetime.timezone.utc
+                ).isoformat(),
+                "items": items,
+            },
+            f,
+            indent=2,
+        )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Demo: create manifest for current directory
-    items = enumerate_inputs(['.'])
-    write_manifest('./case_demo/inputs.manifest.json', items)
-    print('Wrote manifest with', len(items), 'files')
+    items = enumerate_inputs(["."])
+    write_manifest("./case_demo/inputs.manifest.json", items)
+    print("Wrote manifest with", len(items), "files")

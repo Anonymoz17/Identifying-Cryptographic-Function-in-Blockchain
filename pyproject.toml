@@ -1,0 +1,19 @@
+[tool.black]
+line-length = 88
+skip-string-normalization = false
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.ruff]
+line-length = 88
+select = ["E", "F", "W", "B", "C", "Q", "I"]
+# Temporarily ignore complexity (C901) until we can refactor large functions.
+ignore = ["E501", "C901"]
+# Additional ruff ignores can be specified using an `extend-ignore` array here, for example:
+# extend-ignore = ["F401"]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"

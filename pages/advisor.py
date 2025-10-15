@@ -1,11 +1,12 @@
 # pages/advisor.py
 import customtkinter as ctk
+
+from core.kb import list_algorithms
+from core.recommender import compare, top_n
 from roles import is_premium
 from ui.card import Card
 from ui.grid import grid_evenly
 
-from core.kb import list_algorithms
-from core.recommender import compare, top_n
 
 class AdvisorPage(ctk.CTkFrame):
     """
@@ -15,6 +16,7 @@ class AdvisorPage(ctk.CTkFrame):
     - Tiny legend: "risk: lower is better"
     - Responsive: title/subtitle/button buckets only (no forced heights to avoid flicker)
     """
+
     def __init__(self, master, switch_page_callback):
         super().__init__(master)
         self.switch_page = switch_page_callback
@@ -41,22 +43,28 @@ class AdvisorPage(ctk.CTkFrame):
 
         # ---- Top-3 card ----
         self.top_card = ctk.CTkFrame(
-            content, corner_radius=14, border_width=1, border_color="#cdd5e0",
+            content,
+            corner_radius=14,
+            border_width=1,
+            border_color="#cdd5e0",
             fg_color=("#f7f9fc", "#121212"),
         )
         self.top_card.pack(fill="x", padx=24, pady=(0, 14))
         # let pack decide; don't force heights
         self.top_card.pack_propagate(True)
 
-        ctk.CTkLabel(self.top_card, text="Top recommendations", font=("Roboto", 16, "bold")).pack(
-            anchor="w", padx=14, pady=(12, 6)
-        )
+        ctk.CTkLabel(
+            self.top_card, text="Top recommendations", font=("Roboto", 16, "bold")
+        ).pack(anchor="w", padx=14, pady=(12, 6))
         self.top_label = ctk.CTkLabel(self.top_card, text="", justify="left")
         self.top_label.pack(anchor="w", padx=14, pady=(0, 12))
 
         # ---- Compare controls card ----
         self.compare_card = ctk.CTkFrame(
-            content, corner_radius=14, border_width=1, border_color="#cdd5e0",
+            content,
+            corner_radius=14,
+            border_width=1,
+            border_color="#cdd5e0",
             fg_color=("#f5f7fb", "#1a1a1a"),
         )
         self.compare_card.pack(fill="x", padx=24, pady=(0, 12))
@@ -69,15 +77,21 @@ class AdvisorPage(ctk.CTkFrame):
         self._id_by_name = {v: k for k, v in names.items()}
         values = list(names.values()) or ["(no data)"]
 
-        ctk.CTkLabel(row, text="Compare:").grid(row=0, column=0, padx=(0, 8), pady=6, sticky="e")
+        ctk.CTkLabel(row, text="Compare:").grid(
+            row=0, column=0, padx=(0, 8), pady=6, sticky="e"
+        )
 
-        self.a_menu = ctk.CTkOptionMenu(row, values=values, command=lambda _: self._check_compare_state())
+        self.a_menu = ctk.CTkOptionMenu(
+            row, values=values, command=lambda _: self._check_compare_state()
+        )
         self.a_menu.set(values[0])
         self.a_menu.grid(row=0, column=1, padx=4, pady=6)
 
         ctk.CTkLabel(row, text="vs").grid(row=0, column=2, padx=8, pady=6)
 
-        self.b_menu = ctk.CTkOptionMenu(row, values=values, command=lambda _: self._check_compare_state())
+        self.b_menu = ctk.CTkOptionMenu(
+            row, values=values, command=lambda _: self._check_compare_state()
+        )
         self.b_menu.set(values[1 if len(values) > 1 else 0])
         self.b_menu.grid(row=0, column=3, padx=4, pady=6)
 
@@ -87,15 +101,22 @@ class AdvisorPage(ctk.CTkFrame):
         controls.grid_columnconfigure(0, weight=0)
         controls.grid_columnconfigure(1, weight=1)
 
-        self.legend = ctk.CTkLabel(controls, text="risk: lower is better", text_color="#6b7280")
+        self.legend = ctk.CTkLabel(
+            controls, text="risk: lower is better", text_color="#6b7280"
+        )
         self.legend.grid(row=0, column=0, sticky="w", padx=(0, 8))
 
-        self.compare_btn = ctk.CTkButton(controls, text="Compare", command=self._do_compare, state="disabled")
+        self.compare_btn = ctk.CTkButton(
+            controls, text="Compare", command=self._do_compare, state="disabled"
+        )
         self.compare_btn.grid(row=0, column=1, sticky="e")
 
         # ---- Result card ----
         self.result_card = ctk.CTkFrame(
-            content, corner_radius=14, border_width=1, border_color="#cdd5e0",
+            content,
+            corner_radius=14,
+            border_width=1,
+            border_color="#cdd5e0",
             fg_color=("#ffffff", "#0f0f0f"),
         )
         self.result_card.pack(fill="x", padx=24, pady=(0, 16))
@@ -114,44 +135,52 @@ class AdvisorPage(ctk.CTkFrame):
         bottom.grid_columnconfigure(1, weight=1)
         bottom.grid_columnconfigure(2, weight=0)
 
-        self.back_btn = ctk.CTkButton(bottom, text="Back to Dashboard",
-                                      command=lambda: self.switch_page("dashboard"))
+        self.back_btn = ctk.CTkButton(
+            bottom,
+            text="Back to Dashboard",
+            command=lambda: self.switch_page("dashboard"),
+        )
         self.back_btn.grid(row=0, column=0, sticky="w")
 
         self.cards_wrap = ctk.CTkFrame(self, fg_color="transparent")
 
         # append at the next row in the existing grid:
-        next_row = self.grid_size()[1]   # number of rows currently used
+        next_row = self.grid_size()[1]  # number of rows currently used
         self.cards_wrap.grid(row=next_row, column=0, sticky="ew", padx=24, pady=12)
-        self.grid_columnconfigure(0, weight=1)          # make page root column stretch
+        self.grid_columnconfigure(0, weight=1)  # make page root column stretch
         self.cards_wrap.grid_columnconfigure(0, weight=1)
 
         self.cards_frame = ctk.CTkFrame(self.cards_wrap, fg_color="transparent")
         self.cards_frame.grid(row=0, column=0, sticky="ew")
 
         # Cards (always present -> layout never shifts)
-        self.card_weights = Card(self.cards_frame,
-                                title="Adjust Weights",
-                                subtitle="Tune security/performance/adoption/risk/compatibility",
-                                command=self._open_weights_dialog)
+        self.card_weights = Card(
+            self.cards_frame,
+            title="Adjust Weights",
+            subtitle="Tune security/performance/adoption/risk/compatibility",
+            command=self._open_weights_dialog,
+        )
 
-        self.card_top3 = Card(self.cards_frame,
-                            title="Top-3 Recommendations",
-                            subtitle="Best fits for your selected use case",
-                            command=self._show_top3)
+        self.card_top3 = Card(
+            self.cards_frame,
+            title="Top-3 Recommendations",
+            subtitle="Best fits for your selected use case",
+            command=self._show_top3,
+        )
 
         self._cards = [self.card_weights, self.card_top3]
 
         # First layout + apply current role
         self._layout_cards()
-        self.apply_role(self.master.get_role() if hasattr(self.master, "get_role") else None)
+        self.apply_role(
+            self.master.get_role() if hasattr(self.master, "get_role") else None
+        )
 
         # after you finish creating UI and the Card widgets:
         if hasattr(self.master, "get_role"):
             self.apply_role(self.master.get_role())
         else:
             self.apply_role(getattr(self.master, "current_user_role", None))
-
 
         # Make it responsive
         self.bind("<Configure>", lambda e: self._layout_cards())
@@ -180,8 +209,10 @@ class AdvisorPage(ctk.CTkFrame):
     def _check_compare_state(self):
         a_name = self.a_menu.get()
         b_name = self.b_menu.get()
-        distinct = (a_name != b_name)
-        enable = distinct and (a_name in self._id_by_name) and (b_name in self._id_by_name)
+        distinct = a_name != b_name
+        enable = (
+            distinct and (a_name in self._id_by_name) and (b_name in self._id_by_name)
+        )
         self.compare_btn.configure(state=("normal" if enable else "disabled"))
 
     def _do_compare(self):
@@ -231,7 +262,7 @@ class AdvisorPage(ctk.CTkFrame):
 
         # Button buckets (reuse Dashboard feel)
         btn_w = max(120, min(220, int(w * 0.12)))
-        btn_h = max(36,  min(56,  int(h * 0.05)))
+        btn_h = max(36, min(56, int(h * 0.05)))
         if (btn_w, btn_h) != (self._last_btn_w, self._last_btn_h):
             self._last_btn_w, self._last_btn_h = btn_w, btn_h
             for b in (self.compare_btn, self.back_btn):
@@ -239,7 +270,7 @@ class AdvisorPage(ctk.CTkFrame):
                     b.configure(width=btn_w, height=btn_h)
                 except Exception:
                     pass
-    
+
     def apply_role(self, role: str | None):
         premium = is_premium(role)
         self.card_weights.set_locked(not premium, "🔒 Premium feature")
@@ -258,4 +289,3 @@ class AdvisorPage(ctk.CTkFrame):
     def _show_top3(self):
         # TODO: call your recommender.top_n() + kb filters; render in a popup or side panel
         pass
-

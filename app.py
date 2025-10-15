@@ -1,8 +1,18 @@
 # app.py
-import customtkinter as ctk
-from file_handler import FileHandler
-from pages import LoginPage, RegisterPage, DashboardPage, AnalysisPage, AdvisorPage, AuditorPage
 from pathlib import Path
+
+import customtkinter as ctk
+
+from file_handler import FileHandler
+from pages import (
+    AdvisorPage,
+    AnalysisPage,
+    AuditorPage,
+    DashboardPage,
+    LoginPage,
+    RegisterPage,
+)
+
 
 class App(ctk.CTk):
     def __init__(self):
@@ -26,12 +36,14 @@ class App(ctk.CTk):
 
         # --- Instantiate pages ---
         self._pages = {
-            "login":     LoginPage(self, self.switch_page),
-            "register":  RegisterPage(self, self.switch_page),
+            "login": LoginPage(self, self.switch_page),
+            "register": RegisterPage(self, self.switch_page),
             "dashboard": DashboardPage(self, self.switch_page, self.file_handler),
-            "analysis":  AnalysisPage(self, self.switch_page),
-            "advisor":   AdvisorPage(self, self.switch_page),  # <-- fixed: real frame instance
-            "auditor":   AuditorPage(self, self.switch_page),
+            "analysis": AnalysisPage(self, self.switch_page),
+            "advisor": AdvisorPage(
+                self, self.switch_page
+            ),  # <-- fixed: real frame instance
+            "auditor": AuditorPage(self, self.switch_page),
         }
 
         for p in self._pages.values():
@@ -102,7 +114,8 @@ class App(ctk.CTk):
 
     def _do_resize(self):
         self._resize_job = None
-        if self._closing: return
+        if self._closing:
+            return
         page = self._pages.get(self._current_page_name)
         try:
             if page is not None and page.winfo_exists() and hasattr(page, "on_resize"):
@@ -114,15 +127,15 @@ class App(ctk.CTk):
     def _on_close(self):
         self._closing = True
         if self._resize_job is not None:
-            try: self.after_cancel(self._resize_job)
-            except Exception: pass
+            try:
+                self.after_cancel(self._resize_job)
+            except Exception:
+                pass
             self._resize_job = None
         self.destroy()
 
+
 if __name__ == "__main__":
-    ctk.set_appearance_mode("dark")          
-    ctk.set_default_color_theme("dark-blue") 
+    ctk.set_appearance_mode("dark")
+    ctk.set_default_color_theme("dark-blue")
     App().mainloop()
-
-
-
