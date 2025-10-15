@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main, standardize, repo-hygiene ]
+    branches: [main, standardize, repo-hygiene]
   pull_request:
-    branches: [ main, standardize, repo-hygiene ]
+    branches: [main, standardize, repo-hygiene]
 
 jobs:
   lint-and-test:
