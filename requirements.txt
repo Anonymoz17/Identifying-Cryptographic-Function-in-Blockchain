@@ -1,0 +1,23 @@
+# Minimal requirements for development and running the application.
+# Keep this file human-editable; use a lock/constraints file for reproducible installs.
+
+# runtime
+python-dotenv>=0.21.0
+supabase>=1.0.0
+customtkinter>=6.0.0
+Pillow>=9.0.0
+tkinterdnd2>=0.3.0
+requests>=2.28.0
+
+# test / dev
+pytest>=7.0.0
+
+# Optional helpers you may want when packaging or running CI
+black
+isort
+ruff
+
+# Notes:
+# - Pin exact versions in a lockfile (pip-tools/poetry/venv) for CI and reproducible installs.
+# - If your OS provides a system tkinter, the `tkinter` stdlib module will be present; packages above
+#   reference optional extensions used by the GUI (customtkinter, tkinterdnd2).
