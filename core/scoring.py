@@ -1,5 +1,6 @@
 # core/scoring.py
 from typing import Dict, Optional
+
 from .kb import get_scores
 
 # Free-tier default weights
@@ -10,6 +11,7 @@ DEFAULT_WEIGHTS: Dict[str, float] = {
     "compatibility": 0.10,
     "risk": 0.10,  # note: we invert risk = 100 - risk
 }
+
 
 def score_algorithm(alg_id: str, weights: Optional[Dict[str, float]] = None) -> float:
     """
@@ -25,11 +27,11 @@ def score_algorithm(alg_id: str, weights: Optional[Dict[str, float]] = None) -> 
     risk_inv = 100 - s.get("risk", 50)
 
     total = (
-        sec  * w.get("security", 0) +
-        perf * w.get("performance", 0) +
-        adop * w.get("adoption", 0) +
-        comp * w.get("compatibility", 0) +
-        risk_inv * w.get("risk", 0)
+        sec * w.get("security", 0)
+        + perf * w.get("performance", 0)
+        + adop * w.get("adoption", 0)
+        + comp * w.get("compatibility", 0)
+        + risk_inv * w.get("risk", 0)
     )
     # Clamp to [0,100] just in case
     return max(0.0, min(100.0, total))

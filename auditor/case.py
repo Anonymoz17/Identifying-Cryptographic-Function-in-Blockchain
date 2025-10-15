@@ -5,19 +5,20 @@ metadata file and immutably copying/recording a policy baseline.
 
 This is a small scaffold to start implementing the Auditor Edition pipeline.
 """
+
 from __future__ import annotations
 
-import json
-from pathlib import Path
 import datetime
-from datetime import timezone
 import hashlib
-from typing import Dict, Any
+import json
+from datetime import timezone
+from pathlib import Path
+from typing import Any, Dict
 
 
 def _atomic_write_text(path: Path, text: str) -> None:
-    tmp = path.with_suffix(path.suffix + '.tmp')
-    tmp.write_text(text, encoding='utf-8')
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
     tmp.replace(path)
 
 
@@ -63,12 +64,14 @@ class Engagement:
         dest.write_bytes(data)
         # record digest for immutability reference
         d = hashlib.sha256(data).hexdigest()
-        (dest.with_suffix(dest.suffix + '.sha256')).write_text(d, encoding='utf-8')
+        (dest.with_suffix(dest.suffix + ".sha256")).write_text(d, encoding="utf-8")
         return str(dest)
 
 
 if __name__ == "__main__":
     # tiny demo
-    e = Engagement(workdir="./case_demo", case_id="CASE-001", client="ACME Corp", scope="/repo")
+    e = Engagement(
+        workdir="./case_demo", case_id="CASE-001", client="ACME Corp", scope="/repo"
+    )
     print("metadata:", e.write_metadata())
     print("policy copy (none) skipped")

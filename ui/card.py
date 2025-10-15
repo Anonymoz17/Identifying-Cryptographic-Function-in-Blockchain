@@ -1,8 +1,11 @@
 # ui/card.py  (replace your current Card with this)
 import customtkinter as ctk
 
+
 class Card(ctk.CTkFrame):
-    def __init__(self, master, title, subtitle="", locked=False, command=None, min_h=140):
+    def __init__(
+        self, master, title, subtitle="", locked=False, command=None, min_h=140
+    ):
         super().__init__(master, corner_radius=16, border_width=1)
         self._command = command
         self._locked = bool(locked)
@@ -17,7 +20,10 @@ class Card(ctk.CTkFrame):
         # Title
         self.title_lbl = ctk.CTkLabel(body, text=title, font=("Roboto", 18, "bold"))
         self.title_lbl.pack(anchor="w")
-        self._default_title_color = self.title_lbl.cget("text_color") or ("#000000", "#FFFFFF")
+        self._default_title_color = self.title_lbl.cget("text_color") or (
+            "#000000",
+            "#FFFFFF",
+        )
 
         # Subtitle (optional)
         self.sub_lbl = None
@@ -25,15 +31,22 @@ class Card(ctk.CTkFrame):
         if subtitle:
             self.sub_lbl = ctk.CTkLabel(body, text=subtitle, font=("Roboto", 13))
             self.sub_lbl.pack(anchor="w", pady=(6, 0))
-            self._default_sub_color = self.sub_lbl.cget("text_color") or ("#333333", "#CCCCCC")
+            self._default_sub_color = self.sub_lbl.cget("text_color") or (
+                "#333333",
+                "#CCCCCC",
+            )
 
         # Action button
         self.btn = ctk.CTkButton(body, text="Open", command=self._on_click, height=32)
         self.btn.pack(anchor="w", pady=(10, 0))
 
         # Lock overlay
-        self.overlay = ctk.CTkFrame(self, corner_radius=16, fg_color=("gray92", "gray20"))
-        self.lock_lbl = ctk.CTkLabel(self.overlay, text="🔒 Premium feature", font=("Roboto", 14, "bold"))
+        self.overlay = ctk.CTkFrame(
+            self, corner_radius=16, fg_color=("gray92", "gray20")
+        )
+        self.lock_lbl = ctk.CTkLabel(
+            self.overlay, text="🔒 Premium feature", font=("Roboto", 14, "bold")
+        )
 
         self.set_locked(self._locked)
 

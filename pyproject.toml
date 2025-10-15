@@ -9,10 +9,10 @@ line_length = 88
 [tool.ruff]
 line-length = 88
 select = ["E", "F", "W", "B", "C", "Q", "I"]
-ignore = ["E501"]
-
-[tool.ruff.extend-ignore]
-# project-specific ignores can go here
+# Temporarily ignore complexity (C901) until we can refactor large functions.
+ignore = ["E501", "C901"]
+# Additional ruff ignores can be specified using an `extend-ignore` array here, for example:
+# extend-ignore = ["F401"]
 
 [build-system]
 requires = ["setuptools", "wheel"]

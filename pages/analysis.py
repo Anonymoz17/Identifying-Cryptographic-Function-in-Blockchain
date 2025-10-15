@@ -1,9 +1,10 @@
 # pages/analysis.py
-import os
 import json
-import customtkinter as ctk
-from typing import List, Dict, Any
+import os
 from tkinter import filedialog
+from typing import Any, Dict, List
+
+import customtkinter as ctk
 
 
 class AnalysisPage(ctk.CTkFrame):
@@ -50,10 +51,14 @@ class AnalysisPage(ctk.CTkFrame):
         actions = ctk.CTkFrame(content, fg_color="transparent")
         actions.pack(pady=(4, 0))
 
-        self.run_btn = ctk.CTkButton(actions, text="Run Analysis (placeholder)", command=self._run_analysis)
+        self.run_btn = ctk.CTkButton(
+            actions, text="Run Analysis (placeholder)", command=self._run_analysis
+        )
         self.run_btn.pack(pady=(0, 6))
 
-        self.export_btn = ctk.CTkButton(actions, text="Export Inputs (JSON)", command=self._export_json)
+        self.export_btn = ctk.CTkButton(
+            actions, text="Export Inputs (JSON)", command=self._export_json
+        )
         self.export_btn.pack(pady=(0, 6))
 
         # Sticky bottom bar
@@ -63,7 +68,11 @@ class AnalysisPage(ctk.CTkFrame):
         bottom.grid_columnconfigure(1, weight=1)
         bottom.grid_columnconfigure(2, weight=0)
 
-        self.back_btn = ctk.CTkButton(bottom, text="Back to Dashboard", command=lambda: self.switch_page("dashboard"))
+        self.back_btn = ctk.CTkButton(
+            bottom,
+            text="Back to Dashboard",
+            command=lambda: self.switch_page("dashboard"),
+        )
         self.back_btn.grid(row=0, column=0, sticky="w")
 
         self._compact_height_threshold = 720
@@ -99,7 +108,9 @@ class AnalysisPage(ctk.CTkFrame):
         row = ctk.CTkFrame(self.table, fg_color="transparent")
         row.pack(fill="x", padx=8, pady=2)
 
-        name = meta.get("filename") or os.path.basename(meta.get("stored_path", "")) or "-"
+        name = (
+            meta.get("filename") or os.path.basename(meta.get("stored_path", "")) or "-"
+        )
         category = meta.get("category", "-")
         mime = meta.get("filetype", "-")
         size = str(meta.get("size", "-"))
@@ -107,7 +118,9 @@ class AnalysisPage(ctk.CTkFrame):
 
         values = (name, category, mime, size, stored)
         for i, val in enumerate(values):
-            ctk.CTkLabel(row, text=str(val)).grid(row=0, column=i, sticky="w", padx=(8, 12), pady=2)
+            ctk.CTkLabel(row, text=str(val)).grid(
+                row=0, column=i, sticky="w", padx=(8, 12), pady=2
+            )
             row.grid_columnconfigure(i, weight=(2 if i == 4 else 1))
 
     def _reload_from_dashboard(self):
@@ -116,7 +129,9 @@ class AnalysisPage(ctk.CTkFrame):
         dash = getattr(app, "_pages", {}).get("dashboard")
         uploaded: List[Dict[str, Any]] = getattr(dash, "uploaded", []) if dash else []
         if not uploaded:
-            self._set_status("No files yet. Add files on Dashboard and click Analyze.", error=False)
+            self._set_status(
+                "No files yet. Add files on Dashboard and click Analyze.", error=False
+            )
             return
         for meta in uploaded:
             self._add_row(meta)
@@ -136,7 +151,9 @@ class AnalysisPage(ctk.CTkFrame):
         uploaded: List[Dict[str, Any]] = getattr(dash, "uploaded", []) if dash else []
 
         if not uploaded:
-            self._set_status("Nothing to analyze. Please add files on Dashboard.", error=True)
+            self._set_status(
+                "Nothing to analyze. Please add files on Dashboard.", error=True
+            )
             return
 
         # TODO: integrate real pipeline; for now just pretend we did work.
@@ -191,7 +208,7 @@ class AnalysisPage(ctk.CTkFrame):
 
         # Button sizing
         btn_w = max(120, min(220, int(w * 0.12)))
-        btn_h = max(36,  min(56,  int(h * 0.05)))
+        btn_h = max(36, min(56, int(h * 0.05)))
         for b in (self.run_btn, self.export_btn, self.back_btn):
             try:
                 b.configure(width=btn_w, height=btn_h)

@@ -1,8 +1,10 @@
 # pages/reports.py
 import customtkinter as ctk
+
 from roles import is_premium
 from ui.card import Card
 from ui.grid import grid_evenly
+
 
 class ReportsPage(ctk.CTkFrame):
     def __init__(self, master, switch_page, get_role, export_json_cb, export_pdf_cb):
@@ -23,15 +25,19 @@ class ReportsPage(ctk.CTkFrame):
         self.cards_frame.pack(fill="both", expand=False)
 
         # Create cards (always the same)
-        self.card_json = Card(self.cards_frame,
-                              title="Export JSON",
-                              subtitle="Machine-readable report for pipelines",
-                              command=self.export_json_cb)
+        self.card_json = Card(
+            self.cards_frame,
+            title="Export JSON",
+            subtitle="Machine-readable report for pipelines",
+            command=self.export_json_cb,
+        )
 
-        self.card_pdf = Card(self.cards_frame,
-                             title="Export PDF",
-                             subtitle="Polished, ready-to-share report",
-                             command=self.export_pdf_cb)
+        self.card_pdf = Card(
+            self.cards_frame,
+            title="Export PDF",
+            subtitle="Polished, ready-to-share report",
+            command=self.export_pdf_cb,
+        )
 
         self.cards = [self.card_json, self.card_pdf]
 
