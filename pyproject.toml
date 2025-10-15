@@ -1,0 +1,19 @@
+[tool.black]
+line-length = 88
+skip-string-normalization = false
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.ruff]
+line-length = 88
+select = ["E", "F", "W", "B", "C", "Q", "I"]
+ignore = ["E501"]
+
+[tool.ruff.extend-ignore]
+# project-specific ignores can go here
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
