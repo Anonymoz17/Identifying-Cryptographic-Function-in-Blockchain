@@ -95,12 +95,28 @@ def preprocess_items(
             # skip on copy failure; continue to write metadata
             pass
 
+        # normalize mtime: tests and upstream code sometimes provide numeric
+        # timestamps (float/int) while other callers use ISO strings. Keep a
+        # consistent ISO8601 string in metadata.json.
+        raw_mtime = it.get("mtime")
+        if isinstance(raw_mtime, (int, float)):
+            try:
+                mtime_val = datetime.datetime.fromtimestamp(
+                    float(raw_mtime), datetime.timezone.utc
+                ).isoformat()
+            except Exception:
+                mtime_val = str(raw_mtime)
+        else:
+            mtime_val = raw_mtime
+
         meta = {
             "path": str(Path(src).resolve()),
             "sha256": sha,
             "size": it.get("size"),
-            "mtime": it.get("mtime"),
-            "artifact_dir": str(art_dir.relative_to(wd)),
+            "mtime": mtime_val,
+            # store artifact_dir as a POSIX-style relative path for
+            # cross-platform consistency (index files are easier to parse)
+            "artifact_dir": art_dir.relative_to(wd).as_posix(),
             "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         }
 
@@ -114,7 +130,8 @@ def preprocess_items(
         idx = {
             "input_path": str(Path(src).resolve()),
             "sha256": sha,
-            "artifact_dir": str(art_dir.relative_to(wd)),
+            "size": it.get("size"),
+            "artifact_dir": art_dir.relative_to(wd).as_posix(),
             "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         }
         index_entries.append(idx)

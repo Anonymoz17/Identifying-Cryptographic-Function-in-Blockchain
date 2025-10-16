@@ -321,26 +321,28 @@ class AuditorPage(ctk.CTkFrame):
 
     def _open_workdir(self):
         wd = self.workdir_entry.get().strip() or str(Path.cwd() / "case_demo")
-        wd = str(Path(wd).resolve())
+        case_id = self.case_entry.get().strip() or "CASE-000"
         try:
-            # Use webbrowser to open the folder via file:// URL which is portable
-            webbrowser.open(Path(wd).as_uri())
+            ws = Workspace(Path(wd), case_id)
+            # ensure canonical case workspace exists then open it
+            ws.ensure()
+            webbrowser.open(ws.root.as_uri())
         except Exception:
             self._set_status(f"Could not open folder: {wd}", error=True)
 
     def _view_auditlog(self):
         wd = self.workdir_entry.get().strip() or str(Path.cwd() / "case_demo")
-        path = str(Path(wd).resolve() / "auditlog.ndjson")
+        case_id = self.case_entry.get().strip() or "CASE-000"
         try:
-            if Path(path).exists():
-                # show an in-app viewer modal
+            ws = Workspace(Path(wd), case_id)
+            auditlog_path = ws.paths().get("auditlog")
+            if auditlog_path and auditlog_path.exists():
                 try:
-                    self._show_auditlog_viewer(path)
+                    self._show_auditlog_viewer(str(auditlog_path))
                 except Exception:
-                    # fallback to external opener
-                    webbrowser.open(Path(path).as_uri())
+                    webbrowser.open(auditlog_path.as_uri())
             else:
-                self._set_status("No auditlog found in workdir", error=True)
+                self._set_status("No auditlog found in case workspace", error=True)
         except Exception:
             self._set_status("Could not open audit log", error=True)
 
@@ -360,6 +362,12 @@ class AuditorPage(ctk.CTkFrame):
                 txt.insert("end", line)
         except Exception as e:
             txt.insert("end", f"Error reading audit log: {e}\n")
+            try:
+                # try to append a diagnostic record to the auditlog (if writable)
+                al = AuditLog(path)
+                al.append("auditlog.read_error", {"error": str(e)})
+            except Exception:
+                pass
 
         def on_verify():
             try:
@@ -416,15 +424,45 @@ class AuditorPage(ctk.CTkFrame):
             # ensure unique
             unique_files = list(dict.fromkeys([Path(f) for f in files]))
 
-            # build pack
+            # show a small modal/progress indicator with file count
+            file_count = len(unique_files)
+            prog_top = None
+            try:
+                prog_top = tk.Toplevel(self)
+                prog_top.title("Building evidence pack")
+                prog_top.geometry("400x120")
+                lbl = ctk.CTkLabel(
+                    prog_top, text=f"Building evidence pack ({file_count} files)..."
+                )
+                lbl.pack(padx=12, pady=18)
+                prog_bar = ctk.CTkProgressBar(prog_top, width=360)
+                prog_bar.set(0.0)
+                prog_bar.pack(padx=12, pady=(0, 12))
+                self.update_idletasks()
+            except Exception:
+                prog_top = None
+
+            # build pack (this may take time)
             self.after(0, partial(self._set_status, "Building evidence pack..."))
             zip_path, zip_sha = build_evidence_pack(
                 ws.root, case_id, unique_files, out_dir=paths.get("evidence_dir")
             )
 
+            # update progress modal to complete
+            try:
+                if prog_top is not None:
+                    prog_bar.set(1.0)
+                    lbl.configure(text=f"Finished: {zip_path.name}")
+                    self.update_idletasks()
+            except Exception:
+                pass
+
             # append auditlog event
             al = AuditLog(str(paths.get("auditlog")))
-            al.append("evidence.packaged", {"zip": zip_path.name, "sha256": zip_sha})
+            al.append(
+                "evidence.packaged",
+                {"zip": zip_path.name, "sha256": zip_sha, "files": file_count},
+            )
 
             # UI update: show pack location
             self.after(
@@ -436,8 +474,20 @@ class AuditorPage(ctk.CTkFrame):
             except Exception:
                 pass
         except Exception as e:
+            # record failure into auditlog for diagnostics
+            try:
+                al = AuditLog(str(paths.get("auditlog")))
+                al.append("evidence.failed", {"error": str(e)})
+            except Exception:
+                pass
             self.after(0, partial(self._set_status, f"Export failed: {e}", True))
         finally:
+            # close modal then re-enable button
+            try:
+                if prog_top is not None:
+                    prog_top.destroy()
+            except Exception:
+                pass
             self.after(0, partial(self.export_evidence_btn.configure, state="normal"))
 
     def on_resize(self, w, h):
