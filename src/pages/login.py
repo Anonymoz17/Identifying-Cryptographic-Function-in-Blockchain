@@ -16,10 +16,13 @@ from api_client_supabase import login as sb_login
 # ---------------------------------------------
 HERE = os.path.dirname(os.path.abspath(__file__))
 ASSET_DIRS = [
+    # Try src/assets (if assets moved under src)
     os.path.normpath(os.path.join(HERE, "..", "assets")),
-    os.path.normpath(
-        os.path.join(HERE, "..", "assests")
-    ),  # fallback if old folder name
+    # Also try repository root assets/ (two levels up from src/pages)
+    os.path.normpath(os.path.join(HERE, "..", "..", "assets")),
+    # fallback if old misspelled folder name exists in either location
+    os.path.normpath(os.path.join(HERE, "..", "assests")),
+    os.path.normpath(os.path.join(HERE, "..", "..", "assests")),
 ]
 
 

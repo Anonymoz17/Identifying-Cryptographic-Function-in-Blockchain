@@ -6,9 +6,12 @@ skip-string-normalization = false
 profile = "black"
 line_length = 88
 
+# Configure ruff: do not include import-sorting checks (I) here so isort can be
+# the single source of truth for import ordering in pre-commit. This avoids
+# conflicting fixes between `isort` and `ruff` during commits.
 [tool.ruff]
 line-length = 88
-select = ["E", "F", "W", "B", "C", "Q", "I"]
+select = ["E", "F", "W", "B", "C", "Q"]
 # Temporarily ignore complexity (C901) until we can refactor large functions.
 ignore = ["E501", "C901"]
 # Additional ruff ignores can be specified using an `extend-ignore` array here, for example:
