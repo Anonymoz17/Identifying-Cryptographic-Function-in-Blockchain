@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import threading
 import tkinter as tk
 import webbrowser
@@ -338,6 +339,36 @@ class AuditorPage(ctk.CTkFrame):
                 self._set_status("No auditlog found in case workspace", error=True)
         except Exception:
             self._set_status("Could not open audit log", error=True)
+
+    def _on_export_evidence(self):
+        """Export the case evidence directory as a ZIP file chosen by the user."""
+        from tkinter import filedialog
+
+        try:
+            wd = self.workdir_entry.get().strip() or str(Path.cwd() / "case_demo")
+            case_id = self.case_entry.get().strip() or "CASE-000"
+            ws = Workspace(Path(wd), case_id)
+            ws.ensure()
+            evidence_dir = ws.evidence_dir
+            if not evidence_dir.exists():
+                self._set_status("No evidence directory to export", error=True)
+                return
+
+            dest = filedialog.asksaveasfilename(
+                title="Export Evidence Pack",
+                defaultextension=".zip",
+                filetypes=[("ZIP archive", "*.zip")],
+            )
+            if not dest:
+                return
+
+            base = dest
+            if base.lower().endswith(".zip"):
+                base = base[:-4]
+            shutil.make_archive(base, "zip", root_dir=str(evidence_dir))
+            self._set_status(f"Exported evidence to {dest}")
+        except Exception as e:
+            self._set_status(f"Export error: {e}", error=True)
 
     def _show_auditlog_viewer(self, path: str):
         # modal window with scrollable text and a Verify button

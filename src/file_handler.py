@@ -370,3 +370,50 @@ class FileDropController:
                 self.on_processed(meta)
             except Exception as e:
                 self.on_status(str(e), error=True)
+
+
+def open_file_picker(parent, file_handler: FileHandler, on_processed, on_status=None):
+    """
+    Open a file/directory picker dialog and feed selected paths to FileHandler.
+
+    Expected usage (from UI):
+        open_file_picker(self, self.fh, self._on_processed, self._set_status)
+
+    - parent: a Tk/CTk widget used as the dialog parent
+    - file_handler: instance of FileHandler
+    - on_processed: callback(meta: dict) called for each successfully processed input
+    - on_status: optional callback(message: str, error: bool=False)
+    """
+    try:
+        from tkinter import filedialog
+    except Exception as e:
+        if on_status:
+            on_status(f"File dialog unavailable: {e}", error=True)
+        return
+
+    # Attempt to allow selecting directories as well as files. Many Tk dialogs
+    # don't support mixed selection; show a simple file selection first and
+    # fall back to directory chooser if Cancelled.
+    try:
+        # Allow multiple selection of files
+        root = parent
+        # If parent is a CTk widget, try to use its tk root
+        if hasattr(parent, "tk"):
+            root = parent
+
+        paths = filedialog.askopenfilenames(parent=root, title="Choose files")
+        if not paths:
+            # try directory chooser
+            d = filedialog.askdirectory(parent=root, title="Choose folder")
+            if d:
+                paths = (d,)
+        for p in paths:
+            try:
+                meta = file_handler.handle_input(p)
+                on_processed(meta)
+            except Exception as e:
+                if on_status:
+                    on_status(str(e), error=True)
+    except Exception as e:
+        if on_status:
+            on_status(str(e), error=True)
