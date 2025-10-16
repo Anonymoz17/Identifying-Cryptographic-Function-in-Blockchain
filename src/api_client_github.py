@@ -39,14 +39,12 @@ def _start_callback_server(port: int = 8750):
 def login_with_github(
     port: int = 8750, timeout_sec: int = 180
 ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
-    # 1) Start local callback
     server, Handler = _start_callback_server(port)
     Handler.done = threading.Event()
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
     redirect_url = f"http://127.0.0.1:{port}/auth/callback"
 
-    # 2) Begin OAuth
     try:
         resp = _sb.auth.sign_in_with_oauth(
             {"provider": "github", "options": {"redirect_to": redirect_url}}
@@ -64,7 +62,6 @@ def login_with_github(
     except Exception:
         pass
 
-    # 3) Wait for callback
     if not Handler.done.wait(timeout_sec):
         try:
             server.shutdown()
@@ -79,7 +76,6 @@ def login_with_github(
     if Handler.result["error"]:
         return False, str(Handler.result["error"]), None
 
-    # 4) Exchange code for session
     code = Handler.result["code"]
     try:
         ex = _sb.auth.exchange_code_for_session({"auth_code": code})
@@ -91,7 +87,6 @@ def login_with_github(
             return False, "No session returned from code exchange.", None
 
         token = session.access_token
-        # GitHub email can be empty/private; make it a safe string
         email = getattr(userobj, "email", None) or ""
         uid = str(getattr(userobj, "id", "")) if userobj else ""
         return True, token, {"id": uid, "email": email}

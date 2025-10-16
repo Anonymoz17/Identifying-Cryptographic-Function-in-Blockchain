@@ -1,4 +1,5 @@
-# pages/login.py
+"""moved from pages/login.py"""
+
 import os
 
 import customtkinter as ctk

@@ -1,4 +1,3 @@
-# pages/advisor.py
 import customtkinter as ctk
 
 from core.kb import list_algorithms

@@ -1,4 +1,5 @@
-# app.py
+"""Top-level app runner moved under src for packaging."""
+
 from pathlib import Path
 
 import customtkinter as ctk

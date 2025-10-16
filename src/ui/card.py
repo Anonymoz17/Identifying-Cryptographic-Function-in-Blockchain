@@ -1,4 +1,4 @@
-# ui/card.py  (replace your current Card with this)
+# ui/card.py  (moved from ui/card.py)
 import customtkinter as ctk
 
 

@@ -1,4 +1,5 @@
-# pages/register.py
+"""moved from pages/register.py"""
+
 import customtkinter as ctk
 from PIL import Image, ImageDraw
 

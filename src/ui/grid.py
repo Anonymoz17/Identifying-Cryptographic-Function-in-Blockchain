@@ -1,4 +1,6 @@
-# ui/grid.py
+# ui/grid.py  (moved)
+
+
 def grid_evenly(container, widgets, num_cols=2, padx=12, pady=12):
     # Configure columns to have equal width
     for c in range(num_cols):

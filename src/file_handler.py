@@ -1,4 +1,5 @@
-# file_handler.py
+"""File handling utilities moved under src/ for packaging."""
+
 import datetime
 import io
 import mimetypes
@@ -10,7 +11,6 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-# Optional MIME detector (python-magic / python-magic-bin)
 try:
     import magic  # type: ignore
 
@@ -19,40 +19,18 @@ except Exception:
     _HAS_MAGIC = False
 
 
-# -------- Core file handling --------------------------------------------------
-
-
 class FileHandler:
-    """
-    Handles uploads into ./uploads and detects basic metadata.
-    Now also supports GitHub repo URLs:
-      - https://github.com/<owner>/<repo>
-      - https://github.com/<owner>/<repo>/tree/<branch>
-      - https://github.com/<owner>/<repo>@<branch>
-    Downloads ZIP from codeload.github.com and extracts to uploads/.
-    """
-
     def __init__(self, upload_dir="uploads"):
-        # accept str or Path and store as Path
         self.upload_dir = (
             Path(upload_dir) if not isinstance(upload_dir, Path) else upload_dir
         )
         self.upload_dir.mkdir(parents=True, exist_ok=True)
 
     def handle_input(self, input_path: str) -> dict:
-        """
-        Accepts:
-          - Local files: absolute/relative path to a file.
-          - GitHub URLs (see formats above).
-        Returns a metadata dict including:
-          - filename, filetype (MIME), category, size, uploaded_at, stored_path
-          - source info for GitHub (owner/repo/branch)
-        """
         input_path = (input_path or "").strip()
         if not input_path:
             raise ValueError("Empty input.")
 
-        # --- GitHub repo URL support ---
         if input_path.startswith(("http://", "https://")):
             if "github.com/" in input_path:
                 return self._handle_github_repo(input_path)
@@ -73,13 +51,11 @@ class FileHandler:
         base = stored_path.with_suffix("")
         ext = stored_path.suffix
         i = 1
-        # find non-colliding filename
         while stored_path.exists():
             stored_path = self.upload_dir / f"{base.name}({i}){ext}"
             i += 1
         shutil.copy2(str(filepath), str(stored_path))
 
-        # MIME type detection
         if _HAS_MAGIC:
             try:
                 mime = magic.from_file(str(stored_path), mime=True)
@@ -104,26 +80,13 @@ class FileHandler:
             "stored_path": str(stored_path),
         }
 
-    # ---- GitHub repo URL handling -------------------------------------------
     def _handle_github_repo(self, url: str) -> dict:
-        """
-        Downloads a GitHub repository ZIP for the selected branch and extracts it.
-
-        Supported URL forms:
-          - https://github.com/<owner>/<repo>
-          - https://github.com/<owner>/<repo>/tree/<branch>
-          - https://github.com/<owner>/<repo>@<branch>
-
-        Returns metadata with 'stored_path' pointing to the extracted folder.
-        """
-
         m = re.search(r"github\.com/([^/]+)/([^/]+)", url)
         if not m:
             raise ValueError("Invalid GitHub URL.")
         owner = m.group(1)
         repo = m.group(2).replace(".git", "")
 
-        # Branch detection
         branch = "main"
         m2 = re.search(r"/tree/([^/]+)", url)
         if m2:
@@ -132,18 +95,14 @@ class FileHandler:
         if m3:
             branch = m3.group(1)
 
-        # Build codeload URL for ZIP
-        # Note: This fetches the whole branch. (Subdir filtering can be added later if needed.)
         zip_url = f"https://codeload.github.com/{owner}/{repo}/zip/refs/heads/{branch}"
 
-        # Download ZIP (in-memory)
         try:
             with urllib.request.urlopen(zip_url) as resp:
                 data = resp.read()
         except Exception as e:
             raise ValueError(f"Failed to download repo ZIP: {e}") from e
 
-        # Extract to uploads/<repo>-<branch>-<ts>/
         ts = int(time.time())
         dest_dir = os.path.join(self.upload_dir, f"{repo}-{branch}-{ts}")
         os.makedirs(dest_dir, exist_ok=True)
@@ -154,7 +113,6 @@ class FileHandler:
         except Exception as e:
             raise ValueError(f"Failed to extract ZIP: {e}") from e
 
-        # GitHub zips usually unpack to a single top-level folder: repo-branch/
         inner_dirs = [
             os.path.join(dest_dir, d)
             for d in os.listdir(dest_dir)
@@ -168,7 +126,7 @@ class FileHandler:
             "category": "archive-zip",
             "size": len(data),
             "uploaded_at": datetime.datetime.now().isoformat(timespec="seconds"),
-            "stored_path": root_path,  # <-- folder your scanner should walk
+            "stored_path": root_path,
             "source": {
                 "type": "github",
                 "url": url,
@@ -180,18 +138,13 @@ class FileHandler:
 
 
 def categorize_file(path: str, mime_type: str) -> str:
-    # noqa: C901 - heuristic categorization is compact but flagged as complex
     ext = os.path.splitext(path)[1].lower()
-
-    # Binaries
     if ext in (".exe", ".dll") or "dosexec" in (mime_type or ""):
         return "binary-pe"
     if ext in (".so", ".elf") or "x-executable" in (mime_type or ""):
         return "binary-elf"
     if "mach" in (mime_type or ""):
         return "binary-mach-o"
-
-    # Source
     if ext == ".py":
         return "source-python"
     if ext == ".c":
@@ -208,8 +161,6 @@ def categorize_file(path: str, mime_type: str) -> str:
         return "source-js"
     if ext == ".ts":
         return "source-ts"
-
-    # Archives
     if ext == ".zip":
         return "archive-zip"
     if ext == ".tar":
@@ -297,6 +248,7 @@ def ensure_tkdnd_loaded(tk_interp) -> str:  # noqa: C901
 
     try:
         import tkinterdnd2 as _tkdnd  # type: ignore
+
     except Exception as e:
         raise RuntimeError(f"tkinterdnd2 not importable: {e}") from e
 
@@ -398,58 +350,70 @@ class FileDropController:
 
     # --- DnD event handlers
     def _on_drag_enter(self, _evt):
-        self.on_border("#1a73e8")
+        try:
+            self.on_border("#888")
+        except Exception:
+            pass
 
     def _on_drag_leave(self, _evt):
-        self.on_border("#9aa0a6")
-
-    def _on_drop(self, evt):
-        self.on_border("#34a853")
-        items = parse_drop_data(evt.data)
-        if not items:
-            self.on_status("Nothing dropped.", error=True)
-            self.on_border("#9aa0a6")
-            return
-        for item in items:
-            self._handle_one(item)
         try:
-            self.widget.after(250, lambda: self.on_border("#9aa0a6"))
+            self.on_border(None)
         except Exception:
-            self.on_border("#9aa0a6")
+            pass
 
-    def _handle_one(self, item: str):
-        try:
-            meta = self.fh.handle_input(item)
-            self.on_processed(meta)
-            shown = (
-                meta.get("filename")
-                or os.path.basename(meta.get("stored_path", ""))
-                or item
-            )
-            self.on_status(f"Loaded: {shown}")
-        except Exception as e:
-            self.on_status(f"Error: {e}", error=True)
+    def _on_drop(self, event):
+        data = getattr(event, "data", "")
+        paths = parse_drop_data(data)
+        for p in paths:
+            try:
+                meta = self.fh.handle_input(p)
+                self.on_processed(meta)
+            except Exception as e:
+                self.on_status(str(e), error=True)
 
 
-# Plain file dialog fallback (no tkdnd required)
-def open_file_picker(
-    parent_widget, file_handler: FileHandler, on_processed, on_status=None
-):
-    from tkinter import filedialog
+def open_file_picker(parent, file_handler: FileHandler, on_processed, on_status=None):
+    """
+    Open a file/directory picker dialog and feed selected paths to FileHandler.
 
-    on_status = on_status or (lambda msg, error=False: None)
-    paths = filedialog.askopenfilenames(
-        parent=parent_widget, title="Select files to upload"
-    )
-    for p in paths or []:
-        try:
-            meta = file_handler.handle_input(p)
-            on_processed(meta)
-            shown = (
-                meta.get("filename")
-                or os.path.basename(meta.get("stored_path", ""))
-                or p
-            )
-            on_status(f"Loaded: {shown}")
-        except Exception as e:
-            on_status(f"Error: {e}", error=True)
+    Expected usage (from UI):
+        open_file_picker(self, self.fh, self._on_processed, self._set_status)
+
+    - parent: a Tk/CTk widget used as the dialog parent
+    - file_handler: instance of FileHandler
+    - on_processed: callback(meta: dict) called for each successfully processed input
+    - on_status: optional callback(message: str, error: bool=False)
+    """
+    try:
+        from tkinter import filedialog
+    except Exception as e:
+        if on_status:
+            on_status(f"File dialog unavailable: {e}", error=True)
+        return
+
+    # Attempt to allow selecting directories as well as files. Many Tk dialogs
+    # don't support mixed selection; show a simple file selection first and
+    # fall back to directory chooser if Cancelled.
+    try:
+        # Allow multiple selection of files
+        root = parent
+        # If parent is a CTk widget, try to use its tk root
+        if hasattr(parent, "tk"):
+            root = parent
+
+        paths = filedialog.askopenfilenames(parent=root, title="Choose files")
+        if not paths:
+            # try directory chooser
+            d = filedialog.askdirectory(parent=root, title="Choose folder")
+            if d:
+                paths = (d,)
+        for p in paths:
+            try:
+                meta = file_handler.handle_input(p)
+                on_processed(meta)
+            except Exception as e:
+                if on_status:
+                    on_status(str(e), error=True)
+    except Exception as e:
+        if on_status:
+            on_status(str(e), error=True)

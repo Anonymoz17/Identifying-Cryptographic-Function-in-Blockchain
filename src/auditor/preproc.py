@@ -1,17 +1,6 @@
 """auditor.preproc
 
 Minimal preprocessing scaffold (stage 2).
-
-For each input item (from inputs.manifest.json) produce a deterministic
-per-file artifact directory under <workdir>/preproc/<sha256>/ containing:
-  - original copy (copied as 'input.bin')
-  - metadata.json (with path, size, mtime, sha256)
-
-Also write a line-delimited index file `preproc.index.jsonl` in the workdir
-mapping input -> artifact directory and timestamp.
-
-This scaffold is intentionally minimal to be replaced by richer transforms
-in later stages (disassembly, normalized byte slices, emulation traces).
 """
 
 from __future__ import annotations

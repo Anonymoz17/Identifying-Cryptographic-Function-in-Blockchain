@@ -1,4 +1,5 @@
-# pages/analysis.py
+"""moved from pages/analysis.py"""
+
 import json
 import os
 from tkinter import filedialog

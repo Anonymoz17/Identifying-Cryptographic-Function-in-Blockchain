@@ -1,4 +1,3 @@
-# roles.py
 from typing import Literal
 
 Role = Literal["free", "premium", "admin"]

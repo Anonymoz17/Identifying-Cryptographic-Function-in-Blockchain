@@ -1,4 +1,3 @@
-# pages/reports.py
 import customtkinter as ctk
 
 from roles import is_premium
