@@ -373,14 +373,25 @@ class AuditorPage(ctk.CTkFrame):
             try:
                 al = AuditLog(path)
                 ok = al.verify()
-                self._set_status(
-                    (
-                        "Audit log verification: OK"
-                        if ok
-                        else "Audit log verification: FAILED"
-                    ),
-                    error=not ok,
-                )
+                # append a verification result event to the audit log
+                try:
+                    al.append(
+                        "auditlog.verified" if ok else "auditlog.verify_failed",
+                        {"ok": bool(ok)},
+                    )
+                except Exception:
+                    # non-fatal if append fails
+                    pass
+
+                # show a confirmation dialog and update status
+                import tkinter.messagebox as _mb
+
+                if ok:
+                    _mb.showinfo("Verify Chain", "Audit log verification: OK")
+                    self._set_status("Audit log verification: OK", error=False)
+                else:
+                    _mb.showerror("Verify Chain", "Audit log verification: FAILED")
+                    self._set_status("Audit log verification: FAILED", error=True)
             except Exception as e:
                 self._set_status(f"Verify error: {e}", error=True)
 
