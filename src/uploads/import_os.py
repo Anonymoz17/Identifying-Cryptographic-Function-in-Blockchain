@@ -1,8 +1,15 @@
+"""Simple scanner to find likely cryptography usage in source trees.
+
+This file was moved from the top-level `uploads/import os.py` and cleaned
+to be a valid Python module name (`import_os.py`). It intentionally avoids
+any heavy dependencies and writes a JSON report.
+"""
+
 import json
 import os
 import re
 
-# 1️⃣ Define known crypto libraries and their key patterns
+# 1) Define known crypto libraries and their key patterns
 CRYPTO_LIBS = {
     "OpenSSL": [r"\bEVP_", r"\bRSA_", r"\bAES_"],
     "NaCl/libsodium": [r"\bcrypto_box_", r"\bcrypto_sign_"],
@@ -12,24 +19,29 @@ CRYPTO_LIBS = {
 }
 
 
-# 2️⃣ Recursively scan for .c/.cpp/.py/.js files
-def collect_source_files(root_path):
-    for root, _, files in os.walk(root_path):
+def collect_source_files(root_path: str):
+    """Yield source file paths under root_path."""
+    for root, _dirs, files in os.walk(root_path):
         for f in files:
             if f.endswith((".c", ".cpp", ".py", ".js")):
                 yield os.path.join(root, f)
 
 
-# 3️⃣ Search each file for library patterns
-def scan_file(filepath):
+def scan_file(filepath: str):
     findings = []
-    with open(filepath, "r", encoding="utf-8", errors="ignore") as fh:
-        content = fh.read()
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="ignore") as fh:
+            content = fh.read()
+    except Exception:
+        return findings
     for lib, patterns in CRYPTO_LIBS.items():
         for pat in patterns:
             for m in re.finditer(pat, content):
                 line_no = content.count("\n", 0, m.start()) + 1
-                snippet = content.splitlines()[line_no - 1].strip()
+                lines = content.splitlines()
+                snippet = (
+                    lines[line_no - 1].strip() if 0 <= line_no - 1 < len(lines) else ""
+                )
                 findings.append(
                     {
                         "file": filepath,
@@ -42,7 +54,6 @@ def scan_file(filepath):
     return findings
 
 
-# 4️⃣ Aggregate results and output JSON
 def main():
     import argparse
 
@@ -63,10 +74,10 @@ def main():
         lib = f["library"]
         report.setdefault(lib, []).append(f)
 
-    with open(args.out, "w") as fo:
+    with open(args.out, "w", encoding="utf-8") as fo:
         json.dump(report, fo, indent=2)
 
-    print(f"✅ Found {len(all_findings)} crypto uses; report at {args.out}")
+    print(f"Found {len(all_findings)} crypto uses; report at {args.out}")
 
 
 if __name__ == "__main__":
