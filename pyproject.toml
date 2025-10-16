@@ -9,8 +9,14 @@ line_length = 88
 # Configure ruff: do not include import-sorting checks (I) here so isort can be
 # the single source of truth for import ordering in pre-commit. This avoids
 # conflicting fixes between `isort` and `ruff` during commits.
+# ruff configuration: the top-level linter settings are deprecated in favour of
+# the `lint` subsection. Move `select`/`ignore` into `lint` to silence
+# deprecation warnings and keep behavior identical.
 [tool.ruff]
 line-length = 88
+
+[tool.ruff.lint]
+# Lint codes to select
 select = ["E", "F", "W", "B", "C", "Q"]
 # Temporarily ignore complexity (C901) until we can refactor large functions.
 ignore = ["E501", "C901"]
