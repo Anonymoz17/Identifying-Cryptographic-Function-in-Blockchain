@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 def _sha256_file(path: Path, chunk_size: int = 8192) -> str:
@@ -82,6 +83,9 @@ def build_evidence_pack(
     case_id: str,
     files: Optional[List[Path]] = None,
     out_dir: Path | None = None,
+    progress_cb: Optional[Callable[[int, int], None]] = None,
+    cancel_event: Optional[threading.Event] = None,
+    progress_step: Optional[int] = None,
 ) -> Tuple[Path, str]:
     """
     Build a deterministic zip containing the provided files.
@@ -123,22 +127,78 @@ def build_evidence_pack(
             rel = str(p.relative_to(root))
         except Exception:
             rel = p.name
-        sha = _sha256_file(p)
-        rel_entries.append((rel.replace("\\", "/"), p, sha))
+        rel = rel.replace("\\", "/")
+        rel_entries.append((rel, p, ""))
 
     # sort by relative path lexicographically
     rel_entries.sort(key=lambda x: x[0])
+
+    # We will perform two phases: hashing (compute sha for each file) and zipping.
+    total_files = len(rel_entries)
+    # total steps include hashing + zipping
+    total_steps = total_files * 2
+
+    # default progress_step: throttle to ~100 updates
+    if progress_step is None:
+        progress_step = max(1, total_steps // 100) if total_steps > 0 else 100
+
+    # hashing phase: compute sha and update manifest entries
+    step = 0
+    for i, (rel, p, _) in enumerate(rel_entries, start=1):
+        # cooperative cancellation during hashing
+        if cancel_event is not None and cancel_event.is_set():
+            raise RuntimeError("Packaging cancelled")
+
+        sha = _sha256_file(p)
+        rel_entries[i - 1] = (rel, p, sha)
+        step += 1
+        try:
+            if progress_cb and (
+                step == 1
+                or step == total_steps
+                or (progress_step and (step % progress_step == 0))
+            ):
+                progress_cb(step, total_steps)
+        except Exception:
+            pass
 
     # create zip deterministically
     with zipfile.ZipFile(
         zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
     ) as zf:
-        for rel, p, sha in rel_entries:
+        for _idx, (rel, p, sha) in enumerate(rel_entries, start=1):
+            # allow cooperative cancellation
+            if cancel_event is not None and cancel_event.is_set():
+                # close and remove partial zip
+                try:
+                    zf.close()
+                except Exception:
+                    pass
+                try:
+                    if zip_path.exists():
+                        zip_path.unlink()
+                except Exception:
+                    pass
+                raise RuntimeError("Packaging cancelled")
+
             # write file into zip with stored relative path
             zf.write(p, arcname=rel)
             manifest["files"].append(
                 {"path": rel, "sha256": sha, "size": p.stat().st_size}
             )
+
+            # progress callback (current, total_steps) - throttle by progress_step
+            step += 1
+            try:
+                if progress_cb and (
+                    step == 1
+                    or step == total_steps
+                    or (progress_step and (step % progress_step == 0))
+                ):
+                    progress_cb(step, total_steps)
+            except Exception:
+                # progress callback must never break packaging
+                pass
 
         # finally add the manifest inside the zip
         manifest_bytes = json.dumps(

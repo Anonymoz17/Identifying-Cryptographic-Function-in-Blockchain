@@ -388,9 +388,163 @@ class AuditorPage(ctk.CTkFrame):
         btn.pack(side="bottom", pady=8)
 
     def _on_export_evidence(self):
-        # spawn background worker to build evidence pack
+        # prepare and show modal in main thread, then spawn worker to build pack
         self.export_evidence_btn.configure(state="disabled")
-        t = threading.Thread(target=self._export_evidence, daemon=True)
+        # prepare cancel event for this export operation and enable Cancel button
+        import threading as _threading
+
+        self._cancel_event = _threading.Event()
+        try:
+            self.cancel_btn.configure(state="normal")
+        except Exception:
+            pass
+
+        # gather workspace info now
+        wd = self.workdir_entry.get().strip() or str(Path.cwd() / "case_demo")
+        case_id = self.case_entry.get().strip() or "CASE-000"
+        ws = Workspace(Path(wd), case_id)
+        ws.ensure()
+        paths = ws.paths()
+
+        # collect files to include
+        files = []
+        for key in (
+            "engagement",
+            "auditlog",
+            "inputs_manifest",
+            "preproc_index",
+            "policy_baseline",
+        ):
+            p = paths.get(key)
+            if p and p.exists():
+                files.append(p)
+
+        preproc_dir = paths.get("preproc_dir")
+        if preproc_dir and preproc_dir.exists():
+            for p in preproc_dir.rglob("*"):
+                if p.is_file():
+                    files.append(p)
+
+        unique_files = list(dict.fromkeys([Path(f) for f in files]))
+        file_count = len(unique_files)
+
+        # create modal
+        prog_top = None
+        try:
+            prog_top = tk.Toplevel(self)
+            prog_top.title("Building evidence pack")
+            prog_top.geometry("420x120")
+            lbl = ctk.CTkLabel(
+                prog_top, text=f"Building evidence pack (0/{file_count})"
+            )
+            lbl.pack(padx=12, pady=12)
+            prog_bar = ctk.CTkProgressBar(prog_top, width=380)
+            prog_bar.set(0.0)
+            prog_bar.pack(padx=12, pady=(0, 12))
+            self.update_idletasks()
+        except Exception:
+            prog_top = None
+
+        def worker():
+            try:
+
+                def progress_cb(i, total):
+                    try:
+                        if total and total > 0:
+                            frac = min(1.0, float(i) / float(total))
+                            # throttle updates to at most ~100 steps to avoid overwhelming main-thread
+                            step = max(1, total // 100)
+                            if i == 1 or i == total or (i % step) == 0:
+                                if prog_top is not None and prog_bar is not None:
+                                    self.after(0, prog_bar.set, frac)
+                                if prog_top is not None and lbl is not None:
+                                    self.after(
+                                        0,
+                                        lambda i=i, total=total: lbl.configure(
+                                            text=f"Building evidence pack ({i}/{total})"
+                                        ),
+                                    )
+                        else:
+                            # unknown total: show every 100th file
+                            if i == 1 or (i % 100) == 0:
+                                if prog_top is not None and prog_bar is not None:
+                                    self.after(0, prog_bar.set, 0.0)
+                                if prog_top is not None and lbl is not None:
+                                    self.after(
+                                        0,
+                                        lambda i=i: lbl.configure(
+                                            text=f"Building evidence pack ({i})"
+                                        ),
+                                    )
+                    except Exception:
+                        # progress callback must never break packaging
+                        pass
+
+                # compute a reasonable progress_step to throttle callbacks
+                progress_step = (
+                    max(1, file_count // 100) if file_count and file_count > 0 else None
+                )
+
+                zip_path, zip_sha = build_evidence_pack(
+                    ws.root,
+                    case_id,
+                    unique_files,
+                    out_dir=paths.get("evidence_dir"),
+                    progress_cb=progress_cb,
+                    cancel_event=self._cancel_event,
+                    progress_step=progress_step,
+                )
+
+                # ensure the zip was actually created
+                if not zip_path or not zip_path.exists():
+                    raise RuntimeError("Evidence pack was not created")
+
+                # append auditlog event (only after successful creation)
+                try:
+                    al = AuditLog(str(paths.get("auditlog")))
+                    al.append(
+                        "evidence.packaged",
+                        {"zip": zip_path.name, "sha256": zip_sha, "files": file_count},
+                    )
+                except Exception:
+                    pass
+
+                # indicate completion
+                self.after(
+                    0, self._set_status, f"Evidence pack created: {zip_path.name}"
+                )
+                try:
+                    # open evidence folder on main thread (only if it exists)
+                    if paths.get("evidence_dir") and paths.get("evidence_dir").exists():
+                        self.after(
+                            0, webbrowser.open, paths.get("evidence_dir").as_uri()
+                        )
+                except Exception:
+                    pass
+            except Exception as e:
+                try:
+                    al = AuditLog(str(paths.get("auditlog")))
+                    al.append("evidence.failed", {"error": str(e)})
+                except Exception:
+                    pass
+                self.after(0, partial(self._set_status, f"Export failed: {e}", True))
+            finally:
+                try:
+                    if prog_top is not None:
+                        self.after(0, prog_top.destroy)
+                except Exception:
+                    pass
+                # reset cancel event and buttons
+                try:
+                    self._cancel_event = None
+                    self.after(0, partial(self.cancel_btn.configure, state="disabled"))
+                except Exception:
+                    pass
+                self.after(
+                    0, partial(self.export_evidence_btn.configure, state="normal")
+                )
+
+        t = threading.Thread(target=worker, daemon=True)
         t.start()
 
     def _export_evidence(self):
