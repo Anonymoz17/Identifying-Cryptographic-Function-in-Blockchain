@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import shutil
 import threading
 import tkinter as tk
 import webbrowser
 from functools import partial
 from pathlib import Path
-
-import customtkinter as ctk
 
 from auditor.auditlog import AuditLog
 from auditor.case import Engagement
@@ -17,132 +14,95 @@ from auditor.intake import count_inputs, enumerate_inputs, write_manifest
 from auditor.preproc import preprocess_items
 from auditor.workspace import Workspace
 
+import customtkinter as ctk  # isort:skip
+
 
 class AuditorPage(ctk.CTkFrame):
     def __init__(self, master, switch_page_callback):
         super().__init__(master)
         self.switch_page = switch_page_callback
 
+        # Layout
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
         content = ctk.CTkFrame(self, fg_color="transparent")
         content.grid(row=0, column=0, sticky="nsew")
-        content.grid_columnconfigure(1, weight=1)
+        content.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(content, text="Auditor (beta)", font=("Roboto", 28, "bold")).grid(
-            row=0, column=0, columnspan=2, sticky="w", padx=16, pady=(12, 8)
-        )
+        # Title + status
+        self.title = ctk.CTkLabel(content, text="Auditor", font=("Roboto", 48))
+        self.title.pack(pady=(12, 4))
+        self.status = ctk.CTkLabel(content, text="")
+        self.status.pack(pady=(0, 6))
 
-        # Inputs: workdir, case id, client, scope
-        ctk.CTkLabel(content, text="Workdir:").grid(
-            row=1, column=0, sticky="e", padx=8, pady=6
-        )
-        self.workdir_entry = ctk.CTkEntry(content, width=420)
-        self.workdir_entry.grid(row=1, column=1, sticky="we", padx=8, pady=6)
-        self.workdir_entry.insert(0, str(Path.cwd() / "case_demo"))
+        # Form: workdir + case id
+        form = ctk.CTkFrame(content, fg_color="transparent")
+        form.pack(padx=12, pady=(6, 6), fill="x")
+        ctk.CTkLabel(form, text="Workdir:").grid(row=0, column=0, sticky="w")
+        self.workdir_entry = ctk.CTkEntry(form)
+        self.workdir_entry.grid(row=0, column=1, sticky="we", padx=(6, 0))
+        ctk.CTkLabel(form, text="Case ID:").grid(row=1, column=0, sticky="w")
+        self.case_entry = ctk.CTkEntry(form)
+        self.case_entry.grid(row=1, column=1, sticky="we", padx=(6, 0))
+        form.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(content, text="Case ID:").grid(
-            row=2, column=0, sticky="e", padx=8, pady=6
-        )
-        self.case_entry = ctk.CTkEntry(content, width=240)
-        self.case_entry.grid(row=2, column=1, sticky="w", padx=8, pady=6)
-        self.case_entry.insert(0, "CASE-001")
-
-        ctk.CTkLabel(content, text="Client:").grid(
-            row=3, column=0, sticky="e", padx=8, pady=6
-        )
-        self.client_entry = ctk.CTkEntry(content, width=240)
-        self.client_entry.grid(row=3, column=1, sticky="w", padx=8, pady=6)
-        self.client_entry.insert(0, "ACME Corp")
-
-        ctk.CTkLabel(content, text="Scope (path):").grid(
-            row=4, column=0, sticky="e", padx=8, pady=6
-        )
-        self.scope_entry = ctk.CTkEntry(content, width=420)
-        self.scope_entry.grid(row=4, column=1, sticky="we", padx=8, pady=6)
-        self.scope_entry.insert(0, str(Path.cwd()))
-
-        # Policy baseline selector
-        ctk.CTkLabel(content, text="Policy baseline (optional):").grid(
-            row=5, column=0, sticky="e", padx=8, pady=6
-        )
-        self.policy_entry = ctk.CTkEntry(content, width=420)
-        self.policy_entry.grid(row=5, column=1, sticky="we", padx=8, pady=6)
-
-        select_btn = ctk.CTkButton(
-            content, text="Browse...", command=self._browse_policy
-        )
-        select_btn.grid(row=5, column=2, sticky="w", padx=8, pady=6)
-
-        # Air-gapped toggle
+        # Client, scope, policy placeholders (used by other methods)
+        self.client_entry = ctk.CTkEntry(form)
+        self.scope_entry = ctk.CTkEntry(form)
+        self.policy_entry = ctk.CTkEntry(form)
         self.airgapped_var = tk.BooleanVar(value=False)
-        ctk.CTkCheckBox(
-            content, text="Air-gapped mode (no network)", variable=self.airgapped_var
-        ).grid(row=6, column=1, sticky="w", padx=8, pady=6)
 
-        # Actions
+        # Actions (start/cancel)
         actions = ctk.CTkFrame(content, fg_color="transparent")
-        actions.grid(row=7, column=0, columnspan=3, sticky="we", padx=8, pady=(12, 8))
-        actions.grid_columnconfigure(0, weight=1)
-
-        # Start / Cancel buttons
+        actions.pack(pady=(6, 6))
         self.start_btn = ctk.CTkButton(
-            actions, text="Start Engagement & Intake", command=self._on_start_clicked
+            actions,
+            text="Start Engagement",
+            command=self._on_start_clicked,
         )
-        self.start_btn.grid(row=0, column=0, sticky="w")
-
+        self.start_btn.pack(side="left", padx=(0, 6))
         self.cancel_btn = ctk.CTkButton(
             actions,
             text="Cancel",
-            fg_color="#ff6b6b",
-            hover_color="#ff4c4c",
             command=self._on_cancel_clicked,
+            state="disabled",
         )
-        self.cancel_btn.grid(row=0, column=1, sticky="w", padx=(8, 0))
-        self.cancel_btn.configure(state="disabled")
+        self.cancel_btn.pack(side="left")
 
-        self.status = ctk.CTkLabel(content, text="")
-        self.status.grid(
-            row=8, column=0, columnspan=3, sticky="we", padx=8, pady=(8, 6)
-        )
-
-        # Preview & progress labels
+        # Progress and preview
         self.preview_label = ctk.CTkLabel(content, text="Preview: 0 files")
-        self.preview_label.grid(
-            row=9, column=0, columnspan=3, sticky="w", padx=8, pady=(2, 2)
-        )
-
+        self.preview_label.pack()
         self.progress_label = ctk.CTkLabel(content, text="")
-        self.progress_label.grid(
-            row=10, column=0, columnspan=3, sticky="we", padx=8, pady=(2, 12)
-        )
-
-        # Progress bar
+        self.progress_label.pack(pady=(6, 2))
         self.progress = ctk.CTkProgressBar(content, width=480)
-        self.progress.grid(
-            row=11, column=0, columnspan=2, sticky="w", padx=8, pady=(2, 12)
-        )
+        self.progress.pack(pady=(2, 12))
         self.progress.set(0.0)
 
-        # Quick actions: Open workdir, View audit log
+        # Quick actions row
         quick = ctk.CTkFrame(content, fg_color="transparent")
-        quick.grid(row=12, column=0, columnspan=3, sticky="we", padx=8, pady=(4, 12))
+        quick.pack(fill="x", padx=8, pady=(4, 12))
         quick.grid_columnconfigure((0, 1, 2), weight=1)
         self.open_workdir_btn = ctk.CTkButton(
-            quick, text="Open workdir", command=self._open_workdir
+            quick,
+            text="Open workdir",
+            command=self._open_workdir,
         )
         self.open_workdir_btn.grid(row=0, column=0, sticky="w")
         self.view_auditlog_btn = ctk.CTkButton(
-            quick, text="View audit log", command=self._view_auditlog
+            quick,
+            text="View audit log",
+            command=self._view_auditlog,
         )
         self.view_auditlog_btn.grid(row=0, column=1, sticky="w", padx=(8, 0))
         self.export_evidence_btn = ctk.CTkButton(
-            quick, text="Export Evidence Pack", command=self._on_export_evidence
+            quick,
+            text="Export Evidence Pack",
+            command=self._on_export_evidence,
         )
         self.export_evidence_btn.grid(row=0, column=2, sticky="w", padx=(8, 0))
 
-        # cancellation event holder
+        # Cancellation event holder
         self._cancel_event = None
 
     def _browse_policy(self):
@@ -157,16 +117,13 @@ class AuditorPage(ctk.CTkFrame):
         self.status.configure(text=text, text_color=("red" if error else "#202124"))
 
     def _on_start_clicked(self):
-        # Show preview count then start background job
         scope = self.scope_entry.get().strip() or "."
         try:
             total = count_inputs([scope])
             self.preview_label.configure(text=f"Preview: {total} files")
         except Exception:
             self.preview_label.configure(text="Preview: (error counting files)")
-        # start background processing
         self._set_status("Starting engagement (background)...")
-        # prepare cancel event and toggle buttons
         self._cancel_event = threading.Event()
         self.cancel_btn.configure(state="normal")
         self.start_btn.configure(state="disabled")
@@ -341,34 +298,107 @@ class AuditorPage(ctk.CTkFrame):
             self._set_status("Could not open audit log", error=True)
 
     def _on_export_evidence(self):
-        """Export the case evidence directory as a ZIP file chosen by the user."""
-        from tkinter import filedialog
+        """Build an evidence pack in background and show progress modal.
 
+        The packer writes a zip into the case `evidence` directory. We run the
+        packaging in a worker thread so the UI stays responsive and provide a
+        Cancel button to request cooperative cancellation.
+        """
+
+        # prepare workspace
+        wd = self.workdir_entry.get().strip() or str(Path.cwd() / "case_demo")
+        case_id = self.case_entry.get().strip() or "CASE-000"
+        ws = Workspace(Path(wd), case_id)
+        ws.ensure()
+
+        # ensure evidence dir exists
+        evidence_dir = ws.evidence_dir
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+
+        # build a small progress modal
+        top = tk.Toplevel(self)
+        top.title("Exporting evidence")
+        top.geometry("420x120")
+        lbl = ctk.CTkLabel(top, text="Preparing evidence pack...")
+        lbl.pack(fill="x", padx=12, pady=(12, 6))
+        pb = ctk.CTkProgressBar(top, width=360)
+        pb.pack(padx=12, pady=(6, 6))
+        pb.set(0.0)
+
+        cancel_btn = ctk.CTkButton(top, text="Cancel", fg_color="#ff6b6b")
+        cancel_btn.pack(side="bottom", pady=8)
+
+        # cancellation event
+        cancel_event = threading.Event()
+
+        def on_cancel():
+            cancel_event.set()
+            try:
+                cancel_btn.configure(state="disabled")
+            except Exception:
+                pass
+            self._set_status("Export cancellation requested")
+
+        cancel_btn.configure(command=on_cancel)
+
+        # disable export button while running
         try:
-            wd = self.workdir_entry.get().strip() or str(Path.cwd() / "case_demo")
-            case_id = self.case_entry.get().strip() or "CASE-000"
-            ws = Workspace(Path(wd), case_id)
-            ws.ensure()
-            evidence_dir = ws.evidence_dir
-            if not evidence_dir.exists():
-                self._set_status("No evidence directory to export", error=True)
-                return
+            self.export_evidence_btn.configure(state="disabled")
+        except Exception:
+            pass
 
-            dest = filedialog.asksaveasfilename(
-                title="Export Evidence Pack",
-                defaultextension=".zip",
-                filetypes=[("ZIP archive", "*.zip")],
-            )
-            if not dest:
-                return
+        # progress callback scheduled to main thread
+        def progress_cb(current, total):
+            try:
+                frac = float(current) / float(total) if total and total > 0 else 0.0
+                self.after(0, pb.set, frac)
+                self.after(0, lbl.configure, {"text": f"Packaging: {current}/{total}"})
+            except Exception:
+                pass
 
-            base = dest
-            if base.lower().endswith(".zip"):
-                base = base[:-4]
-            shutil.make_archive(base, "zip", root_dir=str(evidence_dir))
-            self._set_status(f"Exported evidence to {dest}")
-        except Exception as e:
-            self._set_status(f"Export error: {e}", error=True)
+        def worker():
+            try:
+                # call the packer which will write into evidence_dir
+                from auditor.evidence import build_evidence_pack
+
+                zip_path, sha = build_evidence_pack(
+                    ws.root,
+                    case_id,
+                    files=None,
+                    out_dir=evidence_dir,
+                    progress_cb=progress_cb,
+                    cancel_event=cancel_event,
+                    progress_step=max(1, 1),
+                )
+                # open the evidence folder after packaging completes
+                try:
+                    webbrowser.open(evidence_dir.as_uri())
+                except Exception:
+                    pass
+                self.after(
+                    0, self._set_status, f"Evidence pack created: {zip_path.name}"
+                )
+            except Exception as e:
+                # if cancelled, show a friendly message
+                msg = str(e)
+                if "cancel" in msg.lower():
+                    self.after(0, self._set_status, "Export cancelled", True)
+                else:
+                    self.after(0, self._set_status, f"Export error: {e}", True)
+            finally:
+                try:
+                    self.after(0, top.destroy)
+                except Exception:
+                    pass
+                try:
+                    self.after(
+                        0, partial(self.export_evidence_btn.configure, state="normal")
+                    )
+                except Exception:
+                    pass
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
 
     def _show_auditlog_viewer(self, path: str):
         # modal window with scrollable text and a Verify button

@@ -62,8 +62,9 @@ if __name__ == "__main__":
 
     # local import inside main to avoid E402
     repo_root = Path(__file__).resolve().parents[1]
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
+    src_dir = repo_root / "src"
+    if str(src_dir) not in sys.path:
+        sys.path.insert(0, str(src_dir))
     from auditor import evidence
 
     start = time.time()
