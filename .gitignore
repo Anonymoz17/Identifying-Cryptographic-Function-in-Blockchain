@@ -12,3 +12,6 @@ __pycache__/
 
 .case_demo/
 case_demo/*
+
+# build metadata
+*.egg-info/
