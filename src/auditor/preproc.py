@@ -641,10 +641,11 @@ def build_disasm_cache(shas: List[str], workdir: str) -> None:
     # write a placeholder. We only run a short disassembly to avoid doing
     # heavy work in preprocess.
     try:
-        from capstone import CS_ARCH_X86, CS_MODE_64, Cs
+        import capstone as _capstone
 
         have_capstone = True
     except Exception:
+        _capstone = None
         have_capstone = False
 
     for s in shas:
@@ -672,15 +673,25 @@ def build_disasm_cache(shas: List[str], workdir: str) -> None:
                 b_bitness = None
 
             # Map detected arch/bitness to capstone constants (best-effort)
-            arch_const = CS_ARCH_X86
-            mode = CS_MODE_64
-            if b_arch in ("x86",) or b_bitness == 32:
-                mode = 0  # 32-bit mode constant may vary; Cs accepts mode flags
-            if b_arch in ("x86_64", "x86-64"):
-                arch_const = CS_ARCH_X86
-                mode = CS_MODE_64
+            # Default to x86-64
+            arch_const = getattr(_capstone, "CS_ARCH_X86", None)
+            mode = getattr(_capstone, "CS_MODE_64", 0)
+            cs_Cs = getattr(_capstone, "Cs", None)
 
-            md = Cs(arch_const, mode)
+            if b_arch in ("x86",) or b_bitness == 32:
+                mode = getattr(_capstone, "CS_MODE_32", 0)
+            if b_arch in ("arm",):
+                arch_const = getattr(_capstone, "CS_ARCH_ARM", arch_const)
+                # choose 32-bit ARM mode
+                mode = getattr(_capstone, "CS_MODE_ARM", mode)
+            if b_arch in ("aarch64", "arm64"):
+                arch_const = getattr(_capstone, "CS_ARCH_ARM64", arch_const)
+                mode = getattr(_capstone, "CS_MODE_ARM", 0)
+
+            if cs_Cs is None or arch_const is None:
+                raise RuntimeError("capstone runtime not usable")
+
+            md = cs_Cs(arch_const, mode)
             insns = []
             for i in md.disasm(data, 0x0):
                 insns.append(

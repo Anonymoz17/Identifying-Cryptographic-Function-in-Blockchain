@@ -5,6 +5,14 @@ import pytest
 
 from src.auditor import preproc
 
+try:
+    from jsonschema import ValidationError
+    from jsonschema import validate as jsonschema_validate
+
+    HAVE_JSONSCHEMA = True
+except Exception:
+    HAVE_JSONSCHEMA = False
+
 
 def _validate_schema(obj: dict) -> bool:
     """Lightweight schema validation if jsonschema isn't available."""
@@ -71,7 +79,18 @@ def test_build_ast_cache_writes_schema(
     ast_file = workdir / "artifacts" / "ast" / (sha + ".json")
     assert ast_file.exists(), "AST cache file was not created"
     obj = json.loads(ast_file.read_text(encoding="utf-8"))
-    assert _validate_schema(obj), "Produced AST JSON does not match schema"
+    if HAVE_JSONSCHEMA:
+        schema = json.loads(
+            (Path(__file__).parents[1] / "schemas" / "ast.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        try:
+            jsonschema_validate(instance=obj, schema=schema)
+        except ValidationError as e:
+            pytest.fail(f"jsonschema validation failed: {e}")
+    else:
+        assert _validate_schema(obj), "Produced AST JSON does not match schema"
     # ensure at least one detected function matches expected name
     ast = obj.get("ast")
     if ast and ast.get("functions"):
