@@ -30,7 +30,8 @@ class TestAuditorPreproc(unittest.TestCase):
                 }
             ]
 
-            idx = preprocess_items(items, str(wd))
+            res = preprocess_items(items, str(wd))
+            idx = res.get("index", [])
             # index entries returned
             self.assertEqual(len(idx), 1)
 

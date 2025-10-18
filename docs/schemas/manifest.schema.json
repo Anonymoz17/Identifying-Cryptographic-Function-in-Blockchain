@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Inputs Manifest Entry",
+  "type": "object",
+  "required": [
+    "id",
+    "path",
+    "relpath",
+    "size",
+    "mtime",
+    "mtime_epoch",
+    "sha256",
+    "mime",
+    "language",
+    "is_binary"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "unique id for the file, prefer sha256 hex"
+    },
+    "path": { "type": "string", "description": "original absolute path" },
+    "relpath": {
+      "type": "string",
+      "description": "relative path inside the case workspace or extracted dir"
+    },
+    "size": { "type": "integer", "minimum": 0 },
+    "mtime": { "type": "string", "description": "mtime as ISO8601 string" },
+    "mtime_epoch": { "type": "integer", "description": "mtime epoch seconds" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+    "mime": { "type": "string" },
+    "language": {
+      "type": "string",
+      "description": "detected language or 'unknown'"
+    },
+    "is_binary": { "type": "boolean" },
+    "origin": {
+      "type": "string",
+      "description": "e.g. 'local', 'extracted:archive.zip'"
+    },
+    "extra": { "type": "object", "additionalProperties": true }
+  },
+  "additionalProperties": false
+}
