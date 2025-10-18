@@ -10,3 +10,9 @@ pip-tools>=6.14.0
 jsonschema>=4.0.0
 yara-python>=4.0.0 ; extra == 'yara'
 PyYAML>=6.0
+
+# Optional native integrations (developer / CI only):
+# install only if you need AST/disasm features or integration tests
+# pip install tree_sitter capstone
+tree_sitter>=0.2.0 ; python_version >= '3.8'
+capstone>=4.0.2
