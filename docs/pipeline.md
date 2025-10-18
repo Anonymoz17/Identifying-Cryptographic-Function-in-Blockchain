@@ -1,3 +1,72 @@
+# Pipeline overview — preprocessing, detectors, and outputs
+
+This document summarizes the preprocessing, detector, and merging pipeline implemented in this repository as of the current branch. It lists the artifact layout, NDJSON output contracts (schemas), optional native integrations, and CLI tools that consume/produce these artifacts.
+
+## High level
+
+- Input: a manifest of input items (arbitrary files) with a `sha256` identifier and optional metadata.
+- Preprocessing: `src/auditor/preproc.py` produces per-sha artifact directories and two NDJSON files:
+  - `preproc.index.jsonl` (index entries written during processing)
+  - `inputs.manifest.ndjson` (manifest of processed inputs)
+- AST & disasm caches: optional caches are written to `artifacts/ast/<sha>.json` and `artifacts/disasm/<sha>.json`.
+- Detectors (adapters): a pluggable adapter API consumes the manifest and scans files; adapters currently implemented include regex, binary-regex, semgrep-lite, yara (optional), and others under `src/detectors/`.
+- Runner & merge: `tools/run_detectors.py` runs configured adapters, writes `detector_results.ndjson`, and can merge/dedupe detections using engine weights.
+- Summary: `tools/summarize_detections.py` produces CSV/JSON or console summaries grouped by rule.
+
+## Artifact layout (workdir root)
+
+- `preproc/` — per-sha artifact directories (one directory per input sha):
+  - `preproc/<sha>/input.bin` — canonical copy of input
+  - `preproc/<sha>/metadata.json` — metadata for the input
+- `extracted/<sha>/` — files extracted from archives
+- `artifacts/ast/<sha>.json` — cached AST JSON (when Tree-sitter available)
+- `artifacts/disasm/<sha>.json` — cached disassembly (when Capstone available)
+- `preproc.index.jsonl` — NDJSON index of items created while preprocessing
+- `inputs.manifest.ndjson` — NDJSON manifest produced by preprocessing
+- `detector_results.ndjson` — NDJSON detector output produced by adapters/runner
+
+## Data contracts (NDJSON schemas)
+
+The repository includes JSON Schema files under `schemas/` which describe the expected shape of common NDJSON outputs:
+
+- `schemas/inputs.manifest.schema.json` — schema for manifest lines in `inputs.manifest.ndjson`
+- `schemas/preproc.index.schema.json` — schema for index entries appended to `preproc.index.jsonl`
+- `schemas/detector_result.schema.json` — schema for detector output lines in `detector_results.ndjson`
+- `schemas/ast.schema.json` — minimal AST artifact schema for `artifacts/ast/<sha>.json`
+
+Use `jsonschema` (optional dev dependency) to validate generated NDJSON lines in tests or CI.
+
+## Optional native integrations
+
+- Tree-sitter (`tree_sitter`) — used to generate richer AST caches for supported languages.
+- Capstone (`capstone`) — used for static disassembly caches.
+- YARA (`yara-python`) — used by the `YaraAdapter` to run native YARA rules. When not present the adapter falls back to a regex-based delegate.
+
+See `docs/optional-deps.md` for install notes and developer instructions.
+
+## Tools
+
+- `tools/run_detectors.py` — config-driven detector runner. Supports `--config` (JSON/YAML) and `--weights` to supply engine weights for merging.
+- `tools/summarize_detections.py` — produce console, CSV, or JSON summaries from `detector_results.ndjson`.
+
+## Quick validation examples
+
+Validate a manifest line against the manifest schema (requires `jsonschema`):
+
+```py
+from jsonschema import validate
+import json
+
+schema = json.load(open('schemas/inputs.manifest.schema.json'))
+line = json.loads(open('inputs.manifest.ndjson').read().splitlines()[0])
+validate(line, schema)
+```
+
+## Notes
+
+- The project intentionally keeps native integrations optional and the code includes fallbacks so the core workflows continue to function without tree-sitter, capstone, or yara installed.
+- If you plan to run the full test matrix and integration tests, install the optional dev dependencies as described in `docs/optional-deps.md`.
+
 # CryptoScope pipeline (draft)
 
 This document describes the high-level pipeline, data contracts (NDJSON), preprocessing outputs, and how the downstream detectors (YARA, Semgrep, Tree-sitter, Capstone, Ghidra, Frida) will consume the artifacts produced by preprocessing.

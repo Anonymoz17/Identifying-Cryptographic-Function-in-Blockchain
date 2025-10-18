@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Detector Result",
+  "type": "object",
+  "required": ["path", "rule", "engine"],
+  "properties": {
+    "path": { "type": "string" },
+    "offset": { "type": ["integer", "null"] },
+    "rule": { "type": "string" },
+    "engine": { "type": "string" },
+    "confidence": { "type": ["number", "null"] },
+    "tags": { "type": ["array", "null"], "items": { "type": "string" } },
+    "meta": { "type": ["object", "null"] },
+    "details": { "type": ["object", "null"] },
+    "rule_file": { "type": ["string", "null"] },
+    "rule_namespace": { "type": ["string", "null"] }
+  },
+  "additionalProperties": true
+}
