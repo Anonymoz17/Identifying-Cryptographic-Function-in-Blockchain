@@ -6,6 +6,7 @@ Minimal preprocessing scaffold (stage 2).
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import mimetypes
 import shutil
@@ -24,6 +25,58 @@ def _atomic_write(path: Path, data: str) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(data, encoding="utf-8")
     tmp.replace(path)
+
+
+def _detect_binary_metadata(
+    path: Path,
+) -> Tuple[Optional[str], Optional[str], Optional[int], Optional[str]]:
+    """Return (format, arch, bitness, endianness) for known binaries or (None, None, None, None)."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(64)
+    except Exception:
+        return None, None, None, None
+    # ELF
+    if head.startswith(b"\x7fELF"):
+        e_ident = head[0:16]
+        ei_class = e_ident[4]
+        ei_data = e_ident[5]
+        bitness = 64 if ei_class == 2 else 32
+        endianness = "little" if ei_data == 1 else "big"
+        try:
+            e_machine = head[18:20]
+            if endianness == "little":
+                mach = int.from_bytes(e_machine, "little")
+            else:
+                mach = int.from_bytes(e_machine, "big")
+            arch = {3: "x86", 62: "x86_64", 40: "arm", 183: "aarch64"}.get(
+                mach, "unknown"
+            )
+        except Exception:
+            arch = "unknown"
+        return "elf", arch, bitness, endianness
+    # PE (MZ)
+    if head.startswith(b"MZ"):
+        try:
+            with open(path, "rb") as f:
+                f.seek(0x3C)
+                e_lfanew = int.from_bytes(f.read(4), "little")
+                f.seek(e_lfanew + 4)
+                mach = int.from_bytes(f.read(2), "little")
+                arch = {0x014C: "x86", 0x8664: "x86_64", 0x01C0: "arm"}.get(
+                    mach, "unknown"
+                )
+                bitness = 64 if mach == 0x8664 else 32
+                return "pe", arch, bitness, "little"
+        except Exception:
+            return "pe", None, None, None
+    # Mach-O magic values
+    if head[:4] in (b"\xca\xfe\xba\xbe", b"\xfe\xed\fa\xce", b"\xfe\xed\fa\xcf"):
+        return "macho", None, None, None
+    # WASM
+    if head[:4] == b"\x00asm":
+        return "wasm", "wasm", None, None
+    return None, None, None, None
 
 
 def preprocess_items(
@@ -146,123 +199,20 @@ def preprocess_items(
             # skip on copy failure; continue to write metadata
             pass
 
-        # attempt extraction for archives; extracted files will be placed
-        # under workdir/extracted/<sha>/ and added to manifest_entries. Use a
-        # simple BFS up to max_extract_depth.
+        # attempt extraction for archives using helper; extracted files will be
+        # placed under workdir/extracted/<sha>/ and added to manifest_entries.
         if do_extract:
             try:
-                extracted_records = []
-                if src_path and src_path.exists():
-                    # use a small local queue of (path, depth, parent_archive_name)
-                    # start from the original source path (so unpack can detect format
-                    # from extension/magic)
-                    queue: List[Tuple[Path, int, Optional[str]]] = [
-                        (src_path, 0, src_path.name)
-                    ]
-                    while queue:
-                        cur_path, depth, parent = queue.pop(0)
-                        if depth >= max_extract_depth:
-                            continue
-                        # try to unpack cur_path into target folder under extracted/<sha>
-                        try:
-                            targ = wd / "extracted" / sha / (parent or "root")
-                            targ.mkdir(parents=True, exist_ok=True)
-                            # shutil.unpack_archive may raise for non-archives; use
-                            # cur_path (original path) instead of copied input.bin so
-                            # extension detection works
-                            shutil.unpack_archive(str(cur_path), str(targ))
-                            # enumerate extracted files and enqueue if they look like archives
-                            for p in targ.rglob("**/*"):
-                                if p.is_file():
-                                    # add manifest entry for extracted file
-                                    try:
-                                        sub_sha = None
-                                        # best-effort: compute a quick hash for identity
-                                        import hashlib
-
-                                        h = hashlib.sha256()
-                                        with open(p, "rb") as fh:
-                                            while True:
-                                                b = fh.read(8192)
-                                                if not b:
-                                                    break
-                                                h.update(b)
-                                        sub_sha = h.hexdigest()
-                                    except Exception:
-                                        sub_sha = None
-                                    rel = p.relative_to(wd).as_posix()
-                                    try:
-                                        mtime_iso_sub = datetime.datetime.fromtimestamp(
-                                            p.stat().st_mtime, datetime.timezone.utc
-                                        ).isoformat()
-                                        mtime_epoch_sub = int(p.stat().st_mtime)
-                                    except Exception:
-                                        mtime_iso_sub = None
-                                        mtime_epoch_sub = None
-                                    rec = {
-                                        "id": sub_sha or "",
-                                        "path": str(p.resolve()),
-                                        "relpath": rel,
-                                        "size": p.stat().st_size,
-                                        "mtime": mtime_iso_sub,
-                                        "mtime_epoch": mtime_epoch_sub,
-                                        "sha256": sub_sha,
-                                        "mime": mimetypes.guess_type(str(p))[0]
-                                        or "application/octet-stream",
-                                        "language": "unknown",
-                                        "is_binary": False,
-                                        "origin": f"extracted:{Path(src).name}",
-                                        "artifact_dir": (wd / "extracted" / sha)
-                                        .relative_to(wd)
-                                        .as_posix(),
-                                        "generated_at": datetime.datetime.now(
-                                            datetime.timezone.utc
-                                        ).isoformat(),
-                                    }
-                                    manifest_entries.append(rec)
-                                    extracted_records.append(rec)
-                                    # if file itself is an archive, add to queue
-                                    try:
-                                        if zipfile.is_zipfile(
-                                            str(p)
-                                        ) or tarfile.is_tarfile(str(p)):
-                                            queue.append((p, depth + 1, Path(src).name))
-                                    except Exception:
-                                        pass
-                        except (shutil.ReadError, ValueError):
-                            # not a supported archive for shutil
-                            pass
-                        except Exception:
-                            # ignore extraction errors per spec but record failed extraction
-                            try:
-                                manifest_entries.append(
-                                    {
-                                        "id": "",
-                                        "path": str(cur_path.resolve()),
-                                        "relpath": (wd / "extracted" / sha)
-                                        .relative_to(wd)
-                                        .as_posix(),
-                                        "size": None,
-                                        "mtime": None,
-                                        "mtime_epoch": None,
-                                        "sha256": None,
-                                        "mime": "application/octet-stream",
-                                        "language": "unknown",
-                                        "is_binary": False,
-                                        "origin": f"extracted_failed:{Path(src).name}",
-                                        "artifact_dir": (wd / "extracted" / sha)
-                                        .relative_to(wd)
-                                        .as_posix(),
-                                        "generated_at": datetime.datetime.now(
-                                            datetime.timezone.utc
-                                        ).isoformat(),
-                                        "extra": {"error": "extraction_failed"},
-                                    }
-                                )
-                            except Exception:
-                                pass
+                try:
+                    extracted_records = extract_artifacts(
+                        [it], str(wd), max_depth=max_extract_depth
+                    )
+                    # extend manifest entries with the returned records
+                    manifest_entries.extend(extracted_records)
+                except Exception:
+                    # top-level safeguard: do not stop preprocessing on extraction failure
+                    pass
             except Exception:
-                # top-level extraction safeguard
                 pass
 
         # normalize mtime: produce both an ISO8601 string for metadata.json
@@ -350,11 +300,16 @@ def preprocess_items(
                 pass
             return mime, lang
 
+        pass
+
         mime, language = (None, None)
         try:
             mime, language = _detect_mime_and_lang(Path(src))
         except Exception:
             mime, language = (None, None)
+
+        # detect binary metadata
+        binary_format, arch, bitness, endianness = _detect_binary_metadata(Path(src))
 
         meta = {
             "id": sha,
@@ -366,7 +321,12 @@ def preprocess_items(
             "mtime": mtime_iso,
             "mime": mime or "application/octet-stream",
             "language": language or "unknown",
-            "is_binary": bool(language in ("binary", "elf", "pe", "macho", "wasm")),
+            "is_binary": bool(language in ("binary", "elf", "pe", "macho", "wasm"))
+            or (binary_format is not None),
+            "binary_format": binary_format,
+            "arch": arch,
+            "bitness": bitness,
+            "endianness": endianness,
             "origin": "local",
             "artifact_dir": art_dir.relative_to(wd).as_posix(),
             "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -449,40 +409,121 @@ def extract_artifacts(
     Supports zip and tar-based archives using shutil.unpack_archive/TarFile/ZipFile.
     """
     wd = Path(outdir)
-    extracted = []
+    extracted: List[Dict[str, Any]] = []
     for it in items:
         path = Path(it.get("path"))
         sha = it.get("sha256")
         if not path.exists() or not sha:
             continue
-        target = wd / "extracted" / sha
-        target.mkdir(parents=True, exist_ok=True)
-        # try shutil.unpack_archive (supports many common formats)
-        try:
-            shutil.unpack_archive(str(path), str(target))
-            extracted.append({"origin": str(path), "extracted_to": str(target)})
-            continue
-        except (shutil.ReadError, ValueError):
-            # not a supported archive for shutil
-            pass
-        # fallback: try tarfile
-        try:
-            if tarfile.is_tarfile(str(path)):
-                with tarfile.open(str(path)) as tf:
-                    tf.extractall(path=str(target))
-                    extracted.append({"origin": str(path), "extracted_to": str(target)})
+        target_root = wd / "extracted" / sha
+        target_root.mkdir(parents=True, exist_ok=True)
+
+        # BFS queue: (file_path, depth, origin_name)
+        queue: List[Tuple[Path, int, str]] = [(path, 0, path.name)]
+        while queue:
+            cur_path, depth, origin = queue.pop(0)
+            if depth >= max_depth:
+                continue
+            targ = target_root / origin
+            targ.mkdir(parents=True, exist_ok=True)
+            extracted_any = False
+            # try shutil.unpack_archive first
+            try:
+                shutil.unpack_archive(str(cur_path), str(targ))
+                extracted_any = True
+            except (shutil.ReadError, ValueError):
+                pass
+            except Exception:
+                # non-fatal
+                pass
+
+            # tarfile fallback
+            if not extracted_any:
+                try:
+                    if tarfile.is_tarfile(str(cur_path)):
+                        with tarfile.open(str(cur_path)) as tf:
+                            tf.extractall(path=str(targ))
+                            extracted_any = True
+                except Exception:
+                    pass
+
+            # zipfile fallback
+            if not extracted_any:
+                try:
+                    if zipfile.is_zipfile(str(cur_path)):
+                        with zipfile.ZipFile(str(cur_path)) as zf:
+                            zf.extractall(path=str(targ))
+                            extracted_any = True
+                except Exception:
+                    pass
+
+            if not extracted_any:
+                # nothing extracted here; continue
+                continue
+
+            # enumerate extracted files
+            for p in targ.rglob("**/*"):
+                if not p.is_file():
                     continue
-        except Exception:
-            pass
-        # fallback: try zipfile
-        try:
-            if zipfile.is_zipfile(str(path)):
-                with zipfile.ZipFile(str(path)) as zf:
-                    zf.extractall(path=str(target))
-                    extracted.append({"origin": str(path), "extracted_to": str(target)})
-                    continue
-        except Exception:
-            pass
+                try:
+                    with open(p, "rb") as fh:
+                        h = hashlib.sha256()
+                        while True:
+                            b = fh.read(8192)
+                            if not b:
+                                break
+                            h.update(b)
+                        sub_sha = h.hexdigest()
+                except Exception:
+                    sub_sha = None
+                try:
+                    mtime_iso_sub = datetime.datetime.fromtimestamp(
+                        p.stat().st_mtime, datetime.timezone.utc
+                    ).isoformat()
+                    mtime_epoch_sub = int(p.stat().st_mtime)
+                except Exception:
+                    mtime_iso_sub = None
+                    mtime_epoch_sub = None
+                # detect binary metadata for extracted file
+                try:
+                    b_format, b_arch, b_bitness, b_endianness = _detect_binary_metadata(
+                        p
+                    )
+                except Exception:
+                    b_format = None
+                    b_arch = None
+                    b_bitness = None
+                    b_endianness = None
+                rec = {
+                    "id": sub_sha or "",
+                    "path": str(p.resolve()),
+                    "relpath": p.relative_to(wd).as_posix(),
+                    "size": p.stat().st_size,
+                    "mtime": mtime_iso_sub,
+                    "mtime_epoch": mtime_epoch_sub,
+                    "sha256": sub_sha,
+                    "mime": mimetypes.guess_type(str(p))[0]
+                    or "application/octet-stream",
+                    "language": "unknown",
+                    "is_binary": False,
+                    "binary_format": b_format,
+                    "arch": b_arch,
+                    "bitness": b_bitness,
+                    "endianness": b_endianness,
+                    "origin": f"extracted:{origin}",
+                    "artifact_dir": (wd / "extracted" / sha).relative_to(wd).as_posix(),
+                    "generated_at": datetime.datetime.now(
+                        datetime.timezone.utc
+                    ).isoformat(),
+                }
+                extracted.append(rec)
+                # if extracted file is itself an archive, enqueue for nested extraction
+                try:
+                    if zipfile.is_zipfile(str(p)) or tarfile.is_tarfile(str(p)):
+                        queue.append((p, depth + 1, p.name))
+                except Exception:
+                    pass
+
     return extracted
 
 
@@ -497,40 +538,90 @@ def build_ast_cache(shas: List[str], workdir: str) -> None:
     ast_dir = wd / "artifacts" / "ast"
     ast_dir.mkdir(parents=True, exist_ok=True)
     # Try to populate AST caches by scanning preproc/<sha>/input.bin or extracted files.
+    # Prefer Tree-sitter when available for Solidity and Go; otherwise fall back
+    # to a lightweight regex-based heuristic.
+    try:
+        from tree_sitter import Language, Parser
+
+        have_treesitter = True
+    except Exception:
+        have_treesitter = False
+
+    ts_langs = {}
+    if have_treesitter:
+        # try to locate a precompiled languages library; best-effort, fall back
+        try:
+            libpath = Path(workdir) / "tree_sitter_langs.so"
+            if not libpath.exists():
+                # also check repo root and current working dir
+                libpath = Path.cwd() / "tree_sitter_langs.so"
+            if libpath.exists():
+                ts_langs["go"] = Language(str(libpath), "go")
+                ts_langs["solidity"] = Language(str(libpath), "solidity")
+        except Exception:
+            ts_langs = {}
+
+    import re
+
     for s in shas:
         dest = ast_dir / (s + ".json")
         if dest.exists():
             continue
-        # locate input file
-        input_candidates = list((Path(workdir) / "preproc" / s).glob("input.*"))
-        input_candidates += list((Path(workdir) / "preproc" / s).glob("input.bin"))
+        # locate input file(s) under preproc/<sha>/ and extracted/<sha>/
+        candidates = list((Path(workdir) / "preproc" / s).glob("**/*"))
+        candidates += list((Path(workdir) / "extracted" / s).glob("**/*"))
         ast_obj = {"sha": s, "ast": None}
-        for p in input_candidates:
+        for p in candidates:
+            if not p.is_file():
+                continue
             try:
                 text = p.read_text(encoding="utf-8")
             except Exception:
                 text = None
-            if text:
-                # simple heuristics: find function definitions for common languages
-                funcs = []
-                # solidity: function <name>(
-                import re
+            if not text:
+                continue
 
+            funcs = []
+            # prefer tree-sitter if available for known extensions
+            ext = p.suffix.lower()
+            lang = None
+            if ext in (".sol",) or "solidity" in p.name.lower():
+                lang = "solidity"
+            elif ext in (".go",) or p.name.endswith(".go"):
+                lang = "go"
+
+            parsed_ok = False
+            if have_treesitter and lang in ts_langs:
+                try:
+                    parser = Parser()
+                    parser.set_language(ts_langs[lang])
+                    tree = parser.parse(bytes(text, "utf8"))
+                    # simple traversal: find function_def or function_definition nodes
+                    root = tree.root_node
+                    for node in root.walk():
+                        n = node.node
+                        if n.type in (
+                            "function_definition",
+                            "function_declaration",
+                            "function_definition_statement",
+                        ):
+                            # extract name child if present
+                            for c in n.children:
+                                if c.type == "identifier" or c.type == "function_name":
+                                    name = text[c.start_byte : c.end_byte]
+                                    funcs.append({"name": name, "lang": lang})
+                    parsed_ok = True
+                except Exception:
+                    parsed_ok = False
+
+            if not parsed_ok:
+                # fallback heuristics: solidity: function <name>(, go: func <name>(
                 for m in re.finditer(r"function\s+([A-Za-z0-9_]+)", text):
                     funcs.append({"name": m.group(1), "lang": "solidity"})
-                # go: func <name>(
                 for m in re.finditer(r"func\s+([A-Za-z0-9_]+)", text):
                     funcs.append({"name": m.group(1), "lang": "go"})
-                # c/cpp: return_type name(...)
-                for m in re.finditer(
-                    r"\n([A-Za-z_][A-Za-z0-9_\s\*]+)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(",
-                    text,
-                ):
-                    funcs.append({"name": m.group(2), "lang": "c/cpp"})
-                # python: def name(
-                for m in re.finditer(r"def\s+([A-Za-z0-9_]+)\s*\(", text):
-                    funcs.append({"name": m.group(1), "lang": "python"})
 
+            if funcs:
                 ast_obj["ast"] = {"functions": funcs}
                 break
         dest.write_text(json.dumps(ast_obj), encoding="utf-8")
@@ -571,8 +662,25 @@ def build_disasm_cache(shas: List[str], workdir: str) -> None:
             continue
         # read a small window of bytes to disassemble
         try:
-            data = bin_path.read_bytes()[:1024]
-            md = Cs(CS_ARCH_X86, CS_MODE_64)
+            data = bin_path.read_bytes()[:4096]
+            # attempt to pick architecture/mode from binary metadata
+            try:
+                # we only need arch/bitness here; ignore other returned values
+                _, b_arch, b_bitness, _ = _detect_binary_metadata(bin_path)
+            except Exception:
+                b_arch = None
+                b_bitness = None
+
+            # Map detected arch/bitness to capstone constants (best-effort)
+            arch_const = CS_ARCH_X86
+            mode = CS_MODE_64
+            if b_arch in ("x86",) or b_bitness == 32:
+                mode = 0  # 32-bit mode constant may vary; Cs accepts mode flags
+            if b_arch in ("x86_64", "x86-64"):
+                arch_const = CS_ARCH_X86
+                mode = CS_MODE_64
+
+            md = Cs(arch_const, mode)
             insns = []
             for i in md.disasm(data, 0x0):
                 insns.append(
