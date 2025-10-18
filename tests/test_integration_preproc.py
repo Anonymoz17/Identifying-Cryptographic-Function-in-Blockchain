@@ -18,7 +18,8 @@ def test_preprocess_creates_artifacts(tmp_path: Path):
         "sha256": "dummysha1234567890",
     }
 
-    idx = preprocess_items([item], str(d))
+    res = preprocess_items([item], str(d))
+    idx = res.get("index", [])
     # expect an index entry and a preproc dir
     assert isinstance(idx, list)
     assert len(idx) == 1

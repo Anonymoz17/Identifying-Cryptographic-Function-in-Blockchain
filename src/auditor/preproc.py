@@ -31,6 +31,8 @@ def preprocess_items(
     workdir: str,
     progress_cb: Optional[Callable[[int, int], None]] = None,
     cancel_event: Optional[threading.Event] = None,
+    max_extract_depth: int = 2,
+    do_extract: bool = True,
 ) -> List[Dict[str, Any]]:  # noqa: C901 (complexity; split into helpers later)
     """Process items and write per-file artifacts.
 
@@ -51,6 +53,8 @@ def preprocess_items(
     total = len(items)
     processed = 0
 
+    # extraction configuration is now passed in as parameter
+
     for it in items:
         if cancel_event is not None and cancel_event.is_set():
             break
@@ -70,7 +74,61 @@ def preprocess_items(
         art_dir.mkdir(parents=True, exist_ok=True)
 
         src = it.get("path")
-        if not src or not Path(src).exists():
+        src_path = Path(src) if src else None
+        if not src or not src_path.exists():
+            # create artifact dir and metadata indicating missing source
+            try:
+                art_dir.mkdir(parents=True, exist_ok=True)
+                meta = {
+                    "id": sha,
+                    "path": str(Path(src).resolve()) if src else "",
+                    "relpath": art_dir.relative_to(wd).as_posix(),
+                    "sha256": sha,
+                    "size": it.get("size"),
+                    "mtime": None,
+                    "mtime_epoch": None,
+                    "mime": "application/octet-stream",
+                    "language": "unknown",
+                    "is_binary": False,
+                    "origin": "local",
+                    "artifact_dir": art_dir.relative_to(wd).as_posix(),
+                    "generated_at": datetime.datetime.now(
+                        datetime.timezone.utc
+                    ).isoformat(),
+                    "extra": {"error": "source_missing"},
+                }
+                try:
+                    _atomic_write(
+                        art_dir / "metadata.json",
+                        json.dumps(meta, sort_keys=True, indent=2),
+                    )
+                except Exception:
+                    pass
+                idx = {
+                    "manifest_id": sha,
+                    "input_path": str(Path(src).resolve()) if src else "",
+                    "relpath": art_dir.relative_to(wd).as_posix(),
+                    "sha256": sha,
+                    "size": it.get("size"),
+                    "mime": meta.get("mime"),
+                    "language": meta.get("language"),
+                    "is_binary": meta.get("is_binary"),
+                    "artifact_dir": art_dir.relative_to(wd).as_posix(),
+                    "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "error": "source_missing",
+                }
+                index_entries.append(idx)
+                manifest_entries.append(meta)
+                try:
+                    with index_path.open("a", encoding="utf-8") as f:
+                        f.write(
+                            json.dumps(idx, sort_keys=True, ensure_ascii=False) + "\n"
+                        )
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
             processed += 1
             if callable(progress_cb):
                 try:
@@ -87,6 +145,125 @@ def preprocess_items(
         except Exception:
             # skip on copy failure; continue to write metadata
             pass
+
+        # attempt extraction for archives; extracted files will be placed
+        # under workdir/extracted/<sha>/ and added to manifest_entries. Use a
+        # simple BFS up to max_extract_depth.
+        if do_extract:
+            try:
+                extracted_records = []
+                if src_path and src_path.exists():
+                    # use a small local queue of (path, depth, parent_archive_name)
+                    # start from the original source path (so unpack can detect format
+                    # from extension/magic)
+                    queue: List[Tuple[Path, int, Optional[str]]] = [
+                        (src_path, 0, src_path.name)
+                    ]
+                    while queue:
+                        cur_path, depth, parent = queue.pop(0)
+                        if depth >= max_extract_depth:
+                            continue
+                        # try to unpack cur_path into target folder under extracted/<sha>
+                        try:
+                            targ = wd / "extracted" / sha / (parent or "root")
+                            targ.mkdir(parents=True, exist_ok=True)
+                            # shutil.unpack_archive may raise for non-archives; use
+                            # cur_path (original path) instead of copied input.bin so
+                            # extension detection works
+                            shutil.unpack_archive(str(cur_path), str(targ))
+                            # enumerate extracted files and enqueue if they look like archives
+                            for p in targ.rglob("**/*"):
+                                if p.is_file():
+                                    # add manifest entry for extracted file
+                                    try:
+                                        sub_sha = None
+                                        # best-effort: compute a quick hash for identity
+                                        import hashlib
+
+                                        h = hashlib.sha256()
+                                        with open(p, "rb") as fh:
+                                            while True:
+                                                b = fh.read(8192)
+                                                if not b:
+                                                    break
+                                                h.update(b)
+                                        sub_sha = h.hexdigest()
+                                    except Exception:
+                                        sub_sha = None
+                                    rel = p.relative_to(wd).as_posix()
+                                    try:
+                                        mtime_iso_sub = datetime.datetime.fromtimestamp(
+                                            p.stat().st_mtime, datetime.timezone.utc
+                                        ).isoformat()
+                                        mtime_epoch_sub = int(p.stat().st_mtime)
+                                    except Exception:
+                                        mtime_iso_sub = None
+                                        mtime_epoch_sub = None
+                                    rec = {
+                                        "id": sub_sha or "",
+                                        "path": str(p.resolve()),
+                                        "relpath": rel,
+                                        "size": p.stat().st_size,
+                                        "mtime": mtime_iso_sub,
+                                        "mtime_epoch": mtime_epoch_sub,
+                                        "sha256": sub_sha,
+                                        "mime": mimetypes.guess_type(str(p))[0]
+                                        or "application/octet-stream",
+                                        "language": "unknown",
+                                        "is_binary": False,
+                                        "origin": f"extracted:{Path(src).name}",
+                                        "artifact_dir": (wd / "extracted" / sha)
+                                        .relative_to(wd)
+                                        .as_posix(),
+                                        "generated_at": datetime.datetime.now(
+                                            datetime.timezone.utc
+                                        ).isoformat(),
+                                    }
+                                    manifest_entries.append(rec)
+                                    extracted_records.append(rec)
+                                    # if file itself is an archive, add to queue
+                                    try:
+                                        if zipfile.is_zipfile(
+                                            str(p)
+                                        ) or tarfile.is_tarfile(str(p)):
+                                            queue.append((p, depth + 1, Path(src).name))
+                                    except Exception:
+                                        pass
+                        except (shutil.ReadError, ValueError):
+                            # not a supported archive for shutil
+                            pass
+                        except Exception:
+                            # ignore extraction errors per spec but record failed extraction
+                            try:
+                                manifest_entries.append(
+                                    {
+                                        "id": "",
+                                        "path": str(cur_path.resolve()),
+                                        "relpath": (wd / "extracted" / sha)
+                                        .relative_to(wd)
+                                        .as_posix(),
+                                        "size": None,
+                                        "mtime": None,
+                                        "mtime_epoch": None,
+                                        "sha256": None,
+                                        "mime": "application/octet-stream",
+                                        "language": "unknown",
+                                        "is_binary": False,
+                                        "origin": f"extracted_failed:{Path(src).name}",
+                                        "artifact_dir": (wd / "extracted" / sha)
+                                        .relative_to(wd)
+                                        .as_posix(),
+                                        "generated_at": datetime.datetime.now(
+                                            datetime.timezone.utc
+                                        ).isoformat(),
+                                        "extra": {"error": "extraction_failed"},
+                                    }
+                                )
+                            except Exception:
+                                pass
+            except Exception:
+                # top-level extraction safeguard
+                pass
 
         # normalize mtime: produce both an ISO8601 string for metadata.json
         # (backwards-compatibility for callers/tests) and an epoch integer for
@@ -249,7 +426,19 @@ def preprocess_items(
         # best-effort: don't fail the whole preprocess if manifest write fails
         pass
 
-    return index_entries
+    # build summary stats
+    stats = {
+        "total_input_items": total,
+        "processed": processed,
+        "index_lines": len(index_entries),
+        "manifest_lines": len(manifest_entries),
+    }
+
+    return {
+        "index": index_entries,
+        "manifest_path": str(manifest_path) if "manifest_path" in locals() else None,
+        "stats": stats,
+    }
 
 
 def extract_artifacts(
@@ -295,6 +484,103 @@ def extract_artifacts(
         except Exception:
             pass
     return extracted
+
+
+def build_ast_cache(shas: List[str], workdir: str) -> None:
+    """Placeholder to build AST caches for given manifest ids.
+
+    Real implementation should invoke Tree-sitter parsers and write
+    JSON AST to `artifacts/ast/<sha>.json` under workdir. This stub is a
+    no-op to be implemented later.
+    """
+    wd = Path(workdir)
+    ast_dir = wd / "artifacts" / "ast"
+    ast_dir.mkdir(parents=True, exist_ok=True)
+    # Try to populate AST caches by scanning preproc/<sha>/input.bin or extracted files.
+    for s in shas:
+        dest = ast_dir / (s + ".json")
+        if dest.exists():
+            continue
+        # locate input file
+        input_candidates = list((Path(workdir) / "preproc" / s).glob("input.*"))
+        input_candidates += list((Path(workdir) / "preproc" / s).glob("input.bin"))
+        ast_obj = {"sha": s, "ast": None}
+        for p in input_candidates:
+            try:
+                text = p.read_text(encoding="utf-8")
+            except Exception:
+                text = None
+            if text:
+                # simple heuristics: find function definitions for common languages
+                funcs = []
+                # solidity: function <name>(
+                import re
+
+                for m in re.finditer(r"function\s+([A-Za-z0-9_]+)", text):
+                    funcs.append({"name": m.group(1), "lang": "solidity"})
+                # go: func <name>(
+                for m in re.finditer(r"func\s+([A-Za-z0-9_]+)", text):
+                    funcs.append({"name": m.group(1), "lang": "go"})
+                # c/cpp: return_type name(...)
+                for m in re.finditer(
+                    r"\n([A-Za-z_][A-Za-z0-9_\s\*]+)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(",
+                    text,
+                ):
+                    funcs.append({"name": m.group(2), "lang": "c/cpp"})
+                # python: def name(
+                for m in re.finditer(r"def\s+([A-Za-z0-9_]+)\s*\(", text):
+                    funcs.append({"name": m.group(1), "lang": "python"})
+
+                ast_obj["ast"] = {"functions": funcs}
+                break
+        dest.write_text(json.dumps(ast_obj), encoding="utf-8")
+
+
+def build_disasm_cache(shas: List[str], workdir: str) -> None:
+    """Placeholder to build disassembly caches for given manifest ids.
+
+    Real implementation should invoke Capstone or other disassembly
+    tooling and write `artifacts/disasm/<sha>.json`. This stub writes a
+    simple placeholder JSON file.
+    """
+    wd = Path(workdir)
+    disasm_dir = wd / "artifacts" / "disasm"
+    disasm_dir.mkdir(parents=True, exist_ok=True)
+    # Attempt to disassemble binaries using capstone if available, otherwise
+    # write a placeholder. We only run a short disassembly to avoid doing
+    # heavy work in preprocess.
+    try:
+        from capstone import CS_ARCH_X86, CS_MODE_64, Cs
+
+        have_capstone = True
+    except Exception:
+        have_capstone = False
+
+    for s in shas:
+        dest = disasm_dir / (s + ".json")
+        if dest.exists():
+            continue
+        # find the input.bin
+        bin_path = Path(workdir) / "preproc" / s / "input.bin"
+        if not bin_path.exists():
+            # fallback placeholder
+            dest.write_text(json.dumps({"sha": s, "disasm": None}), encoding="utf-8")
+            continue
+        if not have_capstone:
+            dest.write_text(json.dumps({"sha": s, "disasm": None}), encoding="utf-8")
+            continue
+        # read a small window of bytes to disassemble
+        try:
+            data = bin_path.read_bytes()[:1024]
+            md = Cs(CS_ARCH_X86, CS_MODE_64)
+            insns = []
+            for i in md.disasm(data, 0x0):
+                insns.append(
+                    {"addr": i.address, "mnemonic": i.mnemonic, "op_str": i.op_str}
+                )
+            dest.write_text(json.dumps({"sha": s, "disasm": insns}), encoding="utf-8")
+        except Exception:
+            dest.write_text(json.dumps({"sha": s, "disasm": None}), encoding="utf-8")
 
 
 if __name__ == "__main__":

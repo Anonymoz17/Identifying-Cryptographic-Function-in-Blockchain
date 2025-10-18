@@ -58,10 +58,12 @@ def main(argv=None):
         print(f"Preproc: {processed}/{total}", end="\r", flush=True)
 
     try:
-        idx = preprocess_items(
+        res = preprocess_items(
             items, str(wd), progress_cb=progress_cb, cancel_event=cancel_event
         )
-        print("\nPreprocessing finished, index lines:", len(idx))
+        stats = res.get("stats", {})
+        print("\nPreprocessing finished, index lines:", stats.get("index_lines"))
+        print("Manifest:", res.get("manifest_path"))
         print("Check", str((wd / "preproc")))
         return 0
     except KeyboardInterrupt:

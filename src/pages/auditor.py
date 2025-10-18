@@ -11,7 +11,7 @@ from pathlib import Path
 from auditor.auditlog import AuditLog
 from auditor.case import Engagement
 from auditor.intake import count_inputs, enumerate_inputs, write_manifest
-from auditor.preproc import preprocess_items
+from auditor.preproc import build_ast_cache, build_disasm_cache, preprocess_items
 from auditor.workspace import Workspace
 
 import customtkinter as ctk  # isort:skip
@@ -99,6 +99,36 @@ class AuditorPage(ctk.CTkFrame):
             policy_container, placeholder_text="Optional policy baseline (JSON)"
         )
         self.policy_entry.grid(row=0, column=0, sticky="we")
+
+        # Preprocessing options: extraction + AST/disasm toggles
+        ctk.CTkLabel(form, text="Preproc Options:").grid(row=4, column=0, sticky="w")
+        opts_container = ctk.CTkFrame(form, fg_color="transparent")
+        opts_container.grid(row=4, column=1, sticky="we", padx=(6, 0))
+        opts_container.grid_columnconfigure(0, weight=1)
+        # extract archives checkbox
+        self.extract_var = tk.BooleanVar(value=True)
+        self.extract_chk = ctk.CTkCheckBox(
+            opts_container, text="Extract archives", variable=self.extract_var
+        )
+        self.extract_chk.grid(row=0, column=0, sticky="w")
+        # max depth entry
+        depth_frame = ctk.CTkFrame(opts_container, fg_color="transparent")
+        depth_frame.grid(row=0, column=1, sticky="e")
+        ctk.CTkLabel(depth_frame, text="Max depth:").grid(row=0, column=0)
+        self.max_depth_entry = ctk.CTkEntry(depth_frame, width=60)
+        self.max_depth_entry.insert(0, "2")
+        self.max_depth_entry.grid(row=0, column=1, padx=(4, 0))
+        # AST / disasm toggles
+        self.ast_var = tk.BooleanVar(value=False)
+        self.disasm_var = tk.BooleanVar(value=False)
+        self.ast_chk = ctk.CTkCheckBox(
+            opts_container, text="Generate AST cache", variable=self.ast_var
+        )
+        self.ast_chk.grid(row=1, column=0, sticky="w", pady=(6, 0))
+        self.disasm_chk = ctk.CTkCheckBox(
+            opts_container, text="Generate disasm cache", variable=self.disasm_var
+        )
+        self.disasm_chk.grid(row=1, column=1, sticky="w", pady=(6, 0))
 
         # Client and other hidden helpers (used by other methods)
         self.client_entry = ctk.CTkEntry(
@@ -304,14 +334,73 @@ class AuditorPage(ctk.CTkFrame):
                     except Exception:
                         pass
 
-                preproc_index = preprocess_items(
+                # read UI options
+                try:
+                    max_depth = int(self.max_depth_entry.get().strip())
+                except Exception:
+                    max_depth = 2
+                do_extract = bool(self.extract_var.get())
+
+                preproc_result = preprocess_items(
                     items,
                     str(case_dir),
                     progress_cb=preproc_progress,
                     cancel_event=self._cancel_event,
+                    max_extract_depth=max_depth,
+                    do_extract=do_extract,
                 )
-                al.append("preproc.completed", {"index_lines": len(preproc_index)})
+                stats = preproc_result.get("stats", {})
+                al.append(
+                    "preproc.completed", {"index_lines": stats.get("index_lines")}
+                )
                 self.after(0, self._set_status, "Preprocessing completed")
+                # optionally build AST/disasm caches
+                try:
+                    if bool(self.ast_var.get()):
+                        # collect shas from manifest
+                        manifest_path = preproc_result.get("manifest_path")
+                        if manifest_path:
+                            shas = []
+                            import json
+
+                            with open(manifest_path, "r", encoding="utf-8") as mf:
+                                for line in mf:
+                                    if not line.strip():
+                                        continue
+                                    try:
+                                        obj = json.loads(line)
+                                        if obj.get("id"):
+                                            shas.append(obj.get("id"))
+                                    except Exception:
+                                        pass
+                        else:
+                            shas = [
+                                it.get("sha256") for it in items if it.get("sha256")
+                            ]
+                        build_ast_cache([s for s in shas if s], str(case_dir))
+                    if bool(self.disasm_var.get()):
+                        manifest_path = preproc_result.get("manifest_path")
+                        if manifest_path:
+                            shas = []
+                            import json
+
+                            with open(manifest_path, "r", encoding="utf-8") as mf:
+                                for line in mf:
+                                    if not line.strip():
+                                        continue
+                                    try:
+                                        obj = json.loads(line)
+                                        if obj.get("id"):
+                                            shas.append(obj.get("id"))
+                                    except Exception:
+                                        pass
+                        else:
+                            shas = [
+                                it.get("sha256") for it in items if it.get("sha256")
+                            ]
+                        build_disasm_cache([s for s in shas if s], str(case_dir))
+                except Exception:
+                    pass
             except Exception as e:
                 al.append("preproc.failed", {"error": str(e)})
                 self.after(0, partial(self._set_status, f"Preproc error: {e}", True))

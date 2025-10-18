@@ -57,8 +57,9 @@ def main(argv=None):
 
     # run preprocessing scaffold
     try:
-        preproc_index = preprocess_items(items, str(ws.root))
-        al.append("preproc.completed", {"index_lines": len(preproc_index)})
+        preproc_res = preprocess_items(items, str(ws.root))
+        stats = preproc_res.get("stats", {})
+        al.append("preproc.completed", {"index_lines": stats.get("index_lines")})
     except Exception as e:
         al.append("preproc.failed", {"error": str(e)})
 

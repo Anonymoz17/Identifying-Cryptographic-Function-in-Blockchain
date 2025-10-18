@@ -18,7 +18,8 @@ def test_preprocess_accepts_numeric_mtime(tmp_path: Path):
         "sha256": "dummysha_numeric",
     }
 
-    idx = preprocess_items([item], str(d))
+    res = preprocess_items([item], str(d))
+    idx = res.get("index", [])
     assert len(idx) == 1
     meta_path = d / "preproc" / item["sha256"] / "metadata.json"
     assert meta_path.exists()
