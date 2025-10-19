@@ -29,16 +29,13 @@ This document summarizes the preprocessing, detector, and merging pipeline imple
 
 The repository includes JSON Schema files under `schemas/` which describe the expected shape of common NDJSON outputs:
 
-
 Use `jsonschema` (optional dev dependency) to validate generated NDJSON lines in tests or CI.
 
 ## Optional native integrations
 
-
 See `docs/optional-deps.md` for install notes and developer instructions.
 
 ## Tools
-
 
 ## Quick validation examples
 
