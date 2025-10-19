@@ -29,7 +29,48 @@ def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("--workdir", default="./case_demo")
     p.add_argument("--manifest", default=None)
+    p.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"],
+        help="Set the logging level for preproc (default: INFO)",
+    )
+    p.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Shortcut to set log-level=DEBUG",
+    )
+    p.add_argument(
+        "--build-ast", action="store_true", help="Build AST caches after preprocessing"
+    )
+    p.add_argument(
+        "--build-disasm",
+        action="store_true",
+        help="Build disassembly caches after preprocessing",
+    )
+    p.add_argument(
+        "--move-extracted",
+        action="store_true",
+        help="Move extracted files into the extracted/<sha>/ tree (reduces duplication)",
+    )
+    p.add_argument(
+        "--preserve-permissions",
+        action="store_true",
+        help="Attempt to preserve Unix permission bits for extracted files",
+    )
     args = p.parse_args(argv)
+
+    # configure logging based on args
+    import logging
+
+    if args.verbose:
+        level = logging.DEBUG
+    else:
+        level = getattr(logging, args.log_level, logging.INFO)
+    logging.basicConfig(
+        level=level, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
 
     wd = Path(args.workdir).resolve()
     wd.mkdir(parents=True, exist_ok=True)
@@ -58,10 +99,24 @@ def main(argv=None):
         print(f"Preproc: {processed}/{total}", end="\r", flush=True)
 
     try:
-        idx = preprocess_items(
-            items, str(wd), progress_cb=progress_cb, cancel_event=cancel_event
+        res = preprocess_items(
+            items,
+            str(wd),
+            progress_cb=progress_cb,
+            cancel_event=cancel_event,
+            build_ast=args.build_ast,
+            build_disasm=args.build_disasm,
+            # pass extraction flags through
+            do_extract=True,
+            # extract_artifacts options
+            **{
+                "preserve_permissions": bool(args.preserve_permissions),
+                "move_extracted": bool(args.move_extracted),
+            },
         )
-        print("\nPreprocessing finished, index lines:", len(idx))
+        stats = res.get("stats", {})
+        print("\nPreprocessing finished, index lines:", stats.get("index_lines"))
+        print("Manifest:", res.get("manifest_path"))
         print("Check", str((wd / "preproc")))
         return 0
     except KeyboardInterrupt:

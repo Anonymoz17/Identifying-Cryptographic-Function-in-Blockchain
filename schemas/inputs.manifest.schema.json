@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Inputs Manifest Line",
+  "type": "object",
+  "required": ["sha256", "path"],
+  "properties": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+    "path": { "type": "string" },
+    "size": { "type": ["integer", "null"] },
+    "mtime": { "type": ["string", "null"] },
+    "mtime_epoch": { "type": ["integer", "null"] },
+    "mime": { "type": ["string", "null"] },
+    "language": { "type": ["string", "null"] },
+    "is_binary": { "type": ["boolean", "null"] }
+  },
+  "additionalProperties": true
+}

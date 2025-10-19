@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AST cache schema",
+  "type": "object",
+  "required": ["sha", "ast"],
+  "properties": {
+    "sha": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "ast": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "properties": {
+            "functions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "lang"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "lang": { "type": "string" },
+                  "start_byte": { "type": "integer" },
+                  "end_byte": { "type": "integer" }
+                },
+                "additionalProperties": true
+              }
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Audit Log Event",
+  "type": "object",
+  "required": ["event", "timestamp"],
+  "properties": {
+    "event": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "actor": { "type": "string" },
+    "details": { "type": "object", "additionalProperties": true }
+  },
+  "additionalProperties": false
+}

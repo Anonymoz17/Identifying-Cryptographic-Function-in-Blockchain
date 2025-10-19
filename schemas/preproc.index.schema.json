@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Preproc Index Entry",
+  "type": "object",
+  "required": ["manifest_id", "input_path", "sha256", "ts"],
+  "properties": {
+    "manifest_id": { "type": "string" },
+    "input_path": { "type": "string" },
+    "relpath": { "type": "string" },
+    "sha256": { "type": "string" },
+    "size": { "type": ["integer", "null"] },
+    "mime": { "type": ["string", "null"] },
+    "language": { "type": ["string", "null"] },
+    "is_binary": { "type": ["boolean", "null"] },
+    "artifact_dir": { "type": "string" },
+    "ts": { "type": "string" }
+  },
+  "additionalProperties": true
+}
