@@ -30,6 +30,18 @@ def main(argv=None):
     p.add_argument("--workdir", default="./case_demo")
     p.add_argument("--manifest", default=None)
     p.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"],
+        help="Set the logging level for preproc (default: INFO)",
+    )
+    p.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Shortcut to set log-level=DEBUG",
+    )
+    p.add_argument(
         "--build-ast", action="store_true", help="Build AST caches after preprocessing"
     )
     p.add_argument(
@@ -48,6 +60,17 @@ def main(argv=None):
         help="Attempt to preserve Unix permission bits for extracted files",
     )
     args = p.parse_args(argv)
+
+    # configure logging based on args
+    import logging
+
+    if args.verbose:
+        level = logging.DEBUG
+    else:
+        level = getattr(logging, args.log_level, logging.INFO)
+    logging.basicConfig(
+        level=level, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
 
     wd = Path(args.workdir).resolve()
     wd.mkdir(parents=True, exist_ok=True)

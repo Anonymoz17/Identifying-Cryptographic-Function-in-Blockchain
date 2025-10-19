@@ -87,6 +87,31 @@ The index provides quick metadata useful for UI progress and detectors. Fields i
 - `preproc.build_disasm_cache(shas)` should create `artifacts/disasm/<sha>.json`.
 - Implementations may be no-op until detectors are wired.
 
+## CLI and logging
+
+The repository includes a small helper script `tools/run_preproc.py` to run preprocessing from the command line.
+
+Examples:
+
+```powershell
+# run preproc in ./case_demo using manifest at ./case_demo/inputs.manifest.json
+python tools\run_preproc.py --workdir ./case_demo --manifest ./case_demo/inputs.manifest.json
+
+# build AST and disasm caches and preserve permissions
+python tools\run_preproc.py --workdir ./case_demo --build-ast --build-disasm --preserve-permissions
+
+# enable verbose logging (debug output)
+python tools\run_preproc.py --workdir ./case_demo -v
+
+# set explicit logging level
+python tools\run_preproc.py --workdir ./case_demo --log-level DEBUG
+```
+
+Logging
+
+- By default the CLI sets logging to INFO. Use `--log-level` or `--verbose` (`-v`) to increase verbosity.
+- Warnings are emitted for skipped/unsafe archive members, extraction failures, and AST/disasm parse errors. These are non-fatal and preprocessing will continue.
+
 ## Error handling
 
 - Errors for individual files are recorded in the index/manifest `extra.error` and processing continues.

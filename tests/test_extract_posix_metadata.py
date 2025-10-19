@@ -3,12 +3,9 @@ import sys
 import zipfile
 from pathlib import Path
 
-import pytest
-
 from src.auditor.preproc import extract_artifacts
 
 
-@pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX-only metadata test")
 def test_extract_preserves_owner_group_and_permissions(tmp_path: Path):
     # Create a small zip and set owner/group where possible (best-effort)
     member_name = "script.sh"
@@ -41,9 +38,16 @@ def test_extract_preserves_owner_group_and_permissions(tmp_path: Path):
     # locate extracted file
     outp = tmp_path / "extracted" / sha / member_name
     assert outp.exists()
-    mode = outp.stat().st_mode
-    assert bool(mode & stat.S_IXUSR)
-    # owner and group should be set (non-zero uid/gid) on POSIX
-    st = outp.stat()
-    assert st.st_uid is not None
-    assert st.st_gid is not None
+
+    # On POSIX systems we expect the executable bit and uid/gid info.
+    # On Windows these attributes may not be meaningful; assert existence only.
+    if not sys.platform.startswith("win"):
+        mode = outp.stat().st_mode
+        assert bool(mode & stat.S_IXUSR), "extracted file should be executable on POSIX"
+        # owner and group should be present (may be 0 for root but attributes exist)
+        st = outp.stat()
+        assert hasattr(st, "st_uid") and st.st_uid is not None
+        assert hasattr(st, "st_gid") and st.st_gid is not None
+    else:
+        # On Windows we at least ensure the file is readable and has non-zero size
+        assert outp.stat().st_size > 0

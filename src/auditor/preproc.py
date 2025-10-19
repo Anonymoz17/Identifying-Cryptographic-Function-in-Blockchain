@@ -8,10 +8,12 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
+import logging
 import mimetypes
 import shutil
 import tarfile
 import threading
+import traceback
 import zipfile
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -461,6 +463,7 @@ def extract_artifacts(
     import os
 
     wd = Path(outdir)
+    logger = logging.getLogger(__name__)
     extracted: List[Dict[str, Any]] = []
     for it in items:
         path = Path(it.get("path"))
@@ -493,16 +496,43 @@ def extract_artifacts(
                     try:
                         with zipfile.ZipFile(str(cur_path)) as zf:
                             for zi in zf.infolist():
-                                # compute destination path, avoid absolute extraction
-                                member_path = Path(zi.filename)
-                                dest_path = targ / member_path
+                                # Skip directories
+                                try:
+                                    if zi.is_dir():
+                                        continue
+                                except Exception:
+                                    # older ZipInfo may not have is_dir(); fallback
+                                    if zi.filename.endswith("/"):
+                                        continue
+
+                                # sanitize the member name to avoid zip-slip/path traversal
+                                member_name = zi.filename
+                                # skip absolute or traversal filenames
+                                mp = Path(member_name)
+                                if mp.is_absolute() or any(
+                                    part == ".." for part in mp.parts
+                                ):
+                                    # skip unsafe entries
+                                    try:
+                                        logger.warning(
+                                            "skipping unsafe zip member '%s' in %s",
+                                            member_name,
+                                            str(cur_path),
+                                        )
+                                    except Exception:
+                                        pass
+                                    continue
+
+                                dest_path = targ.joinpath(*mp.parts)
                                 dest_path_parent = dest_path.parent
                                 dest_path_parent.mkdir(parents=True, exist_ok=True)
+
                                 # extract member to the destination path
                                 with zf.open(zi, "r") as srcf, open(
                                     dest_path, "wb"
                                 ) as dstf:
                                     shutil.copyfileobj(srcf, dstf)
+
                                 # preserve permissions when available
                                 if preserve_permissions:
                                     try:
@@ -511,6 +541,7 @@ def extract_artifacts(
                                             os.chmod(dest_path, perm)
                                     except Exception:
                                         pass
+
                         extracted_any = True
                     except Exception:
                         extracted_any = False
@@ -523,8 +554,55 @@ def extract_artifacts(
                 try:
                     if tarfile.is_tarfile(str(cur_path)):
                         with tarfile.open(str(cur_path)) as tf:
-                            # tarfile.extractall will preserve permissions
-                            tf.extractall(path=str(targ))
+                            # iterate members and extract safely to avoid path traversal
+                            for member in tf.getmembers():
+                                mname = member.name
+                                mp = Path(mname)
+                                # skip absolute or traversal filenames
+                                if mp.is_absolute() or any(
+                                    part == ".." for part in mp.parts
+                                ):
+                                    try:
+                                        logger.warning(
+                                            "skipping unsafe tar member '%s' in %s",
+                                            mname,
+                                            str(cur_path),
+                                        )
+                                    except Exception:
+                                        pass
+                                    continue
+                                # only extract regular files and links that have a fileobj
+                                if member.isreg() or member.isfile():
+                                    try:
+                                        fobj = tf.extractfile(member)
+                                        if fobj is None:
+                                            continue
+                                        dest_path = targ.joinpath(*mp.parts)
+                                        dest_path.parent.mkdir(
+                                            parents=True, exist_ok=True
+                                        )
+                                        with open(dest_path, "wb") as out_f:
+                                            shutil.copyfileobj(fobj, out_f)
+                                        # apply permission bits from member.mode if requested
+                                        if preserve_permissions and hasattr(
+                                            member, "mode"
+                                        ):
+                                            try:
+                                                os.chmod(dest_path, member.mode & 0o777)
+                                            except Exception:
+                                                pass
+                                    except Exception:
+                                        # ignore individual member extraction failures
+                                        continue
+                                else:
+                                    # create directory entries as needed
+                                    try:
+                                        (targ.joinpath(*mp.parts)).mkdir(
+                                            parents=True, exist_ok=True
+                                        )
+                                    except Exception:
+                                        pass
+
                             extracted_any = True
                 except Exception:
                     extracted_any = False
@@ -642,6 +720,8 @@ def build_ast_cache(shas: List[str], workdir: str) -> None:
     # Try to populate AST caches by scanning preproc/<sha>/input.bin or extracted files.
     # Prefer Tree-sitter when available for Solidity and Go; otherwise fall back
     # to a lightweight regex-based heuristic.
+    logger = logging.getLogger(__name__)
+
     try:
         from tree_sitter import Language, Parser
 
@@ -649,17 +729,35 @@ def build_ast_cache(shas: List[str], workdir: str) -> None:
     except Exception:
         have_treesitter = False
 
-    ts_langs = {}
+    ts_langs: Dict[str, object] = {}
     if have_treesitter:
         # try to locate a precompiled languages library; best-effort, fall back
         try:
-            libpath = Path(workdir) / "tree_sitter_langs.so"
-            if not libpath.exists():
-                # also check repo root and current working dir
-                libpath = Path.cwd() / "tree_sitter_langs.so"
-            if libpath.exists():
-                ts_langs["go"] = Language(str(libpath), "go")
-                ts_langs["solidity"] = Language(str(libpath), "solidity")
+            # support multiple extensions (.so, .dll, .dylib, .pyd)
+            patterns = ["**/tree_sitter_langs.*", "**/tree_sitter_languages.*"]
+            candidates = []
+            for pat in patterns:
+                candidates.extend(list(Path(workdir).glob(pat)))
+                candidates.extend(list(Path.cwd().glob(pat)))
+            libpath = None
+            for c in candidates:
+                if c.is_file():
+                    libpath = c
+                    break
+            if libpath:
+                try:
+                    # attempt to load a few known language symbols; ignore failures
+                    for lname in ("go", "solidity", "javascript", "python"):
+                        try:
+                            ts_langs[lname] = Language(str(libpath), lname)
+                        except Exception:
+                            # ignore missing language in the lib
+                            continue
+                    logger.debug("loaded tree-sitter langs from %s", str(libpath))
+                except Exception:
+                    logger.debug("failed to load languages from %s", str(libpath))
+            else:
+                logger.debug("no precompiled tree-sitter langlib found; falling back")
         except Exception:
             ts_langs = {}
 
@@ -701,19 +799,24 @@ def build_ast_cache(shas: List[str], workdir: str) -> None:
                     # simple traversal: find function_def or function_definition nodes
                     root = tree.root_node
                     for node in root.walk():
-                        n = node.node
-                        if n.type in (
+                        # tree-sitter python bindings expose node directly
+                        n = getattr(node, "node", node)
+                        if getattr(n, "type", None) in (
                             "function_definition",
                             "function_declaration",
                             "function_definition_statement",
                         ):
                             # extract name child if present
-                            for c in n.children:
-                                if c.type == "identifier" or c.type == "function_name":
+                            for c in getattr(n, "children", []):
+                                if getattr(c, "type", None) in (
+                                    "identifier",
+                                    "function_name",
+                                ):
                                     name = text[c.start_byte : c.end_byte]
                                     funcs.append({"name": name, "lang": lang})
                     parsed_ok = True
                 except Exception:
+                    logger.debug("tree-sitter parse failed for %s", str(p))
                     parsed_ok = False
 
             if not parsed_ok:
@@ -742,6 +845,7 @@ def build_disasm_cache(shas: List[str], workdir: str) -> None:
     # Attempt to disassemble binaries using capstone if available, otherwise
     # write a placeholder. We only run a short disassembly to avoid doing
     # heavy work in preprocess.
+    logger = logging.getLogger(__name__)
     try:
         import capstone as _capstone
 
@@ -761,6 +865,7 @@ def build_disasm_cache(shas: List[str], workdir: str) -> None:
             dest.write_text(json.dumps({"sha": s, "disasm": None}), encoding="utf-8")
             continue
         if not have_capstone:
+            logger.debug("capstone not available, writing placeholder for %s", s)
             dest.write_text(json.dumps({"sha": s, "disasm": None}), encoding="utf-8")
             continue
         # read a small window of bytes to disassemble
@@ -768,35 +873,53 @@ def build_disasm_cache(shas: List[str], workdir: str) -> None:
             data = bin_path.read_bytes()[:4096]
             # attempt to pick architecture/mode from binary metadata
             try:
-                # we only need arch/bitness here; ignore other returned values
-                _, b_arch, b_bitness, _ = _detect_binary_metadata(bin_path)
+                # we only need arch/bitness and endianness here; ignore format
+                _, b_arch, b_bitness, b_endianness = _detect_binary_metadata(bin_path)
             except Exception:
                 b_arch = None
                 b_bitness = None
 
             # Map detected arch/bitness to capstone constants (best-effort)
-            # Default to x86-64
-            arch_const = getattr(_capstone, "CS_ARCH_X86", None)
-            mode = getattr(_capstone, "CS_MODE_64", 0)
             cs_Cs = getattr(_capstone, "Cs", None)
+            arch_const = None
+            mode = 0
 
-            if b_arch in ("x86",) or b_bitness == 32:
-                mode = getattr(_capstone, "CS_MODE_32", 0)
-            if b_arch in ("arm",):
-                arch_const = getattr(_capstone, "CS_ARCH_ARM", arch_const)
-                # choose 32-bit ARM mode (if available)
-                mode = getattr(_capstone, "CS_MODE_ARM", mode)
-            if b_arch in ("aarch64", "arm64"):
-                # ARM64 / AArch64
-                arch_const = getattr(_capstone, "CS_ARCH_ARM64", arch_const)
-                # prefer little-endian mode constant when available
-                mode = getattr(
-                    _capstone,
-                    "CS_MODE_LITTLE_ENDIAN",
-                    getattr(_capstone, "CS_MODE_ARM", 0),
-                )
+            # Common arch defaults
+            if b_arch in ("x86", "x86_64"):
+                arch_const = getattr(_capstone, "CS_ARCH_X86", None)
+                if b_bitness == 64:
+                    mode = getattr(_capstone, "CS_MODE_64", 0)
+                else:
+                    mode = getattr(_capstone, "CS_MODE_32", 0)
+            elif b_arch in ("arm",):
+                arch_const = getattr(_capstone, "CS_ARCH_ARM", None)
+                # ARM mode selection: 32-bit ARM vs THUMB
+                if b_bitness == 32:
+                    mode = getattr(_capstone, "CS_MODE_ARM", 0)
+                    # if endianness is little, try to set little-end flag
+                    if b_endianness == "little":
+                        mode |= getattr(_capstone, "CS_MODE_LITTLE_ENDIAN", 0)
+                else:
+                    mode = getattr(_capstone, "CS_MODE_ARM", 0)
+            elif b_arch in ("aarch64", "arm64"):
+                arch_const = getattr(_capstone, "CS_ARCH_ARM64", None)
+                # capstone ARM64 modes are often 0 or little-end specific
+                mode = getattr(_capstone, "CS_MODE_LITTLE_ENDIAN", 0) or 0
+            elif b_arch in ("mips",):
+                arch_const = getattr(_capstone, "CS_ARCH_MIPS", None)
+                mode = getattr(_capstone, "CS_MODE_MIPS32", 0)
+            else:
+                # default to x86-64 if available
+                arch_const = getattr(_capstone, "CS_ARCH_X86", None)
+                mode = getattr(_capstone, "CS_MODE_64", 0)
 
             if cs_Cs is None or arch_const is None:
+                logger.debug(
+                    "capstone runtime not usable for %s (arch=%s, bit=%s)",
+                    s,
+                    b_arch,
+                    b_bitness,
+                )
                 raise RuntimeError("capstone runtime not usable")
 
             md = cs_Cs(arch_const, mode)
@@ -807,6 +930,7 @@ def build_disasm_cache(shas: List[str], workdir: str) -> None:
                 )
             dest.write_text(json.dumps({"sha": s, "disasm": insns}), encoding="utf-8")
         except Exception:
+            logger.debug("disasm failed for %s: %s", s, traceback.format_exc())
             dest.write_text(json.dumps({"sha": s, "disasm": None}), encoding="utf-8")
 
 
