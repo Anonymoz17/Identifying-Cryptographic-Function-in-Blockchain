@@ -48,7 +48,7 @@ def test_tree_sitter_runtime_parses_and_returns_captures(tmp_path, monkeypatch):
     # make the detector attempt to load a Language via the env var path
     monkeypatch.setenv("TREE_SITTER_LANGS", "fake_lib")
 
-    detector = TreeSitterDetector(queries_dir=str(Path("src/detectors/queries")))
+    detector = TreeSitterDetector(queries_dir=str(Path("detectors/queries")))
     dets = list(detector.scan_files([str(src)]))
     assert any(
         d.rule.startswith("ts:solidity:") or d.details.get("capture") == "sha3_call"

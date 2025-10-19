@@ -2,13 +2,18 @@
 
 This document defines the concrete preprocessing outputs, layout and manifest fields expected by downstream detectors.
 
-Date: 2025-10-18
+# Preprocessing Specification (updated)
+
+This document defines the preprocessing outputs, artifact layout and recent changes relevant to disassembly/mapping and detectors.
+
+Date: 2025-10-19
 
 ## Goals
 
 - Produce per-file canonical artifacts under the case workspace.
 - Create a streaming-friendly manifest `inputs.manifest.ndjson` and a complementary `preproc.index.jsonl` for quick lookups.
 - Provide hooks and directories for AST caches and disassembly caches.
+- Record disassembly address→file-offset mappings (new in Oct 2025) so detectors can report file offsets for instruction-level detections.
 
 ## Workspace layout (created under case workspace root)
 
@@ -20,111 +25,111 @@ Date: 2025-10-18
     - `metadata.json` (the manifest record for this sha)
 - `extracted/`:
   - `<sha>/` (extracted contents of archive with same sha)
-  - Notes: extracted files are placed under `extracted/<sha>/` where `<sha>` is
-    the sha256 of the original input archive. Each extracted file is also
-    represented as a manifest record with `origin` set to
-    `extracted:<parent-archive-filename>`.
-  - Extraction options:
-    - `preserve_permissions` (default: true): when True, attempt to preserve
-      Unix permission bits for members (ZIP external attributes or tar mode).
-    - `move_extracted` (default: false): when True, extracted files are moved
-      from a temporary extraction location into the `extracted/<sha>/` tree and
-      intermediate files are removed where possible. This can reduce disk
-      duplication when callers only need the extracted contents.
+  - Notes: extracted files are placed under `extracted/<sha>/` where `<sha>` is the sha256 of the original input archive. Each extracted file is also represented as a manifest record with `origin` set to `extracted:<parent-archive-filename>`.
 - `artifacts/ast/`:
   - `<sha>.json` (tree-sitter AST cache)
 - `artifacts/disasm/`:
-  - `<sha>.json` (capstone or other light disassembly cache)
+  - `<sha>.json` (Capstone/Capstone-like light disassembly cache containing `disasm`, `mappings` and `base_address`)
 - `artifacts/ghidra_inputs/`:
   - `<sha>/` (files prepared for ghidra_headless)
 - `auditlog.ndjson`
 
-## Manifest record (NDJSON line)
+## Disassembly artifact: `artifacts/disasm/<sha>.json`
 
-Each line is a JSON object with the following fields (see `schemas/manifest.schema.json`):
+New (Oct 2025) spec for the disassembly artifact written by `preproc.build_disasm_cache`.
 
-- id: string (sha256 hex)
-- path: absolute original path
-- relpath: relative path under the case workspace or extracted path
-- size: integer
-- mtime: integer (epoch seconds) or ISO8601 string [accept both, prefer epoch for schema]
-- sha256: string
-- mime: string
-- language: string (detected language or 'unknown')
-- is_binary: boolean
-- origin: string (e.g. `local`, or `extracted:archive.zip`)
-- extra: object optional for detector-specific hints (eg, `arch`, `endianness`)
+Top-level fields:
 
-Example line:
+- `sha` (string) — manifest id
+- `disasm` (list | null) — list of instruction objects or null when disassembly is not available
+- `mappings` (list) — list of mapping objects `[{"address": <numeric>, "offset": <numeric>}, ...]`
+- `base_address` (integer) — the numeric base address used during disassembly (0 when unknown)
 
-{"id":"f3b...","path":"C:/repo/contract.sol","relpath":"inputs/contract.sol","size":5432,"mtime":1697640000,"sha256":"f3b...","mime":"text/x-solidity","language":"solidity","is_binary":false,"origin":"local"}
+Instruction object shape (example):
 
-## Index record (preproc.index.jsonl)
+{
+"addr": 4198400,
+"mnemonic": "mov",
+"op_str": "eax, ebx"
+}
 
-The index provides quick metadata useful for UI progress and detectors. Fields include:
+How to interpret `mappings`:
 
-- manifest_id
-- input_path
-- relpath
-- sha256
-- size
-- mime
-- language
-- is_binary
-- artifact_dir
-- ts (ISO8601)
+- `address` is the instruction virtual/linked address produced by the disassembler.
+- `offset` is the corresponding byte offset relative to the `input.bin` file (computed as `address - base_address` when `base_address` is numeric).
+- Consumers should prefer `mappings` to convert instruction addresses into file offsets for triage and evidence extraction.
 
-## Extraction rules
+How `base_address` is chosen (best-effort heuristic):
 
-- Try `shutil.unpack_archive` first.
-- Fallback to tarfile/zipfile detection.
-- Extract into `extracted/<sha>/` and add each extracted file as a manifest record with `origin` set to `extracted:<parent-archive-filename>`.
-- Support nested extraction up to a configurable depth (default 2).
+- ELF: use the ELF entry point (`e_entry`) when available.
+- PE (Windows Portable Executable): attempt to parse DOS header `e_lfanew`, locate the PE Optional Header, and read `ImageBase` (PE32 or PE32+). A fallback scan for the `PE\x00\x00` signature is used when offsets are not where expected.
+- Mach-O: best-effort scan of load commands (LC_SEGMENT / LC_SEGMENT_64) to collect segment `vmaddr` values and choose the smallest non-zero vmaddr as the `base_address`.
+- If header parsing fails, `base_address` remains 0 and `mappings` will contain offsets equal to the disassembler addresses (still usable).
 
-## AST / Disasm hooks
+These heuristics are intentionally conservative and wrapped in try/except blocks; the implementation favors safe fallback over raising exceptions.
 
-- `preproc.build_ast_cache(shas)` should accept a list of manifest ids and persist JSON AST under `artifacts/ast/<sha>.json`.
-- `preproc.build_disasm_cache(shas)` should create `artifacts/disasm/<sha>.json`.
-- Implementations may be no-op until detectors are wired.
+## Adapter and detector changes (summary of implemented work)
 
-## CLI and logging
+- Semgrep adapter: hardened to accept common Semgrep JSON shapes and added unit tests with mocked semgrep JSON output.
+- Tree-sitter detector: implemented runtime parsing and AST-cache fallback; added capture-to-(line,col) conversion and query discovery across repository locations. New queries for Solidity and Go were added under `detectors/queries/`.
+- YARA: added a canonical rulepack `detectors/yara/crypto.yar` and made the `YaraAdapter` robust to multiple rule directories and to the absence of `yara-python` at runtime (fallback to regex adapter when needed).
+- Disassembly/Capstone:
+  - `preproc.build_disasm_cache` was extended to compute `base_address` for ELF/PE/Mach-O where possible and to write `mappings` to `artifacts/disasm/<sha>.json`.
+  - `src/detectors/disasm_adapter.py` (DisasmJsonAdapter) was updated to prefer artifact `mappings` to translate an instruction `address` to a `Detection.offset` (file byte offset). The adapter also accepts various instruction field name variants and supports pattern + mnemonic-based rule matching.
 
-The repository includes a small helper script `tools/run_preproc.py` to run preprocessing from the command line.
+## Tests added/updated
 
-Examples:
+- `tests/test_preproc_pe_macho_base.py` — unit tests that synthesize minimal PE and Mach-O headers and assert mapping offsets and reasonable `base_address` values. These tests monkeypatch a fake `capstone` runtime to control instruction addresses and validate offset computation.
+- `tests/test_disasm_adapter_mapping.py` — verifies `DisasmJsonAdapter` uses the `mappings` array to compute `Detection.offset`.
+- Existing disasm tests (`tests/test_disasm_cache.py`, `tests/test_disasm_wiring.py`, `tests/test_ast_disasm_mocked.py`) were left intact and pass with the new logic.
+- Tree-sitter, YARA, and Semgrep related tests were implemented earlier as part of the static-detection work (see their individual test files in `tests/`).
+
+Run tests (recommended):
 
 ```powershell
-# run preproc in ./case_demo using manifest at ./case_demo/inputs.manifest.json
-python tools\run_preproc.py --workdir ./case_demo --manifest ./case_demo/inputs.manifest.json
+# run the new disasm/preproc tests only
+pytest tests/test_preproc_pe_macho_base.py -q
+pytest tests/test_disasm_adapter_mapping.py -q
 
-# build AST and disasm caches and preserve permissions
-python tools\run_preproc.py --workdir ./case_demo --build-ast --build-disasm --preserve-permissions
-
-# enable verbose logging (debug output)
-python tools\run_preproc.py --workdir ./case_demo -v
-
-# set explicit logging level
-python tools\run_preproc.py --workdir ./case_demo --log-level DEBUG
+# run entire test suite (might skip some integration tests if optional deps are missing)
+pytest -q
 ```
 
-Logging
+If optional native dependencies (capstone, tree_sitter, yara-python) are not installed on the runner, some integration-style tests will either be skipped or use the repository's mocking strategy (most tests mock optional modules where appropriate).
 
-- By default the CLI sets logging to INFO. Use `--log-level` or `--verbose` (`-v`) to increase verbosity.
-- Warnings are emitted for skipped/unsafe archive members, extraction failures, and AST/disasm parse errors. These are non-fatal and preprocessing will continue.
+## Files changed in this feature
 
-## Error handling
+- src/auditor/preproc.py — PE/Mach-O/ELF base_address detection; write `disasm`, `mappings`, `base_address` into `artifacts/disasm/<sha>.json` when capstone is available.
+- src/detectors/disasm_adapter.py — DisasmJsonAdapter updated to prefer `mappings` and to normalize instruction fields; mnemonic support added.
+- src/detectors/tree_sitter_detector.py — query lookup improvements and capture mapping to line/column.
+- src/detectors/tree_sitter_utils.py — helper utilities for token normalization.
+- src/detectors/adapter.py — YARA adapter fallbacks and other adapter hardening.
+- detectors/queries/\*.scm — Tree-sitter queries for Solidity and Go.
+- detectors/yara/crypto.yar — YARA crypto rulepack.
+- tests/test_preproc_pe_macho_base.py — new tests verifying PE/Mach-O behavior.
+- tests/test_disasm_adapter_mapping.py — mapping test.
+- tools/run_tree_sitter_queries.py — small helper to run tree-sitter queries (unchanged)
 
-- Errors for individual files are recorded in the index/manifest `extra.error` and processing continues.
-- Fatal workspace creation errors should be returned to the caller and surfaced to UI.
+## Guidance for consumers / detectors
 
-## Caching
+- When producing `Detection` objects from disassembly, prefer the artifact `mappings` to translate an instruction `address` into a file `offset` for triage and evidence extraction. If `mappings` is absent, adapters should fall back to using the raw instruction address (best-effort) but mark offsets as uncertain.
+- The `base_address` value is advisory and best-effort — do not rely on it being present for every binary.
 
-- Per-case caching under `case_dir/.cache/`.
-- Optionally reuse global cache under `uploads/.cache/` when enabled.
+## Next recommended steps
 
-## Notes
+1. Document `mappings` and `base_address` formally in any detector adapter contracts (update `schemas/detector_result.schema.json` if you want to require `offset` semantics).
+2. Add CI matrix entries to run integration jobs that install optional deps (capstone, tree-sitter, yara) so the integration tests run on at least one job.
+3. Add more robust Mach-O fat-binary parsing and extra validation for malformed headers if you expect to preprocess arbitrary third-party binaries at scale.
 
-- NDJSON is preferred for manifests to allow streaming ingestion for large cases.
-- For reproducibility, artifact dirs are deterministic per sha.
+## Changelog (high level)
 
-**_ End of spec _**
+- 2025-10-18: initial preprocessing spec and basic extraction/AST/disasm stubs.
+- 2025-10-19: added PE/Mach-O base detection, `mappings` support and adapters/tests described above (see files changed list).
+
+---
+
+If you'd like, I can now:
+
+- create a short entry in `CHANGELOG.md` that summarizes these changes for the project history, and/or
+- open a PR branch with these edits and the new tests, or
+- add a small example showing how a detector should prefer `mappings` when producing `Detection.offset` values.

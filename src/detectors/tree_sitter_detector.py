@@ -31,11 +31,26 @@ class TreeSitterDetector(BaseAdapter):
             self._ts = None
 
     def _load_query_text(self, language: str) -> Optional[str]:
-        if not self.queries_dir:
+        if not language:
             return None
-        cand = self.queries_dir / f"{language}.scm"
-        if cand.exists():
-            return cand.read_text(encoding="utf-8")
+
+        candidates = []
+        # primary configured dir
+        if self.queries_dir:
+            candidates.append(self.queries_dir / f"{language}.scm")
+        # common alternate locations
+        candidates.append(Path("detectors") / "queries" / f"{language}.scm")
+        candidates.append(Path("src") / "detectors" / "queries" / f"{language}.scm")
+        # also support when queries_dir was provided as a relative path string
+        if self.queries_dir and not self.queries_dir.is_absolute():
+            candidates.append(Path("src") / str(self.queries_dir) / f"{language}.scm")
+
+        for cand in candidates:
+            try:
+                if cand.exists():
+                    return cand.read_text(encoding="utf-8")
+            except Exception:
+                continue
         return None
 
     def _byte_to_linecol(self, src_bytes: bytes, byte_offset: int) -> tuple[int, int]:

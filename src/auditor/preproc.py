@@ -75,6 +75,9 @@ def _detect_binary_metadata(
     # Mach-O magic values
     if head[:4] in (b"\xca\xfe\xba\xbe", b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf"):
         return "macho", None, None, None
+        # Check for Mach-O magic bytes
+        if head[:4] in (b"\xca\xfe\xba\xbe", b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe"):
+            return "macho", None, None, None
     # WASM
     if head[:4] == b"\x00asm":
         return "wasm", "wasm", None, None
@@ -879,11 +882,165 @@ def build_disasm_cache(shas: List[str], workdir: str) -> None:
             data = bin_path.read_bytes()[:4096]
             # attempt to pick architecture/mode from binary metadata
             try:
-                # we only need arch/bitness and endianness here; ignore format
-                _, b_arch, b_bitness, b_endianness = _detect_binary_metadata(bin_path)
+                # capture format, arch, bitness and endianness
+                b_format, b_arch, b_bitness, b_endianness = _detect_binary_metadata(
+                    bin_path
+                )
             except Exception:
+                b_format = None
                 b_arch = None
                 b_bitness = None
+                b_endianness = None
+
+            # determine a disassembly base address when possible. Prefer
+            # ELF entry point when available, but also attempt to read PE
+            # ImageBase and Mach-O segment vmaddrs for non-zero-base binaries.
+            base_address = 0
+            try:
+                if b_format == "elf":
+                    with open(bin_path, "rb") as fh:
+                        e_ident = fh.read(16)
+                        if len(e_ident) >= 6:
+                            ei_class = e_ident[4]
+                            ei_data = e_ident[5]
+                            endian = "little" if ei_data == 1 else "big"
+                            # e_entry offset is 24 for both 32-bit and 64-bit ELF
+                            fh.seek(24)
+                            if ei_class == 1:
+                                # 32-bit
+                                e_entry = fh.read(4)
+                            else:
+                                # 64-bit
+                                e_entry = fh.read(8)
+                            if e_entry:
+                                base_address = int.from_bytes(e_entry, endian)
+                elif b_format == "pe":
+                    # PE: read e_lfanew from DOS header then parse OptionalHeader.ImageBase
+                    with open(bin_path, "rb") as fh:
+                        # e_lfanew at offset 0x3C (little-endian)
+                        fh.seek(0x3C)
+                        e_lfanew_bytes = fh.read(4)
+                        if len(e_lfanew_bytes) == 4:
+                            e_lfanew = int.from_bytes(e_lfanew_bytes, "little")
+                            # optional header starts at e_lfanew + 4 (PE signature) + IMAGE_FILE_HEADER (20)
+                            optional_header_start = e_lfanew + 4 + 20
+                            fh.seek(optional_header_start)
+                            magic_bytes = fh.read(2)
+                            if len(magic_bytes) == 2:
+                                magic = int.from_bytes(magic_bytes, "little")
+                                # PE32 (0x10b) has 4-byte ImageBase at offset 28 from optional header
+                                # PE32+ (0x20b) has 8-byte ImageBase at offset 24
+                                if magic == 0x10B:
+                                    imagebase_off = optional_header_start + 28
+                                    fh.seek(imagebase_off)
+                                    ib = fh.read(4)
+                                    if len(ib) == 4:
+                                        base_address = int.from_bytes(ib, "little")
+                                elif magic == 0x20B:
+                                    imagebase_off = optional_header_start + 24
+                                    fh.seek(imagebase_off)
+                                    ib = fh.read(8)
+                                    if len(ib) == 8:
+                                        base_address = int.from_bytes(ib, "little")
+                            # fallback: if the optional header parsing didn't yield an ImageBase,
+                            # try locating the PE signature in the file and parse from there.
+                            if base_address == 0:
+                                try:
+                                    fh.seek(0)
+                                    whole = fh.read()
+                                    idx = whole.find(b"PE\x00\x00")
+                                    if idx != -1:
+                                        optional_header_start = idx + 4 + 20
+                                        if optional_header_start + 2 < len(whole):
+                                            magic = int.from_bytes(
+                                                whole[
+                                                    optional_header_start : optional_header_start
+                                                    + 2
+                                                ],
+                                                "little",
+                                            )
+                                            if magic == 0x10B:
+                                                off = optional_header_start + 28
+                                                if off + 4 <= len(whole):
+                                                    base_address = int.from_bytes(
+                                                        whole[off : off + 4], "little"
+                                                    )
+                                            elif magic == 0x20B:
+                                                off = optional_header_start + 24
+                                                if off + 8 <= len(whole):
+                                                    base_address = int.from_bytes(
+                                                        whole[off : off + 8], "little"
+                                                    )
+                                except Exception:
+                                    pass
+                elif b_format == "macho":
+                    # Mach-O: parse header and load commands to find segment vmaddrs.
+                    # Best-effort: support 32-bit and 64-bit little-endian variants.
+                    with open(bin_path, "rb") as fh:
+                        head = fh.read(32)
+                        if len(head) >= 4:
+                            magic = head[:4]
+                            # skip fat binaries (cafebabe)
+                            if magic == b"\xca\xfe\xba\xbe":
+                                # fat binary: do not attempt complex parsing here
+                                pass
+                            else:
+                                # heuristics: identify 64-bit magic 0xFEEDFACF (little-endian file bytes)
+                                is_64 = magic in (
+                                    b"\xfe\xed\xfa\xcf",
+                                    b"\xcf\xfa\xed\xfe",
+                                )
+                                # ncmds at offset 16 (both 32/64), sizeofcmds at 20
+                                fh.seek(16)
+                                ncmds_b = fh.read(4)
+                                sizeofcmds_b = fh.read(4)
+                                if len(ncmds_b) == 4 and len(sizeofcmds_b) == 4:
+                                    try:
+                                        ncmds = int.from_bytes(ncmds_b, "little")
+                                    except Exception:
+                                        ncmds = 0
+                                    # load commands begin after header: 32 bytes for 64-bit, 28 for 32-bit
+                                    loadoff = 32 if is_64 else 28
+                                    vmaddrs = []
+                                    cur = loadoff
+                                    for _ in range(max(0, ncmds)):
+                                        fh.seek(cur)
+                                        cmd_b = fh.read(4)
+                                        cmdsize_b = fh.read(4)
+                                        if len(cmd_b) < 4 or len(cmdsize_b) < 4:
+                                            break
+                                        cmd = int.from_bytes(cmd_b, "little")
+                                        cmdsize = int.from_bytes(cmdsize_b, "little")
+                                        # LC_SEGMENT == 0x1, LC_SEGMENT_64 == 0x19
+                                        if cmd in (0x1, 0x19):
+                                            # vmaddr sits after segname (16 bytes)
+                                            vmaddr_off = cur + 8 + 16
+                                            fh.seek(vmaddr_off)
+                                            if is_64:
+                                                vm = fh.read(8)
+                                                if len(vm) == 8:
+                                                    vmaddrs.append(
+                                                        int.from_bytes(vm, "little")
+                                                    )
+                                            else:
+                                                vm = fh.read(4)
+                                                if len(vm) == 4:
+                                                    vmaddrs.append(
+                                                        int.from_bytes(vm, "little")
+                                                    )
+                                        # advance to next load command
+                                        if cmdsize <= 0:
+                                            break
+                                        cur += cmdsize
+                                    # choose the smallest non-zero vmaddr if present
+                                    vmaddrs = [
+                                        v for v in vmaddrs if v is not None and v != 0
+                                    ]
+                                    if vmaddrs:
+                                        base_address = min(vmaddrs)
+            except Exception:
+                # best-effort: if anything fails, leave base_address as 0
+                base_address = 0
 
             # Map detected arch/bitness to capstone constants (best-effort)
             cs_Cs = getattr(_capstone, "Cs", None)
@@ -930,11 +1087,33 @@ def build_disasm_cache(shas: List[str], workdir: str) -> None:
 
             md = cs_Cs(arch_const, mode)
             insns = []
-            for i in md.disasm(data, 0x0):
+            mappings = []
+            for i in md.disasm(data, base_address):
+                # record instruction and a mapping entry. Since we disassemble
+                # the raw bytes window starting at 0x0, the instruction address
+                # corresponds to a byte offset into the input.bin window. We
+                # therefore set offset == address here. Consumers can use the
+                # mappings array to translate addresses into file offsets.
                 insns.append(
                     {"addr": i.address, "mnemonic": i.mnemonic, "op_str": i.op_str}
                 )
-            dest.write_text(json.dumps({"sha": s, "disasm": insns}), encoding="utf-8")
+                try:
+                    # compute file offset relative to base_address when numeric
+                    off = int(i.address) - int(base_address)
+                    mappings.append({"address": i.address, "offset": off})
+                except Exception:
+                    mappings.append({"address": i.address, "offset": i.address})
+            dest.write_text(
+                json.dumps(
+                    {
+                        "sha": s,
+                        "disasm": insns,
+                        "mappings": mappings,
+                        "base_address": base_address,
+                    }
+                ),
+                encoding="utf-8",
+            )
         except Exception:
             logger.debug("disasm failed for %s: %s", s, traceback.format_exc())
             dest.write_text(json.dumps({"sha": s, "disasm": None}), encoding="utf-8")

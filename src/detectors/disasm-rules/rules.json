@@ -1,0 +1,14 @@
+[
+  {
+    "id": "xor_sequence",
+    "pattern": "\\bxor\\b",
+    "description": "xor instruction present",
+    "confidence": 0.6
+  },
+  {
+    "id": "add_sequence",
+    "pattern": "\\badd\\b",
+    "description": "add instruction present",
+    "confidence": 0.4
+  }
+]

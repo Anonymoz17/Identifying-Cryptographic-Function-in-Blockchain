@@ -55,7 +55,7 @@ def test_no_false_positives(tmp_path, monkeypatch):
     monkeypatch.setitem(importlib.sys.modules, "tree_sitter", FakeTS)
     monkeypatch.setenv("TREE_SITTER_LANGS", "fake_lib")
 
-    detector = TreeSitterDetector(queries_dir=str(Path("src/detectors/queries")))
+    detector = TreeSitterDetector(queries_dir=str(Path("detectors/queries")))
     dets = list(detector.scan_files([str(src)]))
     # ensure no crypto detections
     assert all(not (d.rule.startswith("ts:solidity:")) for d in dets)
@@ -126,7 +126,7 @@ def test_nested_member_expression_detects_abi_encode(tmp_path, monkeypatch):
     monkeypatch.setitem(importlib.sys.modules, "tree_sitter", FakeTS)
     monkeypatch.setenv("TREE_SITTER_LANGS", "fake_lib")
 
-    detector = TreeSitterDetector(queries_dir=str(Path("src/detectors/queries")))
+    detector = TreeSitterDetector(queries_dir=str(Path("detectors/queries")))
     dets = list(detector.scan_files([str(src)]))
 
     assert any(

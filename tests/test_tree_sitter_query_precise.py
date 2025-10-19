@@ -84,7 +84,7 @@ def test_solidity_precise_captures(tmp_path, monkeypatch):
     monkeypatch.setitem(importlib.sys.modules, "tree_sitter", FakeTS)
     monkeypatch.setenv("TREE_SITTER_LANGS", "fake_lib")
 
-    detector = TreeSitterDetector(queries_dir=str(Path("src/detectors/queries")))
+    detector = TreeSitterDetector(queries_dir=str(Path("detectors/queries")))
     dets = list(detector.scan_files([str(src)]))
 
     snippets = [d.details.get("snippet") for d in dets]

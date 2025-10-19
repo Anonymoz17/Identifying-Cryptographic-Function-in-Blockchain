@@ -66,7 +66,7 @@ def test_solidity_queries_capture_common_crypto(tmp_path, monkeypatch):
     monkeypatch.setenv("TREE_SITTER_LANGS", "fake_lib")
 
     # ensure queries directory is the project's detectors/queries
-    detector = TreeSitterDetector(queries_dir=str(Path("src/detectors/queries")))
+    detector = TreeSitterDetector(queries_dir=str(Path("detectors/queries")))
     dets = list(detector.scan_files([str(src)]))
 
     # confirm we detected at least the token captures and line/col are present
@@ -124,7 +124,7 @@ def test_go_queries_capture_selectors(tmp_path, monkeypatch):
     monkeypatch.setitem(importlib.sys.modules, "tree_sitter", FakeTS)
     monkeypatch.setenv("TREE_SITTER_LANGS", "fake_lib")
 
-    detector = TreeSitterDetector(queries_dir=str(Path("src/detectors/queries")))
+    detector = TreeSitterDetector(queries_dir=str(Path("detectors/queries")))
     dets = list(detector.scan_files([str(src)]))
 
     assert any("sha256" in (d.rule or "") or d.details.get("capture") for d in dets)
