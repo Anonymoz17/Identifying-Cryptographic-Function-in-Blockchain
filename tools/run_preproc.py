@@ -29,6 +29,14 @@ def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("--workdir", default="./case_demo")
     p.add_argument("--manifest", default=None)
+    p.add_argument(
+        "--build-ast", action="store_true", help="Build AST caches after preprocessing"
+    )
+    p.add_argument(
+        "--build-disasm",
+        action="store_true",
+        help="Build disassembly caches after preprocessing",
+    )
     args = p.parse_args(argv)
 
     wd = Path(args.workdir).resolve()
@@ -59,7 +67,12 @@ def main(argv=None):
 
     try:
         res = preprocess_items(
-            items, str(wd), progress_cb=progress_cb, cancel_event=cancel_event
+            items,
+            str(wd),
+            progress_cb=progress_cb,
+            cancel_event=cancel_event,
+            build_ast=args.build_ast,
+            build_disasm=args.build_disasm,
         )
         stats = res.get("stats", {})
         print("\nPreprocessing finished, index lines:", stats.get("index_lines"))

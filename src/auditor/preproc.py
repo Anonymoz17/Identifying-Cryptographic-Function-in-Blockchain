@@ -86,6 +86,8 @@ def preprocess_items(
     cancel_event: Optional[threading.Event] = None,
     max_extract_depth: int = 2,
     do_extract: bool = True,
+    build_ast: bool = False,
+    build_disasm: bool = False,
 ) -> List[Dict[str, Any]]:  # noqa: C901 (complexity; split into helpers later)
     """Process items and write per-file artifacts.
 
@@ -113,6 +115,24 @@ def preprocess_items(
             break
 
         sha = it.get("sha256")
+        src = it.get("path")
+        src_path = Path(src) if src else None
+        # If sha256 not provided, try to compute it from the source file
+        if not sha and src_path and src_path.exists():
+            try:
+                h = hashlib.sha256()
+                with open(src_path, "rb") as fh:
+                    while True:
+                        b = fh.read(8192)
+                        if not b:
+                            break
+                        h.update(b)
+                sha = h.hexdigest()
+                # populate into item for consumers
+                it["sha256"] = sha
+            except Exception:
+                sha = None
+
         if not sha:
             processed += 1
             if callable(progress_cb):
@@ -125,9 +145,6 @@ def preprocess_items(
         # deterministic artifact dir per sha
         art_dir = preproc_dir / sha
         art_dir.mkdir(parents=True, exist_ok=True)
-
-        src = it.get("path")
-        src_path = Path(src) if src else None
         if not src or not src_path.exists():
             # create artifact dir and metadata indicating missing source
             try:
@@ -291,7 +308,7 @@ def preprocess_items(
                     elif head[:4] in (
                         b"\xca\xfe\xba\xbe",
                         b"\xfe\xed\xfa\xce",
-                        b"\xfe\xed\fa\xcf",
+                        b"\xfe\xed\ufa\xcf",
                     ):
                         # many mach-o magic variants; best-effort
                         mime = "application/x-mach-binary"
@@ -384,6 +401,28 @@ def preprocess_items(
         tmp_manifest.replace(manifest_path)
     except Exception:
         # best-effort: don't fail the whole preprocess if manifest write fails
+        pass
+
+    # Optionally build AST and disasm caches for processed shas (best-effort)
+    try:
+        processed_shas = [
+            e.get("manifest_id") for e in index_entries if e.get("manifest_id")
+        ]
+        # dedupe while preserving order
+        seen = set()
+        unique_shas = [x for x in processed_shas if not (x in seen or seen.add(x))]
+        if build_ast and unique_shas:
+            try:
+                build_ast_cache(unique_shas, str(wd))
+            except Exception:
+                # do not fail preprocessing on AST build errors
+                pass
+        if build_disasm and unique_shas:
+            try:
+                build_disasm_cache(unique_shas, str(wd))
+            except Exception:
+                pass
+    except Exception:
         pass
 
     # build summary stats
