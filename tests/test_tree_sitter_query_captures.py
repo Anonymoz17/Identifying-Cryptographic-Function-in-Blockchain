@@ -41,7 +41,7 @@ def test_query_captures_map_to_detections(monkeypatch, tmp_path):
     monkeypatch.setitem(importlib.sys.modules, "tree_sitter", FakeTS)
     monkeypatch.setenv("TREE_SITTER_LANGS", "fake_lib")
 
-    detector = TreeSitterDetector(queries_dir=str(Path("detectors/queries")))
+    detector = TreeSitterDetector(queries_dir=str(Path("src/detectors/queries")))
     dets = list(detector.scan_files([str(src)]))
     names = {d.rule for d in dets}
     assert any("sha_call" in n or "ec_call" in n for n in names)

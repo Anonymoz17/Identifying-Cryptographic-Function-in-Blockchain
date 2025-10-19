@@ -7,8 +7,8 @@ or a single file. It's intended for local validation and for use in CI jobs
 where a real `tree_sitter` runtime and compiled language library are available.
 
 Usage examples:
-  python tools/run_tree_sitter_queries.py --queries detectors/queries --samples samples/
-  python tools/run_tree_sitter_queries.py --queries detectors/queries --file contracts/My.sol --lib-path /work/tree_sitter_langs.so
+    python tools/run_tree_sitter_queries.py --queries src/detectors/queries --samples samples/
+    python tools/run_tree_sitter_queries.py --queries src/detectors/queries --file contracts/My.sol --lib-path /work/tree_sitter_langs.so
 
 Notes:
 - The script will exit with code 2 if `tree_sitter` is not importable. In CI,

@@ -23,6 +23,6 @@ def test_tree_sitter_detector_reads_ast(tmp_path):
     inp = art_dir / "input.bin"
     inp.write_bytes(b"\x00")
 
-    detector = TreeSitterDetector(queries_dir=str(Path("detectors/queries")))
+    detector = TreeSitterDetector(queries_dir=str(Path("src/detectors/queries")))
     dets = list(detector.scan_files([str(inp)]))
     assert any("sha3" in (d.details.get("snippet") or "") for d in dets)
