@@ -20,6 +20,17 @@ Date: 2025-10-18
     - `metadata.json` (the manifest record for this sha)
 - `extracted/`:
   - `<sha>/` (extracted contents of archive with same sha)
+  - Notes: extracted files are placed under `extracted/<sha>/` where `<sha>` is
+    the sha256 of the original input archive. Each extracted file is also
+    represented as a manifest record with `origin` set to
+    `extracted:<parent-archive-filename>`.
+  - Extraction options:
+    - `preserve_permissions` (default: true): when True, attempt to preserve
+      Unix permission bits for members (ZIP external attributes or tar mode).
+    - `move_extracted` (default: false): when True, extracted files are moved
+      from a temporary extraction location into the `extracted/<sha>/` tree and
+      intermediate files are removed where possible. This can reduce disk
+      duplication when callers only need the extracted contents.
 - `artifacts/ast/`:
   - `<sha>.json` (tree-sitter AST cache)
 - `artifacts/disasm/`:

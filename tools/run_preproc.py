@@ -37,6 +37,16 @@ def main(argv=None):
         action="store_true",
         help="Build disassembly caches after preprocessing",
     )
+    p.add_argument(
+        "--move-extracted",
+        action="store_true",
+        help="Move extracted files into the extracted/<sha>/ tree (reduces duplication)",
+    )
+    p.add_argument(
+        "--preserve-permissions",
+        action="store_true",
+        help="Attempt to preserve Unix permission bits for extracted files",
+    )
     args = p.parse_args(argv)
 
     wd = Path(args.workdir).resolve()
@@ -73,6 +83,13 @@ def main(argv=None):
             cancel_event=cancel_event,
             build_ast=args.build_ast,
             build_disasm=args.build_disasm,
+            # pass extraction flags through
+            do_extract=True,
+            # extract_artifacts options
+            **{
+                "preserve_permissions": bool(args.preserve_permissions),
+                "move_extracted": bool(args.move_extracted),
+            },
         )
         stats = res.get("stats", {})
         print("\nPreprocessing finished, index lines:", stats.get("index_lines"))

@@ -441,12 +441,25 @@ def preprocess_items(
 
 
 def extract_artifacts(
-    items: List[Dict[str, Any]], outdir: str, max_depth: int = 2
+    items: List[Dict[str, Any]],
+    outdir: str,
+    max_depth: int = 2,
+    preserve_permissions: bool = True,
+    move_extracted: bool = False,
 ) -> List[Dict[str, Any]]:
     """Extract archive files from items into outdir/extracted/<sha>/ and return list of extracted items metadata.
 
-    Supports zip and tar-based archives using shutil.unpack_archive/TarFile/ZipFile.
+    Improvements over the prior implementation:
+    - Use magic/header detection to choose extraction strategy when possible.
+    - Preserve Unix permission bits for zip members when available.
+    - Optional `move_extracted` mode: when True, move extracted files to the
+      target location and delete intermediate temp files (best-effort).
+
+    Supports zip and tar-based archives using zipfile/tarfile. This function
+    remains best-effort and will not raise on individual extraction failures.
     """
+    import os
+
     wd = Path(outdir)
     extracted: List[Dict[str, Any]] = []
     for it in items:
@@ -466,41 +479,71 @@ def extract_artifacts(
             targ = target_root / origin
             targ.mkdir(parents=True, exist_ok=True)
             extracted_any = False
-            # try shutil.unpack_archive first
-            try:
-                shutil.unpack_archive(str(cur_path), str(targ))
-                extracted_any = True
-            except (shutil.ReadError, ValueError):
-                pass
-            except Exception:
-                # non-fatal
-                pass
 
-            # tarfile fallback
+            # read header for heuristic detection
+            try:
+                with open(cur_path, "rb") as fh:
+                    head = fh.read(8)
+            except Exception:
+                head = b""
+
+            # ZIP magic signature
+            try:
+                if head.startswith(b"PK\x03\x04") or zipfile.is_zipfile(str(cur_path)):
+                    try:
+                        with zipfile.ZipFile(str(cur_path)) as zf:
+                            for zi in zf.infolist():
+                                # compute destination path, avoid absolute extraction
+                                member_path = Path(zi.filename)
+                                dest_path = targ / member_path
+                                dest_path_parent = dest_path.parent
+                                dest_path_parent.mkdir(parents=True, exist_ok=True)
+                                # extract member to the destination path
+                                with zf.open(zi, "r") as srcf, open(
+                                    dest_path, "wb"
+                                ) as dstf:
+                                    shutil.copyfileobj(srcf, dstf)
+                                # preserve permissions when available
+                                if preserve_permissions:
+                                    try:
+                                        perm = (zi.external_attr >> 16) & 0o777
+                                        if perm:
+                                            os.chmod(dest_path, perm)
+                                    except Exception:
+                                        pass
+                        extracted_any = True
+                    except Exception:
+                        extracted_any = False
+
+            except Exception:
+                extracted_any = False
+
+            # tarfile (supports gz, bz2, xz compressed tars) fallback
             if not extracted_any:
                 try:
                     if tarfile.is_tarfile(str(cur_path)):
                         with tarfile.open(str(cur_path)) as tf:
+                            # tarfile.extractall will preserve permissions
                             tf.extractall(path=str(targ))
                             extracted_any = True
                 except Exception:
-                    pass
+                    extracted_any = False
 
-            # zipfile fallback
+            # shutil.unpack_archive as a final fallback (extension based)
             if not extracted_any:
                 try:
-                    if zipfile.is_zipfile(str(cur_path)):
-                        with zipfile.ZipFile(str(cur_path)) as zf:
-                            zf.extractall(path=str(targ))
-                            extracted_any = True
+                    shutil.unpack_archive(str(cur_path), str(targ))
+                    extracted_any = True
+                except (shutil.ReadError, ValueError):
+                    extracted_any = False
                 except Exception:
-                    pass
+                    extracted_any = False
 
             if not extracted_any:
                 # nothing extracted here; continue
                 continue
 
-            # enumerate extracted files
+            # enumerate extracted files and collect metadata
             for p in targ.rglob("**/*"):
                 if not p.is_file():
                     continue
@@ -560,6 +603,26 @@ def extract_artifacts(
                 try:
                     if zipfile.is_zipfile(str(p)) or tarfile.is_tarfile(str(p)):
                         queue.append((p, depth + 1, p.name))
+                except Exception:
+                    pass
+
+            # if move_extracted is requested, attempt to move the targ tree to the
+            # target_root top-level and remove the archive; keep best-effort semantics
+            if move_extracted:
+                try:
+                    # move each file from targ into target_root (flattening origin)
+                    for child in targ.rglob("**/*"):
+                        if child.is_file():
+                            rel = child.relative_to(targ)
+                            dest = target_root / rel
+                            dest.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.move(str(child), str(dest))
+                    # attempt to remove the now-empty targ directory
+                    try:
+                        targ.rmdir()
+                    except Exception:
+                        # ignore if not empty; do not raise
+                        pass
                 except Exception:
                     pass
 
@@ -721,11 +784,17 @@ def build_disasm_cache(shas: List[str], workdir: str) -> None:
                 mode = getattr(_capstone, "CS_MODE_32", 0)
             if b_arch in ("arm",):
                 arch_const = getattr(_capstone, "CS_ARCH_ARM", arch_const)
-                # choose 32-bit ARM mode
+                # choose 32-bit ARM mode (if available)
                 mode = getattr(_capstone, "CS_MODE_ARM", mode)
             if b_arch in ("aarch64", "arm64"):
+                # ARM64 / AArch64
                 arch_const = getattr(_capstone, "CS_ARCH_ARM64", arch_const)
-                mode = getattr(_capstone, "CS_MODE_ARM", 0)
+                # prefer little-endian mode constant when available
+                mode = getattr(
+                    _capstone,
+                    "CS_MODE_LITTLE_ENDIAN",
+                    getattr(_capstone, "CS_MODE_ARM", 0),
+                )
 
             if cs_Cs is None or arch_const is None:
                 raise RuntimeError("capstone runtime not usable")
