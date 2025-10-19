@@ -51,7 +51,8 @@ def main(argv=None):
     manifest = args.manifest
     out = args.out
 
-    files = load_manifest_paths(manifest)
+    # resolve artifact_dir entries relative to the manifest parent directory
+    files = load_manifest_paths(manifest, base_dir=str(Path(manifest).parent))
     if not files:
         print(f"No files found in manifest: {manifest}")
         return 1

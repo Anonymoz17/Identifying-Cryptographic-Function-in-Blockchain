@@ -7,19 +7,28 @@ from typing import Iterable, List
 from .adapter import BaseAdapter, Detection
 
 
-def load_manifest_paths(manifest_path: str) -> List[str]:
+def load_manifest_paths(manifest_path: str, base_dir: str | None = None) -> List[str]:
+    """Load file paths from a manifest NDJSON.
+
+    If `base_dir` is provided, `artifact_dir` entries will be resolved
+    relative to `base_dir`. Otherwise they are resolved relative to the
+    manifest file's parent directory (backwards-compatible behavior).
+    """
     p = Path(manifest_path)
     if not p.exists():
         return []
     out = []
+    # determine base for artifact_dir resolution
+    resolved_base = Path(base_dir) if base_dir else p.parent
     for line in p.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         try:
             obj = json.loads(line)
             # prefer artifact_dir + input.bin if present else path
-            if obj.get("artifact_dir"):
-                base = Path(p.parent) / obj.get("artifact_dir")
+            art = obj.get("artifact_dir")
+            if art:
+                base = resolved_base / art
                 cand = base / "input.bin"
                 if cand.exists():
                     out.append(str(cand))

@@ -90,6 +90,8 @@ def preprocess_items(
     do_extract: bool = True,
     build_ast: bool = False,
     build_disasm: bool = False,
+    preserve_permissions: bool = True,
+    move_extracted: bool = False,
 ) -> List[Dict[str, Any]]:  # noqa: C901 (complexity; split into helpers later)
     """Process items and write per-file artifacts.
 
@@ -224,7 +226,11 @@ def preprocess_items(
             try:
                 try:
                     extracted_records = extract_artifacts(
-                        [it], str(wd), max_depth=max_extract_depth
+                        [it],
+                        str(wd),
+                        max_depth=max_extract_depth,
+                        preserve_permissions=preserve_permissions,
+                        move_extracted=move_extracted,
                     )
                     # extend manifest entries with the returned records
                     manifest_entries.extend(extracted_records)
