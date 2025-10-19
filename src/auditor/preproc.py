@@ -71,7 +71,7 @@ def _detect_binary_metadata(
         except Exception:
             return "pe", None, None, None
     # Mach-O magic values
-    if head[:4] in (b"\xca\xfe\xba\xbe", b"\xfe\xed\fa\xce", b"\xfe\xed\fa\xcf"):
+    if head[:4] in (b"\xca\xfe\xba\xbe", b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf"):
         return "macho", None, None, None
     # WASM
     if head[:4] == b"\x00asm":
@@ -308,7 +308,7 @@ def preprocess_items(
                     elif head[:4] in (
                         b"\xca\xfe\xba\xbe",
                         b"\xfe\xed\xfa\xce",
-                        b"\xfe\xed\ufa\xcf",
+                        b"\xfe\xed\xfa\xcf",
                     ):
                         # many mach-o magic variants; best-effort
                         mime = "application/x-mach-binary"

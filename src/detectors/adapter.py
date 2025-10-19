@@ -156,20 +156,39 @@ class YaraAdapter(BaseAdapter):
                     # if match fails (timeout or otherwise) skip
                     continue
                 for m in matches:
-                    # m.strings is iterable of (offset, id, data)
+                    # m.strings may be either an iterable of 3-tuples
+                    # (offset, id, data) or yara.StringMatch objects depending on
+                    # yara-python version. Handle both shapes.
                     for s in getattr(m, "strings", []):
+                        off = None
+                        sid = None
+                        sdata = None
                         try:
-                            off = int(s[0])
+                            if isinstance(s, (list, tuple)):
+                                off_raw, sid, sdata = s[0], s[1], s[2]
+                            else:
+                                # yara.StringMatch-like object: try common attrs
+                                off_raw = getattr(s, "offset", None)
+                                sid = getattr(s, "identifier", None) or getattr(
+                                    s, "id", None
+                                )
+                                sdata = getattr(s, "data", None)
+                            try:
+                                off = int(off_raw) if off_raw is not None else None
+                            except Exception:
+                                off = None
                         except Exception:
                             off = None
-                        detail = {
-                            "string_id": s[1],
-                            "data": (
-                                s[2].decode("utf-8", errors="ignore")
-                                if isinstance(s[2], (bytes, bytearray))
-                                else s[2]
-                            ),
-                        }
+                            sid = None
+                            sdata = None
+
+                        data_val = (
+                            sdata.decode("utf-8", errors="ignore")
+                            if isinstance(sdata, (bytes, bytearray))
+                            else sdata
+                        )
+
+                        detail = {"string_id": sid, "data": data_val}
                         # enrich with rule metadata if available
                         meta = getattr(m, "meta", None)
                         tags = getattr(m, "tags", None)
