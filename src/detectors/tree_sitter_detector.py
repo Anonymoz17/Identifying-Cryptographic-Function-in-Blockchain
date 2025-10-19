@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from .adapter import BaseAdapter, Detection
+from .tree_sitter_utils import is_ethereum_address, normalize_hex_literal
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,36 @@ class TreeSitterDetector(BaseAdapter):
         if cand.exists():
             return cand.read_text(encoding="utf-8")
         return None
+
+    def _byte_to_linecol(self, src_bytes: bytes, byte_offset: int) -> tuple[int, int]:
+        """Map a byte offset into (1-based line, 1-based column).
+
+        This builds a small index of line start offsets for the provided source bytes.
+        It's O(n) to build but cheap for typical source files. Returns (line, col).
+        """
+        if byte_offset is None:
+            return (0, 0)
+        # build line starts
+        line_starts = [0]
+        i = 0
+        while True:
+            nl = src_bytes.find(b"\n", i)
+            if nl == -1:
+                break
+            line_starts.append(nl + 1)
+            i = nl + 1
+
+        # find the line index
+        line = 1
+        for idx, start in enumerate(line_starts):
+            # if this is the last start or the offset is before next start
+            next_start = line_starts[idx + 1] if idx + 1 < len(line_starts) else None
+            if next_start is None or byte_offset < next_start:
+                line = idx + 1
+                col = byte_offset - start + 1
+                return (line, col)
+        # fallback
+        return (len(line_starts), max(1, byte_offset - line_starts[-1] + 1))
 
     def scan_files(self, files: Iterable[str]):
         for f in files:
@@ -117,13 +148,41 @@ class TreeSitterDetector(BaseAdapter):
                                                 ].decode("utf-8", errors="ignore")
                                             except Exception:
                                                 snippet = None
-                                            # TODO: map node.start_byte to (line, column) using a source index
-                                            # for now we include the byte offset and snippet; production code
-                                            # should provide line numbers to improve triage.
+                                            # map node.start_byte to (line, column)
+                                            line, col = (0, 0)
+                                            try:
+                                                line, col = self._byte_to_linecol(
+                                                    src, node.start_byte
+                                                )
+                                            except Exception:
+                                                line, col = (0, 0)
+
                                             details = {
                                                 "snippet": snippet or "",
                                                 "capture": name,
+                                                "line": line,
+                                                "col": col,
                                             }
+                                            # heuristic: if snippet looks like a hex literal, normalize and mark addresses
+                                            try:
+                                                if (
+                                                    name
+                                                    in (
+                                                        "hex_literal",
+                                                        "address_literal",
+                                                    )
+                                                    and snippet
+                                                ):
+                                                    norm = normalize_hex_literal(
+                                                        snippet
+                                                    )
+                                                    if norm:
+                                                        details["hex_normalized"] = norm
+                                                        details["is_address"] = (
+                                                            is_ethereum_address(snippet)
+                                                        )
+                                            except Exception:
+                                                pass
                                             yield Detection(
                                                 path=str(p),
                                                 offset=node.start_byte,

@@ -3,28 +3,45 @@
 ;; They are intentionally conservative and should be reviewed and extended
 ;; with more precise AST shapes for production use.
 
-;; Capture keccak/sha3 calls and their argument literals when possible
-(call_expression
-	function: (identifier) @sha_call
-	arguments: (argument_list
-		(expression_list (expression (string_literal) @sha_arg))))
-(#match? @sha_call "(?i)^(keccak256|sha3)$")
+;; Solidity tree-sitter queries (refined)
+;; Capture common crypto calls with argument shapes.
 
-;; Capture sha256 calls
+;; keccak256 / sha3 called with abi.encodePacked(...) or string literal
+(call_expression
+	function: (identifier) @keccak_call
+	arguments: (argument_list
+		(expression_list (expression (call_expression
+			function: (member_expression
+				;; handle abi.encodePacked and nested member expressions like X.abi.encodePacked
+				(member_expression
+					object: (identifier) @maybe_obj
+					property: (identifier) @maybe_prop)
+				property: (identifier) @abi_prop)
+			arguments: (argument_list (expression_list (expression (string_literal) @keccak_str))))))))
+(#match? @keccak_call "(?i)^(keccak256|sha3)$")
+
+;; sha256 called with abi.encodePacked or other expressions
 (call_expression
 	function: (identifier) @sha256_call
 	arguments: (argument_list (expression_list (expression) @sha256_arg)))
 (#match? @sha256_call "(?i)^sha256$")
 
-;; Capture ecrecover and friend functions
+;; ecrecover and recover
 (call_expression
 	function: (identifier) @ecrecover_call
-	arguments: (argument_list (expression_list (expression) @ec_arg)))
+	arguments: (argument_list (expression_list (expression) @ecrecover_arg)))
 (#match? @ecrecover_call "(?i)^(ecrecover|recover)$")
 
-;; Fallback capture for identifiers (helpful for heuristics)
-(identifier) @identifier
+;; hex and address literal captures (heuristic)
+(hex_literal) @hex_literal
+;; capture address-like hex literals (0x followed by 40 hex chars) - heuristic
+(hex_literal) @address_literal
+(#match? @address_literal "(?i)^0x[0-9a-f]{40}$")
+(number) @number_literal
+(#match? @number_literal "^[0-9]+$")
 
-;; NOTE: These queries are conservative examples. For production-grade rules,
-;; refine the node shapes and add additional captures (addresses, call targets,
-;; numeric/hex literals) to increase precision.
+;; string literal capture for easier snippet extraction
+(string_literal) @string_literal
+
+;; NOTE: These are refined yet still conservative queries; expand with
+;; more precise node shapes and type checks as needed.
