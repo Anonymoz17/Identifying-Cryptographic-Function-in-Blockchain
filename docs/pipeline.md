@@ -87,11 +87,79 @@ Date: 2025-10-18
 
 [Static Detectors]
 
-- YARA: raw bytes, archives, extracted files
-- Semgrep: source files using language-aware rules
-- Tree-sitter detectors: operate on AST caches
-- Capstone/Lightweight disasm scanners: for short instruction-level matches
-- Ghidra headless (optional): produce function/CFG exports for heavy graph-based detections
+The static detection stage runs a set of detectors that operate only on artifacts produced by preprocessing (raw bytes, extracted files, source files, AST caches, and light disassembly). Below are recommended adapters, how they consume preproc outputs, expected outputs, configuration and operational notes.
+
+YARA
+
+- Purpose: fast byte-pattern and file/section-based matching across raw binaries, extracted files, and concatenated blobs (archives). Useful for fingerprinting known crypto constants, magic sequences, and protocol markers.
+- Inputs: `preproc/<sha>/input.bin`, files under `extracted/<sha>/`, and any non-text binary blobs in `inputs/`.
+- Output: `detector_result` entries with `detector: "yara"`, `rule_id`, `match`, `offset`, `confidence` and optional `metadata` (e.g., yara variables or tag labels).
+- Config:
+  - Rulesets should be packaged under `detectors/yara/` or referenced by path in runner config.
+  - Support both compiled rules (.yarac) and source .yar files. When YARA is not installed, the adapter should optionally fall back to a best-effort byte regex engine (less feature-rich).
+- Notes:
+  - Prefer tagging rules with `meta` fields: `meta: {"category":"crypto","confidence":0.9}` and use those when merging confidences.
+  - For archive scanning, expand and scan each extracted member; tag results with `origin: "archive_member"` and `member_relpath`.
+
+Semgrep
+
+- Purpose: source-linguistic pattern matching using language-aware rules. Good for API usage, high-level crypto idioms, and insecure patterns in high-level languages (e.g., Python, JS, Go, Solidity).
+- Inputs: source files listed in `inputs.manifest.ndjson` with `is_binary:false` and `language` hints.
+- Output: `detector_result` entries with `detector: "semgrep"`, `rule_id`, `match`, `line`, `relpath`, `snippet`, and `confidence`.
+- Config:
+  - Ship a curated ruleset under `detectors/semgrep-rules/` and allow runner config to point to external rulepacks or remote repos.
+  - Use Semgrep's JSON output and convert its matches into the repository `DetectorResult` schema.
+- Notes:
+  - Use the `language` field from the manifest to pick language-specific rule subsets.
+  - For large repos, run semgrep in streaming mode (file-by-file) to avoid memory spikes.
+
+Tree-sitter detectors
+
+- Purpose: robust, language-aware AST matching for precise structural checks (e.g., function signatures, call graphs within a translation unit, Solidity AST patterns).
+- Inputs: `artifacts/ast/<id>.json` produced by preprocessing (Tree-sitter AST caches).
+- Output: `detector_result` entries with `detector: "tree-sitter"`, `rule_id`, `node_path` or `range`, `snippet`, and `confidence`.
+- Config:
+  - Implement detectors as small scripts under `detectors/tree-sitter/` that consume cached AST JSON and emit NDJSON lines.
+  - Provide a lightweight query DSL or reuse tree-sitter query files (`queries/*.scm`) where possible.
+- Notes:
+  - AST caches must include source mapping (row/col) to easily produce code snippets and line numbers.
+  - Cache invalidation: include `parser_version` and `grammar_commit` in AST cache metadata so detectors can re-run when grammars change.
+
+Capstone / Lightweight disasm scanners
+
+- Purpose: small instruction-level pattern detection for binaries without running a full binary analysis; suitable for short instruction sequences and typical crypto primitives (e.g., AES rounds, XOR loops, modular multiply idioms).
+- Inputs: `artifacts/disasm/<id>.json` produced by preprocessing (Capstone-lite JSON) and `preproc/<id>/input.bin` offsets.
+- Output: `detector_result` entries with `detector: "disasm"` (or `capstone`), `rule_id`, `address`/`offset`, `snippet` (instruction text), `confidence`.
+- Config:
+  - Keep disassembly shallow (function-level export optional) and focus on short signature sequences.
+  - Provide architecture hints from preproc (e.g., `arch`, `bits`, `endian`) to guide Capstone. If not provided, attempt auto-detection.
+- Notes:
+  - For position-independent code, provide relative offsets and include the mapping from disasm `address` to `input.bin` offset.
+  - Store basic function boundaries where possible to help link matches to higher-level detections.
+
+Ghidra headless (optional)
+
+- Purpose: heavyweight, graph-based detection using function-level exports, call-graph, and data-flow information. Useful for complex crypto function identification and CFG-pattern matching.
+- Inputs: preprocessing should prepare `artifacts/ghidra_inputs/<id>/` with canonical copies and a per-input `metadata.json` describing architecture, loader hints and any symbol information.
+- Output: `artifacts/ghidra_exports/<id>.json` and `detector_result` NDJSON lines annotated with `detector: "ghidra"`, `function_name` (if available), `func_addr`, `rule_id`, `confidence`, and optionally exported graph/summary metadata.
+- Config & operation:
+  - Keep Ghidra headless runs optional and directory-isolated. Running ghidra headless is an expensive CI/offline job; do not run by default in the interactive UI unless explicitly requested.
+  - Provide a `tools/ghidra_headless_runner.py` wrapper (or a documented `ghidra` job) that consumes `artifacts/ghidra_inputs/` and writes `artifacts/ghidra_exports/`.
+- Notes:
+  - Document required Java/Ghidra versions in `docs/optional-deps.md` and provide example headless command lines.
+  - For reproducibility, persist the Ghidra analysis script(s) used (e.g., under `detectors/ghidra/scripts/`) and check them into the repository.
+
+Common output conventions
+
+- All adapters should emit NDJSON lines that conform to `schemas/detector_result.schema.json` (use `detector` field to identify adapter). Include these fields where possible:
+  - `detector`, `rule_id`, `file_id` (manifest id / sha256), `relpath`, `match`, `offset`/`address`/`line`, `snippet`, `confidence`, `metadata` (dict), `timestamp`.
+- Confidence merging recommendation: each adapter may set a base confidence in the emitted record (0.0-1.0). The evidence fusion step will compute combined confidence = 1 - Π(1 - c_i) when grouping correlated matches.
+- Tagging: include `tags` and `category` keys (e.g., `{"category":"crypto","tags":["symmetric","aes"]}`) to help merging and prioritization.
+
+Developer notes
+
+- Optional dependencies: document YARA, Semgrep, Tree-sitter CLI bindings, Capstone Python bindings, and Ghidra in `docs/optional-deps.md` with install hints.
+- Adapter pattern: detectors live under `detectors/` and implement a small adapter interface: consume a manifest/inputs, produce `detector_result` NDJSON. See `detectors/README.md` (create if missing) for the interface contract.
 
 [Dynamic Detectors] (optional/premium)
 
@@ -160,9 +228,12 @@ AuditLog example:
 
 - YARA: consumes raw bytes under `inputs/` and `extracted/`. Use `manifest.id` to tag results.
 - Semgrep: consumes source files and language hint from `manifest` to select rulesets.
+  - A Semgrep CLI adapter is available (`src/detectors/semgrep_adapter.py`) which runs `semgrep --json` and converts results into DetectorResult lines. The runner `tools/run_detectors.py` can configure it via a config file.
 - Tree-sitter detectors: consume `artifacts/ast/{id}.json` produced by preproc.
 - Capstone/Light disasm: consume `artifacts/disasm/{id}.json`.
+  - A disasm adapter is available (`src/detectors/disasm_adapter.py`) which consumes Capstone JSON caches or falls back to binary regex scanning.
 - Ghidra headless: preproc places `artifacts/ghidra_inputs/{id}`; a separate headless Ghidra job runs and outputs `artifacts/ghidra_exports/{id}.json`.
+  - The repo includes a small runner `tools/ghidra_headless_runner.py` and adapter `src/detectors/ghidra_adapter.py` that expect Ghidra to produce JSON exports under `artifacts/ghidra_exports/`.
 - Frida: runtime instrumentation targets taken from preproc heuristics (binaries with crypto imports or named functions). Frida traces are merged as DetectorResult entries with `detector:frida`.
 
 ## 7. Ghidra headless recommended approach
