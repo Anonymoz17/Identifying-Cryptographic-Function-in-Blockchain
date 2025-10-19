@@ -25,6 +25,16 @@ Examples
 
 - See `src/detectors/adapter.py` for small reference adapters: `RegexAdapter`, `SimpleSemgrepAdapter`, `YaraAdapter`, and `BinaryRegexAdapter`.
 
+YARA rules
+
+- YARA rules live in `detectors/yara/` and are used by `YaraAdapter` if `yara-python` is installed.
+- Rules should include `meta` fields (author, description, confidence) and conservative regexes with word boundaries.
+- To run only the YARA integration test locally (skips unless yara-python installed):
+
+```powershell
+pytest -q tests/test_yara_adapter_integration.py
+```
+
 Testing
 
 - Provide small sample inputs under `tests/fixtures/detectors/` and unit tests that exercise `scan_files` and verify NDJSON output shape.

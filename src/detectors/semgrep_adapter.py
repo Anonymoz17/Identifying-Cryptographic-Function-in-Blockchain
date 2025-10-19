@@ -32,24 +32,65 @@ class SemgrepCliAdapter(BaseAdapter):
         try:
             out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)
             parsed = json.loads(out.decode("utf-8"))
-            # semgrep JSON has 'results' array
-            return parsed.get("results", [])
+            # semgrep JSON commonly has a top-level dict with 'results' list
+            # but some versions or wrapped outputs can be a list directly.
+            if isinstance(parsed, dict):
+                # Prefer 'results' key, fallback to 'matches' or to empty list
+                if "results" in parsed and isinstance(parsed["results"], list):
+                    return parsed["results"]
+                if "matches" in parsed and isinstance(parsed["matches"], list):
+                    return parsed["matches"]
+                # Some semgrep outputs include results under 'results'->'results'
+                for k in ("results", "matches"):
+                    v = parsed.get(k)
+                    if isinstance(v, dict) and isinstance(v.get("results"), list):
+                        return v.get("results", [])
+                return []
+            elif isinstance(parsed, list):
+                return parsed
+            else:
+                return []
         except Exception:
             return []
 
     def scan_files(self, files: Iterable[str]):
         files_list = list(files)
         if self._has_semgrep:
-            results = self._run_semgrep(files_list)
+            # For large file lists, run semgrep per-file (streaming) to avoid
+            # excessive memory usage. For small batches, run once for speed.
+            results = []
+            if len(files_list) > 50:
+                for f in files_list:
+                    results.extend(self._run_semgrep([f]))
+            else:
+                results = self._run_semgrep(files_list)
+
             for r in results:
-                path = r.get("path")
-                check_id = r.get("check_id") or r.get("extra", {}).get("id")
-                extra = r.get("extra", {})
-                start = r.get("start") or {}
-                line = start.get("line")
-                snippet = r.get("extra", {}).get("lines") or r.get("extra", {}).get(
-                    "message"
+                # Normalize common fields across semgrep versions
+                path = (
+                    r.get("path") or r.get("location", {}).get("path")
+                    if isinstance(r.get("location"), dict)
+                    else r.get("path")
                 )
+                check_id = (
+                    r.get("check_id")
+                    or r.get("check_id")
+                    or r.get("extra", {}).get("id")
+                    or r.get("rule_id")
+                )
+                extra = r.get("extra", {}) or {}
+                start = r.get("start") or r.get("location", {}).get("start", {}) or {}
+                line = start.get("line") or start.get("row") or None
+                # snippet may be under extra.lines (string/list) or extra.message
+                snippet = None
+                if isinstance(extra.get("lines"), (list, tuple)):
+                    snippet = "\n".join(extra.get("lines"))
+                else:
+                    snippet = (
+                        extra.get("lines")
+                        or extra.get("message")
+                        or r.get("extra", {}).get("message")
+                    )
                 details = {"snippet": snippet, "meta": extra}
                 yield Detection(
                     path=path,
