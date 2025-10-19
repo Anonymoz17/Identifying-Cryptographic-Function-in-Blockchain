@@ -30,7 +30,7 @@ Date: 2025-10-18
 
 ## Manifest record (NDJSON line)
 
-Each line is a JSON object with the following fields (see `docs/schemas/manifest.schema.json`):
+Each line is a JSON object with the following fields (see `schemas/manifest.schema.json`):
 
 - id: string (sha256 hex)
 - path: absolute original path

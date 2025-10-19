@@ -29,25 +29,16 @@ This document summarizes the preprocessing, detector, and merging pipeline imple
 
 The repository includes JSON Schema files under `schemas/` which describe the expected shape of common NDJSON outputs:
 
-- `schemas/inputs.manifest.schema.json` — schema for manifest lines in `inputs.manifest.ndjson`
-- `schemas/preproc.index.schema.json` — schema for index entries appended to `preproc.index.jsonl`
-- `schemas/detector_result.schema.json` — schema for detector output lines in `detector_results.ndjson`
-- `schemas/ast.schema.json` — minimal AST artifact schema for `artifacts/ast/<sha>.json`
 
 Use `jsonschema` (optional dev dependency) to validate generated NDJSON lines in tests or CI.
 
 ## Optional native integrations
 
-- Tree-sitter (`tree_sitter`) — used to generate richer AST caches for supported languages.
-- Capstone (`capstone`) — used for static disassembly caches.
-- YARA (`yara-python`) — used by the `YaraAdapter` to run native YARA rules. When not present the adapter falls back to a regex-based delegate.
 
 See `docs/optional-deps.md` for install notes and developer instructions.
 
 ## Tools
 
-- `tools/run_detectors.py` — config-driven detector runner. Supports `--config` (JSON/YAML) and `--weights` to supply engine weights for merging.
-- `tools/summarize_detections.py` — produce console, CSV, or JSON summaries from `detector_results.ndjson`.
 
 ## Quick validation examples
 
@@ -144,9 +135,9 @@ Caching
 
 ## 5. NDJSON data contracts (summary)
 
-- Manifest entry (see `docs/schemas/manifest.schema.json`): inventory line per file with id (sha256), path, relpath, size, mtime, mime, language, is_binary, origin.
-- DetectorResult (see `docs/schemas/detector_result.schema.json`): single detection line with detector, file_id, match, offset/range, snippet, confidence, metadata, timestamp.
-- AuditLog event (see `docs/schemas/auditlog.schema.json`): audit trail events appended as NDJSON.
+- Manifest entry (see `schemas/manifest.schema.json`): inventory line per file with id (sha256), path, relpath, size, mtime, mime, language, is_binary, origin.
+- DetectorResult (see `schemas/detector_result.schema.json`): single detection line with detector, file_id, match, offset/range, snippet, confidence, metadata, timestamp.
+- AuditLog event (see `schemas/auditlog.schema.json`): audit trail events appended as NDJSON.
 
 Examples
 
@@ -195,7 +186,7 @@ AuditLog example:
 
 ## 10. Next implementation steps (priority)
 
-1. Formalize NDJSON JSON Schema files (`docs/schemas/*.json`).
+1. Formalize NDJSON JSON Schema files (`schemas/*.json`).
 2. Ensure `preprocess_items` writes `preproc.index.jsonl` and `inputs.manifest.json` with required fields. Add hooks for AST/disasm caching.
 3. Implement `preproc.extract_artifacts()` with nested extraction and tests.
 4. Add small Tree-sitter integration for Solidity/Go/C/JS and persist AST caches.
