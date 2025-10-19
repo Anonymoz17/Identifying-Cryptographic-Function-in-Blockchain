@@ -21,7 +21,7 @@ def test_binary_regex_adapter(tmp_path: Path):
     f.write_bytes(data)
 
     # pattern expressed as bytes
-    adapter = BinaryRegexAdapter({"deadbeef": b"\xDE\xAD\xBE\xEF"})
+    adapter = BinaryRegexAdapter({"deadbeef": b"\xde\xad\xbe\xef"})
     found = list(adapter.scan_files([str(f)]))
     assert len(found) == 1
     d = found[0]
