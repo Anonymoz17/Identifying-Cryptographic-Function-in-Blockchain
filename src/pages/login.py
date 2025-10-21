@@ -202,7 +202,7 @@ class LoginPage(ctk.CTkFrame):
             app.current_user_role = sb_get_role(app.auth_token, uid) or "free"
         else:
             app.current_user_role = "free"
-        self.switch_page("dashboard")
+        self.switch_page("landing")
 
     def _do_google_signin(self):
         self.google_btn.configure(state="disabled")
@@ -228,7 +228,7 @@ class LoginPage(ctk.CTkFrame):
             except Exception:
                 app.current_user_role = "free"
 
-            self.switch_page("dashboard")
+            self.switch_page("landing")
         finally:
             self.google_btn.configure(state="normal")
 
@@ -256,7 +256,7 @@ class LoginPage(ctk.CTkFrame):
             except Exception:
                 app.current_user_role = "free"
 
-            self.switch_page("dashboard")
+            self.switch_page("landing")
         finally:
             self.github_btn.configure(state="normal")
 

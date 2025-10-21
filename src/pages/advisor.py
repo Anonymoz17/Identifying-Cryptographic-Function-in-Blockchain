@@ -136,9 +136,10 @@ class AdvisorPage(ctk.CTkFrame):
 
         self.back_btn = ctk.CTkButton(
             bottom,
-            text="Back to Dashboard",
-            command=lambda: self.switch_page("dashboard"),
+            text="⬅ Back to Landing",
+            command=lambda: self.switch_page("landing"),
         )
+
         self.back_btn.grid(row=0, column=0, sticky="w")
 
         self.cards_wrap = ctk.CTkFrame(self, fg_color="transparent")

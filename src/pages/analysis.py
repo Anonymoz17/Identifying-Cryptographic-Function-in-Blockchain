@@ -79,6 +79,22 @@ class AnalysisPage(ctk.CTkFrame):
         self._compact_height_threshold = 720
         self._last_title_size = None
 
+        # Add a Back to Landing button below everything
+        self.back_to_landing = ctk.CTkButton(
+            self,
+            text="⬅ Back to Landing",
+            height=32,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color="#1F2937",
+            border_width=1,
+            border_color="#374151",
+            text_color="#E5E7EB",
+            command=lambda: self.switch_page("landing"),
+        )
+        self.back_to_landing.grid(row=2, column=0, pady=(6, 12))
+
+
     # ---------- Lifecycle hooks ----------
     def on_enter(self):
         """Reload the files from Dashboard whenever we land here."""

@@ -94,9 +94,10 @@ class ReportsPage(ctk.CTkFrame):
 
         ctk.CTkButton(
             root,
-            text="Back to Dashboard",
-            command=lambda: self.switch_page("dashboard"),
+            text="⬅ Back to Landing",
+            command=lambda: self.switch_page("landing"),
         ).pack(anchor="w", padx=22, pady=(0, 20))
+
 
     # keep compatibility if other code calls this
     def set_status(self, msg: str, error: bool = False):

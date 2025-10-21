@@ -7,6 +7,7 @@ from .dashboard import DashboardPage
 from .login import LoginPage
 from .register import RegisterPage
 from .reports import ReportsPage
+from .landing import LandingPage
 
 __all__ = [
     "AnalysisPage",
@@ -16,4 +17,5 @@ __all__ = [
     "RegisterPage",
     "ReportsPage",
     "AdvisorPage",
+    "LandingPage",
 ]

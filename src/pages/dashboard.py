@@ -294,6 +294,20 @@ class DashboardPage(ctk.CTkFrame):
         self.logout_btn = ctk.CTkButton(actions, text="Logout", command=self._logout)
         self.logout_btn.pack(side="right", padx=(8, 0))
 
+        back_btn = ctk.CTkButton(
+            self,
+            text="⬅ Back to Landing",
+            height=32,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color="#1F2937",
+            border_width=1,
+            border_color="#374151",
+            text_color="#E5E7EB",
+            command=lambda: self.switch_page("landing"),
+        )
+        back_btn.pack(side="bottom", pady=10)
+
         # selection holder
         self._selected_meta: Optional[Dict[str, Any]] = None
 
