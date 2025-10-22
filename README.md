@@ -74,4 +74,5 @@ A modern landing page for CryptoScope located at
 # From project root
 npm run landing:install     # Install dependencies (first time only)
 npm run landing:dev         # Start the dev server
+ctrl + left click localhost:****
 >>>>>>> Stashed changes
