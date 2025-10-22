@@ -1,0 +1,9 @@
+{
+    "private": true,
+    "name": "cryptoscope",
+    "scripts": {
+      "landing:install": "npm --prefix src/web/landing install",
+      "landing:dev": "npm --prefix src/web/landing run dev",
+      "landing:build": "npm --prefix src/web/landing run build"
+    }
+  }

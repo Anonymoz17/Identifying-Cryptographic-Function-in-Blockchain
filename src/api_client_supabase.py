@@ -45,7 +45,6 @@ def _auth_with_token(token: Optional[str]):
     # else: skip clearing auth entirely (prevents ValueError)
 
 
-
 # ---------------------------------------------------------------------
 # AUTH / USER MANAGEMENT
 # ---------------------------------------------------------------------
@@ -96,7 +95,9 @@ def register_user(
     return True, {"id": uid, "email": email, "username": username}
 
 
-def login(identifier_email: str, password: str) -> Tuple[bool, Any, Optional[Dict[str, Any]]]:
+def login(
+    identifier_email: str, password: str
+) -> Tuple[bool, Any, Optional[Dict[str, Any]]]:
     """Email/password login that always returns a valid token if possible."""
     try:
         _require_client()
@@ -111,7 +112,10 @@ def login(identifier_email: str, password: str) -> Tuple[bool, Any, Optional[Dic
         if not session or not token or not user:
             return False, "Invalid credentials or missing session/token.", None
 
-        user_dict = {"id": str(user.id), "email": getattr(user, "email", identifier_email)}
+        user_dict = {
+            "id": str(user.id),
+            "email": getattr(user, "email", identifier_email),
+        }
         return True, token, user_dict
 
     except Exception as e:
@@ -174,7 +178,9 @@ def admin_set_tier(token: str, target_user_id: str, new_tier: str) -> Tuple[bool
             return False, "Missing token"
         _require_client()
         _auth_with_token(token)
-        _sb.table("user_roles").update({"tier": new_tier}).eq("id", target_user_id).execute()
+        _sb.table("user_roles").update({"tier": new_tier}).eq(
+            "id", target_user_id
+        ).execute()
         return True, "OK"
     except Exception as e:
         return False, str(e)

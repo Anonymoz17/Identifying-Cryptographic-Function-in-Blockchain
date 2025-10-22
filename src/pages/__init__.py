@@ -4,10 +4,10 @@ from .advisor import AdvisorPage
 from .analysis import AnalysisPage
 from .auditor import AuditorPage
 from .dashboard import DashboardPage
+from .landing import LandingPage
 from .login import LoginPage
 from .register import RegisterPage
 from .reports import ReportsPage
-from .landing import LandingPage
 
 __all__ = [
     "AnalysisPage",

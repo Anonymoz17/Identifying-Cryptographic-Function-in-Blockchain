@@ -98,7 +98,6 @@ class ReportsPage(ctk.CTkFrame):
             command=lambda: self.switch_page("landing"),
         ).pack(anchor="w", padx=22, pady=(0, 20))
 
-
     # keep compatibility if other code calls this
     def set_status(self, msg: str, error: bool = False):
         self.status.configure(text=msg, text_color=("red" if error else TEXT))

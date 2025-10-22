@@ -1,9 +1,9 @@
 # pages/landing.py
 import customtkinter as ctk
 
+from roles import is_premium
 from ui.card import Card
 from ui.grid import grid_evenly
-from roles import is_premium
 
 
 class LandingPage(ctk.CTkFrame):

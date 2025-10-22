@@ -94,7 +94,6 @@ class AnalysisPage(ctk.CTkFrame):
         )
         self.back_to_landing.grid(row=2, column=0, pady=(6, 12))
 
-
     # ---------- Lifecycle hooks ----------
     def on_enter(self):
         """Reload the files from Dashboard whenever we land here."""

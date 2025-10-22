@@ -1,7 +1,7 @@
 # src/pages/dashboard.py
-from typing import Any, Dict, Optional
 import time
 from tkinter import messagebox
+from typing import Any, Dict, Optional
 
 import customtkinter as ctk
 
