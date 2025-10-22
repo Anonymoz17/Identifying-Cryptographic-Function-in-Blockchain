@@ -1,8 +1,18 @@
+# src/pages/dashboard.py
 from typing import Any, Dict, Optional
+import time
+from tkinter import messagebox
 
 import customtkinter as ctk
 
-from file_handler import FileDropController, open_file_picker
+# put this near the top, before using FileDropController/open_file_picker
+try:
+    # package mode: python -m src.app (preferred)
+    from ..file_handler import FileDropController, open_file_picker
+except ImportError:
+    # script mode: python src/app.py
+    from file_handler import FileDropController, open_file_picker
+
 
 # --- Color system (dark UI) ---
 BG = "#0B0F1A"  # page
@@ -24,10 +34,15 @@ OUTLINE_H = "#243244"
 
 
 class DashboardPage(ctk.CTkFrame):
+    """Dashboard — original UI, with integrated auto-analysis after intake."""
+
     def __init__(self, master, switch_page, file_handler):
         super().__init__(master, fg_color=BG)
         self.switch_page = switch_page
         self.fh = file_handler
+
+        # selection holder
+        self._selected_meta: Optional[Dict[str, Any]] = None
 
         # ---------- Header ----------
         header = ctk.CTkFrame(self, fg_color="transparent")
@@ -56,9 +71,8 @@ class DashboardPage(ctk.CTkFrame):
             text_color=OUTLINE_TX,
             border_width=1,
             border_color=OUTLINE_BR,
-            command=self._logout,
+            command=lambda: self.winfo_toplevel().logout(),
         )
-        # (Auditor quick access and results area are added later below.)
         header.grid_columnconfigure(0, weight=1)
         logout_btn.grid(row=0, column=1, rowspan=2, sticky="e")
 
@@ -89,7 +103,7 @@ class DashboardPage(ctk.CTkFrame):
         body.grid(row=2, column=0, sticky="nsew", padx=16, pady=(6, 16))
         upload_card.grid_columnconfigure(0, weight=1)
 
-        # smaller drag zone
+        # Drag zone
         self.drop_area = ctk.CTkFrame(
             body,
             width=480,
@@ -273,6 +287,7 @@ class DashboardPage(ctk.CTkFrame):
         )
         self.try_beta.pack(side="right")
 
+        # Keep original Analyze button (navigates to Analysis page)
         self.analyze_btn = ctk.CTkButton(
             actions,
             text="Analyze",
@@ -284,21 +299,13 @@ class DashboardPage(ctk.CTkFrame):
             command=self._go_analyze,
         )
         self.analyze_btn.pack(side="right", padx=(10, 8))
-        # NEW (compact): Auditor quick access (use footer 'actions' frame)
-        self.compact_auditor_btn = ctk.CTkButton(
-            actions, text="🛡️ Auditor", command=lambda: self.switch_page("auditor")
-        )
-        self._compact_visible = False
 
-        # Logout in footer (pack to the right so it lines up with other action buttons)
-        self.logout_btn = ctk.CTkButton(actions, text="Logout", command=self._logout)
-        self.logout_btn.pack(side="right", padx=(8, 0))
-
-        back_btn = ctk.CTkButton(
-            self,
+        # Back to Landing for consistency
+        self.logout_btn = ctk.CTkButton(
+            actions,
             text="⬅ Back to Landing",
-            height=32,
-            corner_radius=8,
+            height=36,
+            corner_radius=10,
             fg_color="transparent",
             hover_color="#1F2937",
             border_width=1,
@@ -306,12 +313,9 @@ class DashboardPage(ctk.CTkFrame):
             text_color="#E5E7EB",
             command=lambda: self.switch_page("landing"),
         )
-        back_btn.pack(side="bottom", pady=10)
+        self.logout_btn.pack(side="right", padx=(8, 0))
 
-        # selection holder
-        self._selected_meta: Optional[Dict[str, Any]] = None
-
-        # DnD wiring
+        # ---- DnD wiring ----
         try:
             self._dnd = FileDropController(
                 target_widget=self.drop_area,
@@ -342,9 +346,17 @@ class DashboardPage(ctk.CTkFrame):
         self.dv_path.configure(text=meta.get("stored_path", meta.get("url", "—")))
 
     def _on_processed(self, meta: Dict[str, Any]):
+        """Called after file or repo successfully added."""
         self._selected_meta = meta
         self._show_details(meta)
         self._set_status(f"Loaded: {meta.get('filename') or meta.get('url') or 'item'}")
+
+        # 🔹 Auto-run analysis right after intake
+        try:
+            result = self._run_analysis(meta)
+            self._show_result_popup(meta, result)
+        except Exception as e:
+            self._set_status(f"Analysis failed: {e}", True)
 
     def _handle_github_url(self, url: str) -> Dict[str, Any]:
         return {
@@ -376,11 +388,33 @@ class DashboardPage(ctk.CTkFrame):
         app.current_scan_meta = self._selected_meta
         self.switch_page("analysis")
 
-    def _logout(self):
+    # ---------------- Integrated analysis ----------------
+    def _run_analysis(self, meta: Dict[str, Any]) -> str:
+        """
+        Placeholder for actual CryptoScope pipeline.
+        Replace this with your real analyzer when ready.
+        """
+        path = meta.get("stored_path") or meta.get("url")
+        if not path:
+            return "No file path available."
+
+        # Simulate work
+        self._set_status("Running analysis…")
+        self.update_idletasks()
+        time.sleep(1.2)
+
+        # TODO: integrate real detection logic here
+        return f"Analysis complete for {meta.get('filename', '(unnamed)')}."
+
+    def _show_result_popup(self, meta: Dict[str, Any], result: str):
         try:
-            self.winfo_toplevel().logout()
-        except Exception:
-            pass
+            messagebox.showinfo(
+                "Analysis Result",
+                f"{meta.get('filename', 'Item')}:\n\n{result}",
+            )
+            self._set_status("Analysis finished successfully.")
+        except Exception as e:
+            self._set_status(f"Result popup failed: {e}", True)
 
     # external hooks
     def reset_ui(self):
