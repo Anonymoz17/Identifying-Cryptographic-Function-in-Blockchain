@@ -1,151 +1,151 @@
 // src/api.js
-import { createClient } from "@supabase/supabase-js";
+// If you placed supabase at src/lib/supabase.js, use:
+// import { supabase } from "./lib/supabase";
+// If you placed it at src/supabase.js, use:
+import { supabase } from "./lib/supabase";
 
-/* ---------- Supabase client ---------- */
-const SB_URL = import.meta.env.VITE_SUPABASE_URL;
-const SB_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// ─────────────────────────────────────────────────────────────
+// DB CONTRACT (from your schema):
+//   public.profiles:  id (uuid PK -> auth.users.id), username, full_name, created_at
+//   public.user_roles: id (uuid PK -> auth.users.id), tier ('free'|'premium'|'admin')
+// We will:
+//   • create/ensure a row in user_roles (default 'free')
+//   • optionally upsert profiles.full_name / username
+//   • read & update tier from user_roles
+// ─────────────────────────────────────────────────────────────
 
-// Don’t hard-crash if envs are missing — log and let UI render
-if (!SB_URL || !SB_ANON) {
-  // eslint-disable-next-line no-console
-  console.warn(
-    "[CryptoScope] Missing VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY. " +
-      "Auth calls will fail until you set them in .env.local"
-  );
-}
+const ROLES_TABLE = "user_roles";
+const PROFILES_TABLE = "profiles";
 
-export const supabase = createClient(SB_URL || "", SB_ANON || "");
-
-/* ---------- Helpers that match your APP DB ----------
-
-APP DB tables (from your Python app):
-- profiles: id, full_name, username   (no 'name', no 'plan', 'email' optional)
-- user_roles: id, tier ('free' | 'premium' | 'admin')
-
-We will:
-- Authenticate with supabase.auth
-- Map "plan" to user_roles.tier
-- Never assume profiles.email/name/plan exists
----------------------------------------------------- */
-
+// Ensure a roles row exists for this user (defaults to 'free')
 async function ensureRoleRow(userId) {
-  // Make sure a user_roles row exists, defaulting to 'free'
   const { data, error } = await supabase
-    .from("user_roles")
-    .select("tier")
+    .from(ROLES_TABLE)
+    .select("id, tier")
     .eq("id", userId)
     .maybeSingle();
 
-  if (error && error.code !== "PGRST116") {
-    // eslint-disable-next-line no-console
-    console.warn("[CryptoScope] user_roles select error:", error);
-    return "free";
-  }
+  if (error && error.code !== "PGRST116") return { error }; // allow "no rows"
+  if (data) return { role: data };
 
-  if (!data) {
-    const { error: upErr } = await supabase
-      .from("user_roles")
-      .upsert({ id: userId, tier: "free" });
-    if (upErr) {
-      // eslint-disable-next-line no-console
-      console.warn("[CryptoScope] user_roles upsert error:", upErr);
-    }
-    return "free";
-  }
+  const { data: up, error: upErr } = await supabase
+    .from(ROLES_TABLE)
+    .insert({ id: userId, tier: "free" })
+    .select("id, tier")
+    .single();
 
-  return data.tier || "free";
+  if (upErr) return { error: upErr };
+  return { role: up };
 }
 
-/* ---------- Exports used by App.jsx ---------- */
+// Optional: store profile info (username/full_name)
+export async function upsertProfile({ id, username, full_name }) {
+  const payload = { id };
+  if (typeof username === "string") payload.username = username;
+  if (typeof full_name === "string") payload.full_name = full_name;
 
-// Sign in with email/password
-export async function signIn({ email, password }) {
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) return { ok: false, error };
+  const { error } = await supabase
+    .from(PROFILES_TABLE)
+    .upsert(payload, { onConflict: "id" });
 
-  const user = data?.user;
-  if (!user) return { ok: false, error: new Error("No user in session") };
-
-  const plan = await ensureRoleRow(user.id);
-  return { ok: true, user, plan };
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
 }
 
-// Sign up (store extra fields only in user_metadata; avoid touching profiles directly)
-export async function signUp({ name, email, password }) {
+// ── AUTH ─────────────────────────────────────────────────────
+
+export async function signUp({ email, password, name, username }) {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    // Keep consistency with app: write full_name to metadata (optional)
-    options: { data: { full_name: name } },
+    options: { data: { name } }, // stored in user_metadata
   });
-  if (error) return { ok: false, error };
+  if (error) return { error: error.message };
 
-  const user = data?.user || null;
-  // If email confirmation is required, session may be null — still ok.
-  if (user) {
-    await ensureRoleRow(user.id);
+  // If email confirmations are ON, user may be null here until confirmed
+  const user = data.user || data.session?.user;
+  if (!user) {
+    return {
+      user: null,
+      plan: "free",
+      pendingConfirmation: true,
+      message: "Check your email to confirm your account.",
+    };
   }
 
-  return { ok: true, user, needsEmailVerify: !data?.session };
-}
+  // Ensure roles row and set default tier
+  const { error: roleErr } = await ensureRoleRow(user.id);
+  if (roleErr) return { error: roleErr.message };
 
-// Sign out
-export async function signOut() {
-  try {
-    // Clear Supabase auth session
-    await supabase.auth.signOut();
-
-    // Extra safety: remove cached session key
-    for (const key in localStorage) {
-      if (key.startsWith("sb-")) localStorage.removeItem(key);
-    }
-
-    return { ok: true };
-  } catch (error) {
-    console.error("[CryptoScope] signOut error:", error);
-    return { ok: false, error };
+  // Optional: upsert profile fields
+  if (name || username) {
+    await upsertProfile({ id: user.id, full_name: name, username }).catch(() => {});
   }
+
+  // Read current tier
+  const { data: roleRow, error: roleReadErr } = await supabase
+    .from(ROLES_TABLE)
+    .select("tier")
+    .eq("id", user.id)
+    .single();
+  const tier = roleReadErr ? "free" : roleRow?.tier || "free";
+
+  return { user: { id: user.id, email: user.email, name }, plan: tier };
 }
 
-
-// Get current user + current plan (plan = user_roles.tier)
-export async function getCurrentUser() {
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data?.user) return { ok: false, error: error || new Error("Not signed in") };
-
+export async function signIn({ email, password }) {
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) return { error: error.message };
   const user = data.user;
-  const { data: roleRow, error: rErr } = await supabase
-    .from("user_roles")
+
+  // Ensure role row exists
+  const { error: roleErr } = await ensureRoleRow(user.id);
+  if (roleErr) return { error: roleErr.message };
+
+  // Read tier
+  const { data: roleRow, error: roleReadErr } = await supabase
+    .from(ROLES_TABLE)
+    .select("tier")
+    .eq("id", user.id)
+    .single();
+  const tier = roleReadErr ? "free" : roleRow?.tier || "free";
+
+  return { user: { id: user.id, email: user.email, name: user.user_metadata?.name }, plan: tier };
+}
+
+export async function signOut() {
+  const { error } = await supabase.auth.signOut();
+  if (error) return { error: error.message };
+  return { ok: true };
+}
+
+export async function getCurrentUser() {
+  const { data: { session } } = await supabase.auth.getSession();
+  const user = session?.user;
+  if (!user) return { user: null, plan: "free" };
+
+  const { data: roleRow } = await supabase
+    .from(ROLES_TABLE)
     .select("tier")
     .eq("id", user.id)
     .maybeSingle();
+  const tier = roleRow?.tier || "free";
 
-  // If role row missing, create default 'free' and continue
-  let plan = "free";
-  if (rErr && rErr.code !== "PGRST116") {
-    // eslint-disable-next-line no-console
-    console.warn("[CryptoScope] getCurrentUser role error:", rErr);
-  } else if (roleRow?.tier) {
-    plan = roleRow.tier;
-  } else {
-    await supabase.from("user_roles").upsert({ id: user.id, tier: "free" });
-  }
-
-  return { ok: true, user, plan };
+  return { user: { id: user.id, email: user.email, name: user.user_metadata?.name }, plan: tier };
 }
 
-// Upgrade plan by writing to user_roles.tier
+// Call this AFTER your payment succeeds (Stripe/PayNow/etc.)
 export async function upgradeUserPlan({ userId, plan }) {
-  const valid = new Set(["free", "premium", "admin"]);
-  if (!valid.has(plan)) return { ok: false, error: new Error("Invalid plan") };
-
+  if (!["free", "premium", "admin"].includes(plan)) {
+    return { error: "Invalid plan" };
+  }
   const { data, error } = await supabase
-    .from("user_roles")
+    .from(ROLES_TABLE)
     .update({ tier: plan })
     .eq("id", userId)
     .select("tier")
     .single();
 
-  if (error) return { ok: false, error };
+  if (error) return { error: error.message };
   return { ok: true, plan: data.tier };
 }
