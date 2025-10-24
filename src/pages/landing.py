@@ -103,8 +103,7 @@ class LandingPage(ctk.CTkFrame):
             self.tiles.append(card)
 
         # Main actions
-        _tile("Upload / Analyze", "Add files or GitHub repo", "dashboard")
-        _tile("Analysis", "View uploaded files and run analysis", "analysis")
+        _tile("Analysis", "Add files or GitHub repo", "dashboard")
         _tile("Advisor", "Compare crypto algorithms", "advisor")
         _tile("Auditor", "Start engagements & audits", "auditor")
         _tile("Reports", "Export JSON / PDF", "reports", premium_only=False)

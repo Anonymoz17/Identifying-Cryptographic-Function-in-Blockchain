@@ -1,7 +1,6 @@
 """Pages package (moved from top-level `pages/`)."""
 
 from .advisor import AdvisorPage
-from .analysis import AnalysisPage
 from .auditor import AuditorPage
 from .dashboard import DashboardPage
 from .landing import LandingPage

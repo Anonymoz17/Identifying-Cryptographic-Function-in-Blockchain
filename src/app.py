@@ -7,7 +7,6 @@ import customtkinter as ctk
 from file_handler import FileHandler
 from pages import (
     AdvisorPage,
-    AnalysisPage,
     AuditorPage,
     DashboardPage,
     LandingPage,
@@ -41,7 +40,6 @@ class App(ctk.CTk):
             "login": LoginPage(self, self.switch_page),
             "register": RegisterPage(self, self.switch_page),
             "dashboard": DashboardPage(self, self.switch_page, self.file_handler),
-            "analysis": AnalysisPage(self, self.switch_page),
             "landing": LandingPage(self, self.switch_page),  # ← NEW
             "advisor": AdvisorPage(
                 self, self.switch_page
