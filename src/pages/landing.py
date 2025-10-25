@@ -1,124 +1,142 @@
-# pages/landing.py
-import customtkinter as ctk
+# src/pages/landing.py
+"""
+CryptoScope Landing Page
+Unified with theme.py palette.
+"""
 
-from roles import is_premium
-from ui.card import Card
-from ui.grid import grid_evenly
+import customtkinter as ctk
+from ui.theme import (
+    BG, CARD_BG, BORDER, TEXT, MUTED,
+    PRIMARY, PRIMARY_H, OUTLINE_BR, OUTLINE_H,
+    TITLE_FONT, HEADING_FONT, BODY_FONT
+)
 
 
 class LandingPage(ctk.CTkFrame):
-    """
-    Styled like Login/Register:
-    - Centered card with rounded corners and subtle border
-    - Function tiles arranged in a tidy grid inside the card
-    - Logout button at bottom right
-    """
+    """Main hub after login — gateway to Dashboard, Advisor, Auditor, Reports."""
 
     def __init__(self, master, switch_page):
-        super().__init__(master)
+        super().__init__(master, fg_color=BG)
         self.switch_page = switch_page
 
-        # ===== Base layout (center container) =====
-        container = ctk.CTkFrame(self, fg_color="transparent")
-        container.place(relx=0.5, rely=0.5, anchor="center")
+        # === HEADER ===
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.pack(fill="x", padx=30, pady=(24, 12))
 
-        # ===== Main card =====
-        self.card = ctk.CTkFrame(
-            container,
-            corner_radius=16,
-            border_width=1,
-            border_color="#374151",
-            fg_color=("#111827", "#111827"),  # dark gray like login
-        )
-        self.card.grid(row=0, column=0, padx=16, pady=16, sticky="nsew")
-        self.card.grid_columnconfigure(0, weight=1)
-
-        # ===== Header =====
-        title = ctk.CTkLabel(
-            self.card,
-            text="Welcome to CryptoScope",
-            font=("Segoe UI", 24, "bold"),
-            text_color="#E5E7EB",
-        )
+        title = ctk.CTkLabel(header, text="CryptoScope", font=TITLE_FONT, text_color=TEXT)
         subtitle = ctk.CTkLabel(
-            self.card,
-            text="Select a feature to get started",
-            font=("Segoe UI", 12),
-            text_color="#9CA3AF",
+            header,
+            text="Identify, analyze, and audit cryptographic functions across blockchain projects.",
+            font=("Segoe UI", 13),
+            text_color=MUTED,
+            wraplength=800,
         )
-        title.grid(row=0, column=0, padx=20, pady=(20, 4), sticky="w")
-        subtitle.grid(row=1, column=0, padx=20, pady=(0, 10), sticky="w")
+        title.grid(row=0, column=0, sticky="w")
+        subtitle.grid(row=1, column=0, sticky="w", pady=(4, 0))
 
-        # ===== Tiles area =====
-        self.tiles_wrap = ctk.CTkFrame(self.card, fg_color="transparent")
-        self.tiles_wrap.grid(row=2, column=0, padx=20, pady=(4, 10), sticky="ew")
-        self.tiles_wrap.grid_columnconfigure(0, weight=1)
-
-        self.tiles = []
-        self._build_tiles()
-
-        # ===== Divider =====
-        ctk.CTkFrame(self.card, height=1, fg_color="#1F2937").grid(
-            row=3, column=0, padx=20, pady=(8, 8), sticky="ew"
-        )
-
-        # ===== Logout =====
-        self.logout_btn = ctk.CTkButton(
-            self.card,
+        logout_btn = ctk.CTkButton(
+            header,
             text="Logout",
+            width=90,
             height=32,
-            width=100,
             corner_radius=8,
             fg_color="transparent",
-            hover_color="#1F2937",
             border_width=1,
-            border_color="#374151",
-            text_color="#E5E7EB",
+            border_color=OUTLINE_BR,
+            hover_color=OUTLINE_H,
+            text_color=TEXT,
             command=lambda: self.winfo_toplevel().logout(),
         )
-        self.logout_btn.grid(row=4, column=0, padx=20, pady=(6, 16), sticky="e")
+        header.grid_columnconfigure(0, weight=1)
+        logout_btn.grid(row=0, column=1, rowspan=2, sticky="e")
 
-        # initial layout
-        self._cols = None
-        self._layout_tiles()
-        self.bind("<Configure>", lambda e: self._layout_tiles())
+        # === BODY / MAIN SECTIONS ===
+        grid = ctk.CTkFrame(self, fg_color=BG)
+        grid.pack(fill="both", expand=True, padx=40, pady=(10, 30))
+        grid.grid_columnconfigure((0, 1), weight=1)
+        grid.grid_rowconfigure((0, 1), weight=1)
 
-    # -------------------------------------------------------------------------
-    def _build_tiles(self):
-        """Build tile cards that lead to the other pages."""
-        app = self.winfo_toplevel()
-        role = getattr(app, "current_user_role", None)
-        premium = is_premium(role)
-
-        def _tile(title, subtitle, target, premium_only=False):
-            card = Card(
-                self.tiles_wrap,
-                title=title,
-                subtitle=subtitle,
-                command=lambda: self.switch_page(target),
-                min_h=130,
+        # Card generator
+        def create_card(title_text, desc_text, button_text, command, row, col):
+            card = ctk.CTkFrame(
+                grid,
+                corner_radius=12,
+                border_width=1,
+                border_color=BORDER,
+                fg_color=CARD_BG,
             )
-            if premium_only and not premium:
-                card.set_locked(True, "🔒 Premium feature")
-            self.tiles.append(card)
+            card.grid(row=row, column=col, padx=20, pady=20, sticky="nsew")
+            card.grid_propagate(False)
+            card.configure(height=200, width=350)
 
-        # Main actions
-        _tile("Analysis", "Add files or GitHub repo", "dashboard")
-        _tile("Advisor", "Compare crypto algorithms", "advisor")
-        _tile("Auditor", "Start engagements & audits", "auditor")
-        _tile("Reports", "Export JSON / PDF", "reports", premium_only=False)
+            ctk.CTkLabel(
+                card,
+                text=title_text,
+                font=HEADING_FONT,
+                text_color=TEXT,
+            ).pack(anchor="w", padx=20, pady=(18, 4))
 
-    # -------------------------------------------------------------------------
-    def _layout_tiles(self):
-        w = max(self.winfo_width(), 1)
-        cols = 1 if w < 720 else (2 if w < 1000 else 3)
-        if cols != self._cols:
-            self._cols = cols
-            grid_evenly(self.tiles_wrap, self.tiles, num_cols=cols)
+            ctk.CTkLabel(
+                card,
+                text=desc_text,
+                font=BODY_FONT,
+                text_color=MUTED,
+                wraplength=300,
+                justify="left",
+            ).pack(anchor="w", padx=20, pady=(0, 16))
 
-    # -------------------------------------------------------------------------
-    def on_enter(self):
-        self._layout_tiles()
+            ctk.CTkButton(
+                card,
+                text=button_text,
+                width=140,
+                height=36,
+                corner_radius=8,
+                fg_color=PRIMARY,
+                hover_color=PRIMARY_H,
+                text_color="#041007",
+                command=command,
+            ).pack(anchor="center")
 
-    def on_resize(self, w, h):
-        self._layout_tiles()
+        # === PAGE CARDS ===
+        create_card(
+            "Analyse",
+            "Upload files or scan GitHub repositories for cryptographic analysis.",
+            "Open Dashboard",
+            lambda: self.switch_page("dashboard"),
+            0, 0,
+        )
+
+        create_card(
+            "Advisor",
+            "Access recommendations and migration strategies for detected algorithms.",
+            "Open Advisor",
+            lambda: self.switch_page("advisor"),
+            0, 1,
+        )
+
+        create_card(
+            "Auditor",
+            "Audit compliance of blockchain projects with cryptographic standards.",
+            "Open Auditor",
+            lambda: self.switch_page("auditor"),
+            1, 0,
+        )
+
+        create_card(
+            "Reports",
+            "View and export previous analysis results as JSON or PDF summaries.",
+            "Open Reports",
+            lambda: self.switch_page("reports"),
+            1, 1,
+        )
+
+        # === FOOTER ===
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(fill="x", padx=40, pady=(0, 16))
+
+        ctk.CTkLabel(
+            footer,
+            text="© 2025 CryptoScope — Blockchain Cryptographic Analysis Platform",
+            font=("Segoe UI", 10),
+            text_color=MUTED,
+        ).pack(side="left")

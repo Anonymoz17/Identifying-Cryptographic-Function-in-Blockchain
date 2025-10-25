@@ -1,291 +1,234 @@
-import customtkinter as ctk
+# src/pages/advisor.py
+"""
+CryptoScope Advisor Page
+--------------------------------
+- Unified with ui.theme (no inline colors)
+- Space for recommendations / scoring / migration guidance
+- Consistent header + footer actions
+"""
 
-from core.kb import list_algorithms
-from core.recommender import compare, top_n
-from roles import is_premium
-from ui.card import Card
-from ui.grid import grid_evenly
+from typing import Optional, Dict, Any, List
+import customtkinter as ctk
+from ui.theme import (
+    BG, CARD_BG, BORDER, TEXT, MUTED,
+    PRIMARY, PRIMARY_H, OUTLINE_BR, OUTLINE_H,
+    HEADING_FONT, BODY_FONT
+)
 
 
 class AdvisorPage(ctk.CTkFrame):
-    """
-    Advisor (beta)
-    - Top-3 recommendations (from in-memory KB)
-    - A vs B compare (disabled until distinct selections)
-    - Tiny legend: "risk: lower is better"
-    - Responsive: title/subtitle/button buckets only (no forced heights to avoid flicker)
-    """
+    def __init__(self, master, switch_page):
+        super().__init__(master, fg_color=BG)
+        self.switch_page = switch_page
 
-    def __init__(self, master, switch_page_callback):
-        super().__init__(master)
-        self.switch_page = switch_page_callback
+        # ===== Header =====
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.pack(fill="x", padx=22, pady=(16, 6))
 
-        # ---- Layout base ----
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=0)
-        self.grid_columnconfigure(0, weight=1)
-
-        content = ctk.CTkFrame(self, fg_color="transparent")
-        content.grid(row=0, column=0, sticky="nsew")
-        content.grid_columnconfigure(0, weight=1)
-
-        # ---- Title + subtitle ----
-        self.title = ctk.CTkLabel(content, text="Advisor (beta)", font=("Roboto", 36))
-        self.title.pack(pady=(20, 4))
-
-        self.subtitle = ctk.CTkLabel(
-            content,
-            text="Compare cryptographic algorithms without uploading code.",
-            justify="center",
+        title = ctk.CTkLabel(header, text="Advisor", font=HEADING_FONT, text_color=TEXT)
+        subtitle = ctk.CTkLabel(
+            header,
+            text="Recommendations and migration guidance based on your analysis.",
+            font=("Segoe UI", 12),
+            text_color=MUTED,
         )
-        self.subtitle.pack(pady=(0, 12))
+        title.grid(row=0, column=0, sticky="w")
+        subtitle.grid(row=1, column=0, sticky="w")
 
-        # ---- Top-3 card ----
-        self.top_card = ctk.CTkFrame(
-            content,
-            corner_radius=14,
+        logout_btn = ctk.CTkButton(
+            header,
+            text="Logout",
+            width=84,
+            height=30,
+            corner_radius=8,
+            fg_color="transparent",
             border_width=1,
-            border_color="#cdd5e0",
-            fg_color=("#f7f9fc", "#121212"),
+            border_color=OUTLINE_BR,
+            hover_color=OUTLINE_H,
+            text_color=TEXT,
+            command=lambda: self.winfo_toplevel().logout(),
         )
-        self.top_card.pack(fill="x", padx=24, pady=(0, 14))
-        # let pack decide; don't force heights
-        self.top_card.pack_propagate(True)
+        header.grid_columnconfigure(0, weight=1)
+        logout_btn.grid(row=0, column=1, rowspan=2, sticky="e")
+
+        # ===== Main Content Wrapper =====
+        main = ctk.CTkFrame(self, fg_color="transparent")
+        main.pack(fill="both", expand=True, padx=22, pady=(4, 16))
+        main.grid_columnconfigure(0, weight=1)
+        main.grid_rowconfigure(2, weight=1)
+
+        # ===== Overview / Context Card =====
+        hero = ctk.CTkFrame(
+            main,
+            corner_radius=12,
+            border_width=1,
+            border_color=BORDER,
+            fg_color=CARD_BG,
+        )
+        hero.grid(row=0, column=0, sticky="ew", pady=(4, 10))
+        hero.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(
-            self.top_card, text="Top recommendations", font=("Roboto", 16, "bold")
-        ).pack(anchor="w", padx=14, pady=(12, 6))
-        self.top_label = ctk.CTkLabel(self.top_card, text="", justify="left")
-        self.top_label.pack(anchor="w", padx=14, pady=(0, 12))
+            hero, text="Project Overview",
+            font=HEADING_FONT, text_color=TEXT
+        ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 2))
 
-        # ---- Compare controls card ----
-        self.compare_card = ctk.CTkFrame(
-            content,
-            corner_radius=14,
+        self.project_summary = ctk.CTkTextbox(
+            hero,
+            height=80,
+            corner_radius=8,
+            fg_color=BG,
+            border_color=BORDER,
             border_width=1,
-            border_color="#cdd5e0",
-            fg_color=("#f5f7fb", "#1a1a1a"),
+            text_color=TEXT,
+            wrap="word",
         )
-        self.compare_card.pack(fill="x", padx=24, pady=(0, 12))
-        self.compare_card.pack_propagate(True)
-
-        row = ctk.CTkFrame(self.compare_card, fg_color="transparent")
-        row.pack(padx=14, pady=(14, 8))
-
-        names = {a.id: a.name for a in list_algorithms()}
-        self._id_by_name = {v: k for k, v in names.items()}
-        values = list(names.values()) or ["(no data)"]
-
-        ctk.CTkLabel(row, text="Compare:").grid(
-            row=0, column=0, padx=(0, 8), pady=6, sticky="e"
+        self.project_summary.grid(row=1, column=0, sticky="ew", padx=16, pady=(4, 14))
+        self.project_summary.insert(
+            "1.0",
+            "Summary of your last analysis will appear here.\n"
+            "Tip: You can paste findings or notes to get tailored suggestions.",
         )
+        self.project_summary.configure(state="disabled")
 
-        self.a_menu = ctk.CTkOptionMenu(
-            row, values=values, command=lambda _: self._check_compare_state()
-        )
-        self.a_menu.set(values[0])
-        self.a_menu.grid(row=0, column=1, padx=4, pady=6)
+        # ===== Recommendations + Actions Row =====
+        row = ctk.CTkFrame(self, fg_color="transparent")
+        row.pack(fill="x", padx=22, pady=(0, 6))
+        row.grid_columnconfigure(0, weight=1)
+        row.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(row, text="vs").grid(row=0, column=2, padx=8, pady=6)
-
-        self.b_menu = ctk.CTkOptionMenu(
-            row, values=values, command=lambda _: self._check_compare_state()
-        )
-        self.b_menu.set(values[1 if len(values) > 1 else 0])
-        self.b_menu.grid(row=0, column=3, padx=4, pady=6)
-
-        # Compare + legend
-        controls = ctk.CTkFrame(self.compare_card, fg_color="transparent")
-        controls.pack(fill="x", padx=14, pady=(0, 14))
-        controls.grid_columnconfigure(0, weight=0)
-        controls.grid_columnconfigure(1, weight=1)
-
-        self.legend = ctk.CTkLabel(
-            controls, text="risk: lower is better", text_color="#6b7280"
-        )
-        self.legend.grid(row=0, column=0, sticky="w", padx=(0, 8))
-
-        self.compare_btn = ctk.CTkButton(
-            controls, text="Compare", command=self._do_compare, state="disabled"
-        )
-        self.compare_btn.grid(row=0, column=1, sticky="e")
-
-        # ---- Result card ----
-        self.result_card = ctk.CTkFrame(
-            content,
-            corner_radius=14,
+        # --- Left: Recommendations ---
+        recommendations = ctk.CTkFrame(
+            row,
+            corner_radius=12,
             border_width=1,
-            border_color="#cdd5e0",
-            fg_color=("#ffffff", "#0f0f0f"),
+            border_color=BORDER,
+            fg_color=CARD_BG,
         )
-        self.result_card.pack(fill="x", padx=24, pady=(0, 16))
-        self.result_card.pack_propagate(True)
+        recommendations.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        recommendations.grid_columnconfigure(0, weight=1)
+        recommendations.grid_rowconfigure(1, weight=1)
 
-        ctk.CTkLabel(self.result_card, text="Result", font=("Roboto", 16, "bold")).pack(
-            anchor="w", padx=14, pady=(12, 6)
+        ctk.CTkLabel(
+            recommendations, text="Recommendations",
+            font=HEADING_FONT, text_color=TEXT
+        ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 2))
+
+        self.reco_box = ctk.CTkTextbox(
+            recommendations,
+            wrap="word",
+            height=260,
+            corner_radius=8,
+            fg_color=BG,
+            border_color=BORDER,
+            border_width=1,
+            text_color=TEXT,
         )
-        self.result = ctk.CTkLabel(self.result_card, text="", justify="left")
-        self.result.pack(anchor="w", padx=14, pady=(0, 14))
+        self.reco_box.grid(row=1, column=0, sticky="nsew", padx=16, pady=(6, 14))
+        self._fill_placeholder_recommendations()
 
-        # ---- Bottom bar ----
-        bottom = ctk.CTkFrame(self, fg_color="transparent")
-        bottom.grid(row=1, column=0, sticky="ew", padx=24, pady=(4, 12))
-        bottom.grid_columnconfigure(0, weight=0)
-        bottom.grid_columnconfigure(1, weight=1)
-        bottom.grid_columnconfigure(2, weight=0)
+        # --- Right: Algorithm & Migration Hints ---
+        right_col = ctk.CTkFrame(
+            row,
+            corner_radius=12,
+            border_width=1,
+            border_color=BORDER,
+            fg_color=CARD_BG,
+        )
+        right_col.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        right_col.grid_columnconfigure(0, weight=1)
 
-        self.back_btn = ctk.CTkButton(
-            bottom,
+        ctk.CTkLabel(
+            right_col, text="Algorithms / Migration",
+            font=HEADING_FONT, text_color=TEXT
+        ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 2))
+
+        # A small list-like area for hints:
+        self.hints = ctk.CTkTextbox(
+            right_col,
+            height=120,
+            corner_radius=8,
+            fg_color=BG,
+            border_color=BORDER,
+            border_width=1,
+            text_color=TEXT,
+            wrap="word",
+        )
+        self.hints.grid(row=1, column=0, sticky="ew", padx=16, pady=(6, 10))
+        self._fill_placeholder_hints()
+
+        actions = ctk.CTkFrame(right_col, fg_color="transparent")
+        actions.grid(row=2, column=0, sticky="ew", padx=16, pady=(0, 14))
+        actions.grid_columnconfigure(0, weight=1)
+        actions.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkButton(
+            actions,
+            text="Refresh from Last Analysis",
+            height=36,
+            corner_radius=8,
+            fg_color=PRIMARY,
+            hover_color=PRIMARY_H,
+            text_color=BG,
+            command=self._refresh_from_last_analysis,
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+
+        ctk.CTkButton(
+            actions,
             text="⬅ Back to Landing",
+            height=36,
+            corner_radius=8,
+            fg_color="transparent",
+            border_width=1,
+            border_color=OUTLINE_BR,
+            hover_color=OUTLINE_H,
+            text_color=TEXT,
             command=lambda: self.switch_page("landing"),
+        ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+
+    # ===== Internal Methods =====
+    def _fill_placeholder_recommendations(self):
+        self.reco_box.insert(
+            "1.0",
+            "- AES detected in multiple files. Consider centralizing key management.\n"
+            "- SHA-256 usage looks correct; verify no raw password hashing.\n"
+            "- Consider migrating legacy RSA-1024 to RSA-2048 or ECC (P-256).\n"
+            "- Avoid custom crypto primitives; prefer vetted libraries.\n"
         )
+        self.reco_box.configure(state="disabled")
 
-        self.back_btn.grid(row=0, column=0, sticky="w")
-
-        self.cards_wrap = ctk.CTkFrame(self, fg_color="transparent")
-
-        # append at the next row in the existing grid:
-        next_row = self.grid_size()[1]  # number of rows currently used
-        self.cards_wrap.grid(row=next_row, column=0, sticky="ew", padx=24, pady=12)
-        self.grid_columnconfigure(0, weight=1)  # make page root column stretch
-        self.cards_wrap.grid_columnconfigure(0, weight=1)
-
-        self.cards_frame = ctk.CTkFrame(self.cards_wrap, fg_color="transparent")
-        self.cards_frame.grid(row=0, column=0, sticky="ew")
-
-        # Cards (always present -> layout never shifts)
-        self.card_weights = Card(
-            self.cards_frame,
-            title="Adjust Weights",
-            subtitle="Tune security/performance/adoption/risk/compatibility",
-            command=self._open_weights_dialog,
+    def _fill_placeholder_hints(self):
+        self.hints.insert(
+            "1.0",
+            "• Prefer AES-GCM over AES-CBC for authenticated encryption.\n"
+            "• Use HKDF for key derivation; avoid ad-hoc constructions.\n"
+            "• If signatures needed, consider Ed25519 or ECDSA (P-256).\n"
+            "• Ensure secure randoms via OS RNG / libsodium / cryptography.io\n"
         )
+        self.hints.configure(state="disabled")
 
-        self.card_top3 = Card(
-            self.cards_frame,
-            title="Top-3 Recommendations",
-            subtitle="Best fits for your selected use case",
-            command=self._show_top3,
+    def _refresh_from_last_analysis(self):
+        """
+        Optional: pull from app-level state if available.
+        This function safely checks for 'current_scan_meta' / last payload
+        on the Toplevel app and updates the boxes.
+        """
+        app = self.winfo_toplevel()
+        meta = getattr(app, "current_scan_meta", None)
+        payload = getattr(app, "last_export_payload", None)
+
+        # Basic UX message:
+        self.reco_box.configure(state="normal")
+        self.reco_box.delete("1.0", "end")
+        self.reco_box.insert(
+            "1.0",
+            "Refreshed from last analysis context.\n\n"
+            f"Meta: {meta}\n\n"
+            f"Payload keys: {list(payload.keys()) if isinstance(payload, dict) else '—'}\n\n"
+            "Use this hook to generate live, tailored recommendations.",
         )
+        self.reco_box.configure(state="disabled")
 
-        self._cards = [self.card_weights, self.card_top3]
-
-        # First layout + apply current role
-        self._layout_cards()
-        self.apply_role(
-            self.master.get_role() if hasattr(self.master, "get_role") else None
-        )
-
-        # after you finish creating UI and the Card widgets:
-        if hasattr(self.master, "get_role"):
-            self.apply_role(self.master.get_role())
-        else:
-            self.apply_role(getattr(self.master, "current_user_role", None))
-
-        # Make it responsive
-        self.bind("<Configure>", lambda e: self._layout_cards())
-        # ---- State / sizing guards ----
-        self._last_title_px = None
-        self._last_sub_px = None
-        self._last_btn_w = None
-        self._last_btn_h = None
-
-        # initial render
-        self._render_top3()
-        self._check_compare_state()
-
-    # ---------- Helpers ----------
-    def _render_top3(self):
-        ranked = top_n(3)
-        if not ranked:
-            self.top_label.configure(text="No data available.")
-            return
-        lines = []
-        for i, (aid, score) in enumerate(ranked, start=1):
-            name = self._name_of(aid)
-            lines.append(f"{i}) {name} — {score:.1f}")
-        self.top_label.configure(text="\n".join(lines))
-
-    def _check_compare_state(self):
-        a_name = self.a_menu.get()
-        b_name = self.b_menu.get()
-        distinct = a_name != b_name
-        enable = (
-            distinct and (a_name in self._id_by_name) and (b_name in self._id_by_name)
-        )
-        self.compare_btn.configure(state=("normal" if enable else "disabled"))
-
-    def _do_compare(self):
-        a_name = self.a_menu.get()
-        b_name = self.b_menu.get()
-        a_id = self._id_by_name.get(a_name)
-        b_id = self._id_by_name.get(b_name)
-        if not a_id or not b_id or a_id == b_id:
-            self.result.configure(text="Pick two different algorithms.")
-            return
-        table = compare(a_id, b_id)
-        lines = [f"{a_name} vs {b_name}"]
-        for k in ["security", "performance", "adoption", "compatibility", "risk"]:
-            av, bv = table[k]
-            metric = "risk (lower better)" if k == "risk" else k
-            lines.append(f"• {metric}: {av}  vs  {bv}")
-        self.result.configure(text="\n".join(lines))
-
-    def _name_of(self, alg_id: str) -> str:
-        for human, _id in self._id_by_name.items():
-            if _id == alg_id:
-                return human
-        return alg_id
-
-    # ---------- Responsive layout (no forced heights) ----------
-    def on_resize(self, w, h):
-        if not self.winfo_exists():
-            return
-
-        # Title font
-        title_px = max(28, min(84, int(36 * (h / 900.0))))
-        if title_px != self._last_title_px:
-            self._last_title_px = title_px
-            try:
-                self.title.configure(font=("Roboto", title_px))
-            except Exception:
-                pass
-
-        # Subtitle font
-        sub_px = max(12, min(18, int(14 * (h / 900.0))))
-        if sub_px != self._last_sub_px:
-            self._last_sub_px = sub_px
-            try:
-                self.subtitle.configure(font=("Roboto", sub_px))
-            except Exception:
-                pass
-
-        # Button buckets (reuse Dashboard feel)
-        btn_w = max(120, min(220, int(w * 0.12)))
-        btn_h = max(36, min(56, int(h * 0.05)))
-        if (btn_w, btn_h) != (self._last_btn_w, self._last_btn_h):
-            self._last_btn_w, self._last_btn_h = btn_w, btn_h
-            for b in (self.compare_btn, self.back_btn):
-                try:
-                    b.configure(width=btn_w, height=btn_h)
-                except Exception:
-                    pass
-
-    def apply_role(self, role: str | None):
-        premium = is_premium(role)
-        self.card_weights.set_locked(not premium, "🔒 Premium feature")
-        # If you want Top-3 to be Premium-only, lock it too; otherwise leave unlocked.
-        # self.card_top3.set_locked(not premium, "🔒 Premium feature")
-
-    def _layout_cards(self):
-        w = max(self.winfo_width(), 1)
-        cols = 1 if w < 640 else 2
-        grid_evenly(self.cards_frame, self._cards, num_cols=cols)
-
-    def _open_weights_dialog(self):
-        # TODO: show a small slider dialog to adjust weights (Premium)
-        pass
-
-    def _show_top3(self):
-        # TODO: call your recommender.top_n() + kb filters; render in a popup or side panel
-        pass
+        self.hints.configure(state="normal")
+        self.hints.insert("end", "\n\n• (Live) Review KDF parameters and nonce sizes.")
+        self.hints.configure(state="disabled")
