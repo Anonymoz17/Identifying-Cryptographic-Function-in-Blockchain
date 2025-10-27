@@ -17,7 +17,11 @@ case_demo/*
 *.egg-info/
 
 #webpages
-node_modules
-dist
-.vite
-.DS_Store
+*node_modules/
+.node_modules/
+dist/
+*dist/
+*vite/
+.vite/
+*DS_Store/
+.DS_Store/
