@@ -7,12 +7,22 @@ CryptoScope Registration Page
 """
 
 import customtkinter as ctk
-from ui.theme import (
-    BG, CARD_BG, BORDER, TEXT, MUTED,
-    PRIMARY, PRIMARY_H, OUTLINE_BR, OUTLINE_H,
-    TITLE_FONT, SUB_FONT, HEADING_FONT, BODY_FONT
-)
+
 from api_client_supabase import register_user as sb_register
+from ui.theme import (
+    BG,
+    BODY_FONT,
+    BORDER,
+    CARD_BG,
+    MUTED,
+    OUTLINE_BR,
+    OUTLINE_H,
+    PRIMARY,
+    PRIMARY_H,
+    SUB_FONT,
+    TEXT,
+    TITLE_FONT,
+)
 
 
 class RegisterPage(ctk.CTkFrame):
@@ -38,7 +48,9 @@ class RegisterPage(ctk.CTkFrame):
         card.grid_columnconfigure(0, weight=1)
 
         # ---------- Header ----------
-        title = ctk.CTkLabel(card, text="Create your account", font=TITLE_FONT, text_color=TEXT)
+        title = ctk.CTkLabel(
+            card, text="Create your account", font=TITLE_FONT, text_color=TEXT
+        )
         subtitle = ctk.CTkLabel(
             card,
             text="Sign up to start using CryptoScope.",
@@ -113,7 +125,7 @@ class RegisterPage(ctk.CTkFrame):
             command=self._toggle_password,
             text_color=MUTED,
             border_color=OUTLINE_BR,
-            fg_color=PRIMARY,        # ✅ real color
+            fg_color=PRIMARY,  # ✅ real color
             hover_color=OUTLINE_H,
             checkbox_height=16,
             checkbox_width=16,
@@ -171,7 +183,12 @@ class RegisterPage(ctk.CTkFrame):
         self.status.configure(text=msg, text_color=(TEXT if error else MUTED))
 
     def _reset_fields(self):
-        for field in (self.fullname_entry, self.username_entry, self.email_entry, self.password_entry):
+        for field in (
+            self.fullname_entry,
+            self.username_entry,
+            self.email_entry,
+            self.password_entry,
+        ):
             try:
                 field.delete(0, "end")
             except Exception:

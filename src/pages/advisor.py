@@ -7,12 +7,20 @@ CryptoScope Advisor Page
 - Consistent header + footer actions
 """
 
-from typing import Optional, Dict, Any, List
+
 import customtkinter as ctk
+
 from ui.theme import (
-    BG, CARD_BG, BORDER, TEXT, MUTED,
-    PRIMARY, PRIMARY_H, OUTLINE_BR, OUTLINE_H,
-    HEADING_FONT, BODY_FONT
+    BG,
+    BORDER,
+    CARD_BG,
+    HEADING_FONT,
+    MUTED,
+    OUTLINE_BR,
+    OUTLINE_H,
+    PRIMARY,
+    PRIMARY_H,
+    TEXT,
 )
 
 
@@ -69,8 +77,7 @@ class AdvisorPage(ctk.CTkFrame):
         hero.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(
-            hero, text="Project Overview",
-            font=HEADING_FONT, text_color=TEXT
+            hero, text="Project Overview", font=HEADING_FONT, text_color=TEXT
         ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 2))
 
         self.project_summary = ctk.CTkTextbox(
@@ -110,8 +117,7 @@ class AdvisorPage(ctk.CTkFrame):
         recommendations.grid_rowconfigure(1, weight=1)
 
         ctk.CTkLabel(
-            recommendations, text="Recommendations",
-            font=HEADING_FONT, text_color=TEXT
+            recommendations, text="Recommendations", font=HEADING_FONT, text_color=TEXT
         ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 2))
 
         self.reco_box = ctk.CTkTextbox(
@@ -139,8 +145,7 @@ class AdvisorPage(ctk.CTkFrame):
         right_col.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(
-            right_col, text="Algorithms / Migration",
-            font=HEADING_FONT, text_color=TEXT
+            right_col, text="Algorithms / Migration", font=HEADING_FONT, text_color=TEXT
         ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 2))
 
         # A small list-like area for hints:
@@ -193,7 +198,7 @@ class AdvisorPage(ctk.CTkFrame):
             "- AES detected in multiple files. Consider centralizing key management.\n"
             "- SHA-256 usage looks correct; verify no raw password hashing.\n"
             "- Consider migrating legacy RSA-1024 to RSA-2048 or ECC (P-256).\n"
-            "- Avoid custom crypto primitives; prefer vetted libraries.\n"
+            "- Avoid custom crypto primitives; prefer vetted libraries.\n",
         )
         self.reco_box.configure(state="disabled")
 
@@ -203,7 +208,7 @@ class AdvisorPage(ctk.CTkFrame):
             "• Prefer AES-GCM over AES-CBC for authenticated encryption.\n"
             "• Use HKDF for key derivation; avoid ad-hoc constructions.\n"
             "• If signatures needed, consider Ed25519 or ECDSA (P-256).\n"
-            "• Ensure secure randoms via OS RNG / libsodium / cryptography.io\n"
+            "• Ensure secure randoms via OS RNG / libsodium / cryptography.io\n",
         )
         self.hints.configure(state="disabled")
 

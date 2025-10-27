@@ -10,16 +10,32 @@ CryptoScope Reports Page
 
 import json
 from tkinter import filedialog, messagebox
+
 import customtkinter as ctk
+
 from ui.theme import (
-    BG, CARD_BG, BORDER, TEXT, MUTED,
-    PRIMARY, PRIMARY_H, OUTLINE_BR, OUTLINE_H,
-    HEADING_FONT, BODY_FONT
+    BG,
+    BORDER,
+    CARD_BG,
+    HEADING_FONT,
+    MUTED,
+    OUTLINE_BR,
+    OUTLINE_H,
+    PRIMARY,
+    PRIMARY_H,
+    TEXT,
 )
 
 
 class ReportsPage(ctk.CTkFrame):
-    def __init__(self, master, switch_page, get_role=None, export_json_cb=None, export_pdf_cb=None):
+    def __init__(
+        self,
+        master,
+        switch_page,
+        get_role=None,
+        export_json_cb=None,
+        export_pdf_cb=None,
+    ):
         super().__init__(master, fg_color=BG)
         self.switch_page = switch_page
         self.get_role = get_role

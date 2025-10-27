@@ -6,19 +6,26 @@ CryptoScope Login Page
 - Clears fields after successful login
 """
 
-from typing import Optional, Dict, Any
+
 import customtkinter as ctk
-from ui.theme import (
-    BG, CARD_BG, BORDER, TEXT, MUTED,
-    PRIMARY, PRIMARY_H, OUTLINE_BR, OUTLINE_H,
-    TITLE_FONT, SUB_FONT, HEADING_FONT, BODY_FONT
-)
 
 # Supabase bridge (desktop app backend)
-from api_client_supabase import (
-    login as sb_login,
-    get_my_role as sb_get_role,
-    ensure_role_row as sb_ensure_role_row,
+from api_client_supabase import ensure_role_row as sb_ensure_role_row
+from api_client_supabase import get_my_role as sb_get_role
+from api_client_supabase import login as sb_login
+from ui.theme import (
+    BG,
+    BODY_FONT,
+    BORDER,
+    CARD_BG,
+    MUTED,
+    OUTLINE_BR,
+    OUTLINE_H,
+    PRIMARY,
+    PRIMARY_H,
+    SUB_FONT,
+    TEXT,
+    TITLE_FONT,
 )
 
 
@@ -47,7 +54,9 @@ class LoginPage(ctk.CTkFrame):
         center.grid_columnconfigure(0, weight=1)
 
         # ---------- Header ----------
-        title = ctk.CTkLabel(center, text="Welcome back", font=TITLE_FONT, text_color=TEXT)
+        title = ctk.CTkLabel(
+            center, text="Welcome back", font=TITLE_FONT, text_color=TEXT
+        )
         subtitle = ctk.CTkLabel(
             center,
             text="Sign in to continue to CryptoScope",
@@ -98,7 +107,7 @@ class LoginPage(ctk.CTkFrame):
             command=self._toggle_password,
             text_color=MUTED,
             border_color=OUTLINE_BR,
-            fg_color=PRIMARY,        # ✅ must be a real color (no "transparent")
+            fg_color=PRIMARY,  # ✅ must be a real color (no "transparent")
             hover_color=OUTLINE_H,
             checkbox_height=16,
             checkbox_width=16,

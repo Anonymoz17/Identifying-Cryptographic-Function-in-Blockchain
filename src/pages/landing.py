@@ -5,10 +5,20 @@ Unified with theme.py palette.
 """
 
 import customtkinter as ctk
+
 from ui.theme import (
-    BG, CARD_BG, BORDER, TEXT, MUTED,
-    PRIMARY, PRIMARY_H, OUTLINE_BR, OUTLINE_H,
-    TITLE_FONT, HEADING_FONT, BODY_FONT
+    BG,
+    BODY_FONT,
+    BORDER,
+    CARD_BG,
+    HEADING_FONT,
+    MUTED,
+    OUTLINE_BR,
+    OUTLINE_H,
+    PRIMARY,
+    PRIMARY_H,
+    TEXT,
+    TITLE_FONT,
 )
 
 
@@ -23,7 +33,9 @@ class LandingPage(ctk.CTkFrame):
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.pack(fill="x", padx=30, pady=(24, 12))
 
-        title = ctk.CTkLabel(header, text="CryptoScope", font=TITLE_FONT, text_color=TEXT)
+        title = ctk.CTkLabel(
+            header, text="CryptoScope", font=TITLE_FONT, text_color=TEXT
+        )
         subtitle = ctk.CTkLabel(
             header,
             text="Identify, analyze, and audit cryptographic functions across blockchain projects.",
@@ -103,7 +115,8 @@ class LandingPage(ctk.CTkFrame):
             "Upload files or scan GitHub repositories for cryptographic analysis.",
             "Open Dashboard",
             lambda: self.switch_page("dashboard"),
-            0, 0,
+            0,
+            0,
         )
 
         create_card(
@@ -111,7 +124,8 @@ class LandingPage(ctk.CTkFrame):
             "Access recommendations and migration strategies for detected algorithms.",
             "Open Advisor",
             lambda: self.switch_page("advisor"),
-            0, 1,
+            0,
+            1,
         )
 
         create_card(
@@ -119,7 +133,8 @@ class LandingPage(ctk.CTkFrame):
             "Audit compliance of blockchain projects with cryptographic standards.",
             "Open Auditor",
             lambda: self.switch_page("auditor"),
-            1, 0,
+            1,
+            0,
         )
 
         create_card(
@@ -127,7 +142,8 @@ class LandingPage(ctk.CTkFrame):
             "View and export previous analysis results as JSON or PDF summaries.",
             "Open Reports",
             lambda: self.switch_page("reports"),
-            1, 1,
+            1,
+            1,
         )
 
         # === FOOTER ===

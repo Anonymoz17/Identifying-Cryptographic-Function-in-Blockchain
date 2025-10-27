@@ -12,7 +12,7 @@ from pages import (
     LandingPage,
     LoginPage,
     RegisterPage,
-    ReportsPage
+    ReportsPage,
 )
 
 
@@ -50,7 +50,9 @@ class App(ctk.CTk):
                 self,
                 self.switch_page,
                 get_role=lambda: self.current_user_role,
-                export_json_cb=lambda: self._pages["dashboard"]._export_json_from_preview(),  # reuse dashboard export
+                export_json_cb=lambda: self._pages[
+                    "dashboard"
+                ]._export_json_from_preview(),  # reuse dashboard export
                 export_pdf_cb=lambda: None,  # stub; replace with real PDF export when ready
             ),
         }
