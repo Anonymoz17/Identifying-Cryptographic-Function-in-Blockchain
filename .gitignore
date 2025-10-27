@@ -16,13 +16,12 @@ case_demo/*
 # build metadata
 *.egg-info/
 
-# node modules
+#webpages
 *node_modules/
 .node_modules/
+dist/
+*dist/
 *vite/
 .vite/
-#webpages
-node_modules
-dist
-.vite
-.DS_Store
+*DS_Store/
+.DS_Store/
