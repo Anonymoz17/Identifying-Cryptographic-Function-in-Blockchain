@@ -1,15 +1,4 @@
-# src/pages/login.py
-"""
-CryptoScope Login Page
-- Uses shared theme (ui.theme) — no inline hex colors
-- Supabase auth via api_client_supabase.py
-- Clears fields after successful login
-"""
-
-
 import customtkinter as ctk
-
-# Supabase bridge (desktop app backend)
 from api_client_supabase import ensure_role_row as sb_ensure_role_row
 from api_client_supabase import get_my_role as sb_get_role
 from api_client_supabase import login as sb_login
@@ -27,7 +16,6 @@ from ui.theme import (
     TEXT,
     TITLE_FONT,
 )
-
 
 class LoginPage(ctk.CTkFrame):
     def __init__(self, master, switch_page):

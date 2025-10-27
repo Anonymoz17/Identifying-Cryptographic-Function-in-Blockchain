@@ -1,13 +1,4 @@
-# src/pages/register.py
-"""
-CryptoScope Registration Page
-- Themed using ui.theme
-- Registers user via Supabase backend
-- Clears fields and navigates to Login on success
-"""
-
 import customtkinter as ctk
-
 from api_client_supabase import register_user as sb_register
 from ui.theme import (
     BG,
@@ -23,7 +14,6 @@ from ui.theme import (
     TEXT,
     TITLE_FONT,
 )
-
 
 class RegisterPage(ctk.CTkFrame):
     def __init__(self, master, switch_page):
@@ -118,6 +108,19 @@ class RegisterPage(ctk.CTkFrame):
         )
         self.password_entry.grid(row=0, column=0, sticky="ew")
 
+        self.confirm_password_entry = ctk.CTkEntry(
+            pw_row,
+            placeholder_text="Confirm Password",
+            height=38,
+            corner_radius=8,
+            fg_color=BG,
+            border_color=BORDER,
+            border_width=1,
+            text_color=TEXT,
+            show="*",
+        )
+        self.confirm_password_entry.grid(row=1, column=0, sticky="ew")
+
         show_pw = ctk.CTkCheckBox(
             pw_row,
             text="Show password",
@@ -132,7 +135,7 @@ class RegisterPage(ctk.CTkFrame):
             corner_radius=4,
         )
 
-        show_pw.grid(row=0, column=1, padx=(10, 0))
+        show_pw.grid(row=1, column=1, padx=(10, 0))
 
         # Status label
         self.status = ctk.CTkLabel(card, text="", font=BODY_FONT, text_color=MUTED)
@@ -178,6 +181,7 @@ class RegisterPage(ctk.CTkFrame):
     # ---------- UI helpers ----------
     def _toggle_password(self):
         self.password_entry.configure(show="" if self._show_pw.get() else "*")
+        self.confirm_password_entry.configure(show="" if self._show_pw.get() else "*")
 
     def _set_status(self, msg: str, error: bool = False):
         self.status.configure(text=msg, text_color=(TEXT if error else MUTED))
@@ -188,6 +192,7 @@ class RegisterPage(ctk.CTkFrame):
             self.username_entry,
             self.email_entry,
             self.password_entry,
+            self.confirm_password_entry,
         ):
             try:
                 field.delete(0, "end")
@@ -195,6 +200,7 @@ class RegisterPage(ctk.CTkFrame):
                 pass
         self._show_pw.set(False)
         self.password_entry.configure(show="*")
+        self.confirm_password_entry.configure(show="*")
         self._set_status("")
 
     # ---------- Registration Logic ----------
@@ -206,9 +212,14 @@ class RegisterPage(ctk.CTkFrame):
         username = (self.username_entry.get() or "").strip()
         email = (self.email_entry.get() or "").strip()
         password = self.password_entry.get() or ""
+        confirm_password = self.confirm_password_entry.get() or ""
 
-        if not all([fullname, username, email, password]):
+        if not all([fullname, username, email, password, confirm_password]):
             self._set_status("Fill in all fields.", error=True)
+            return
+
+        if password != confirm_password:
+            self._set_status("Passwords do not match.", error=True)
             return
 
         self._busy = True
