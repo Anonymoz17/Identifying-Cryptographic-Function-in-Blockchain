@@ -27,23 +27,8 @@ Optional native integrations (may require additional system tooling):
   - Install: pip install capstone
 
 - yara-python
-
   - Optional YARA integration used by the YARA adapter and optional integration tests.
   - Install: pip install yara-python
-
-- semgrep
-
-  - Useful for source-level pattern scanning (Semgrep CLI). Not required for core unit tests.
-  - Install (pip): pip install semgrep
-
-  - The repository includes a `SemgrepCliAdapter` (see `src/detectors/semgrep_adapter.py`) which invokes the `semgrep` CLI and converts results into the NDJSON detector shape.
-
-- ghidra (headless)
-
-  - Optional heavy-weight analysis used by the Ghidra adapter. Requires a Ghidra distribution and a Java runtime.
-  - Ghidra is run outside Python (analyzeHeadless). See `detectors/README.md` and `docs/pipeline.md` for recommended inputs/outputs and example runner scripts.
-
-  - A minimal wrapper exists at `tools/ghidra_headless_runner.py` which iterates `artifacts/ghidra_inputs/` and expects a Ghidra script to produce JSON exports under `artifacts/ghidra_exports/`.
 
 Notes
 

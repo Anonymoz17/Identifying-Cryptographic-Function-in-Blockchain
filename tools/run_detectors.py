@@ -16,16 +16,12 @@ from typing import Any
 import yaml
 
 from src.detectors.adapter import BinaryRegexAdapter, RegexAdapter, YaraAdapter
-from src.detectors.disasm_adapter import DisasmJsonAdapter
-from src.detectors.ghidra_adapter import GhidraExportAdapter
 from src.detectors.merge import dedupe_detections
 from src.detectors.runner import (
     load_manifest_paths,
     run_adapters,
     write_ndjson_detections,
 )
-from src.detectors.semgrep_adapter import SemgrepCliAdapter
-from src.detectors.tree_sitter_example import TreeSitterJsonExample
 
 
 def load_config(path: Path) -> Any:
@@ -80,21 +76,6 @@ def main(argv=None):
                 )
             elif kind == "binary-regex":
                 adapters.append(BinaryRegexAdapter(a.get("rules", {})))
-            elif kind == "semgrep":
-                adapters.append(
-                    SemgrepCliAdapter(
-                        rules_dir=a.get("rules_dir"),
-                        fallback_rules=a.get("fallback_rules"),
-                    )
-                )
-            elif kind == "disasm":
-                adapters.append(
-                    DisasmJsonAdapter(fallback_rules=a.get("fallback_rules"))
-                )
-            elif kind == "ghidra":
-                adapters.append(GhidraExportAdapter())
-            elif kind == "tree-sitter-example":
-                adapters.append(TreeSitterJsonExample(query=a.get("query")))
 
     if not adapters:
         # default

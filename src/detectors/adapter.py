@@ -118,28 +118,13 @@ class YaraAdapter(BaseAdapter):
                 if self.rules_path:
                     self._compiled = self._yara.compile(filepath=self.rules_path)
                 elif self.rules_dir:
-                    # compile a directory of .yar files. Try provided dir, then
-                    # fall back to several common locations.
-                    ry = Path(self.rules_dir)
-                    filepaths = {p.name: str(p) for p in ry.glob("**/*.yar")}
-                    # fallback search order
-                    fallbacks = [
-                        Path("detectors") / "yara",
-                        Path("src") / "detectors" / "yara",
-                        Path("src") / str(self.rules_dir),
-                    ]
-                    for fb in fallbacks:
-                        if not filepaths and fb.exists():
-                            filepaths = {p.name: str(p) for p in fb.glob("**/*.yar")}
-                    # if still empty, try a common filename under src
-                    if not filepaths:
-                        alt_file = Path("src") / "detectors" / "yara" / "crypto.yar"
-                        if alt_file.exists():
-                            filepaths = {alt_file.name: str(alt_file)}
-
-                    # attempt compilation if we have any .yar files
-                    if filepaths:
-                        self._compiled = self._yara.compile(filepaths=filepaths)
+                    # compile a directory of .yar files
+                    self._compiled = self._yara.compile(
+                        filepaths={
+                            p.name: str(p)
+                            for p in Path(self.rules_dir).glob("**/*.yar")
+                        }
+                    )
                 elif self.rules_str:
                     # compile from a raw string
                     self._compiled = self._yara.compile(source=self.rules_str)
