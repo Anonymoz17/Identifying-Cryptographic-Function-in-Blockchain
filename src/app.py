@@ -7,11 +7,12 @@ import customtkinter as ctk
 from file_handler import FileHandler
 from pages import (
     AdvisorPage,
-    AnalysisPage,
     AuditorPage,
     DashboardPage,
+    LandingPage,
     LoginPage,
     RegisterPage,
+    ReportsPage,
 )
 
 
@@ -40,11 +41,20 @@ class App(ctk.CTk):
             "login": LoginPage(self, self.switch_page),
             "register": RegisterPage(self, self.switch_page),
             "dashboard": DashboardPage(self, self.switch_page, self.file_handler),
-            "analysis": AnalysisPage(self, self.switch_page),
+            "landing": LandingPage(self, self.switch_page),  # ← NEW
             "advisor": AdvisorPage(
                 self, self.switch_page
             ),  # <-- fixed: real frame instance
             "auditor": AuditorPage(self, self.switch_page),
+            "reports": ReportsPage(
+                self,
+                self.switch_page,
+                get_role=lambda: self.current_user_role,
+                export_json_cb=lambda: self._pages[
+                    "dashboard"
+                ]._export_json_from_preview(),  # reuse dashboard export
+                export_pdf_cb=lambda: None,  # stub; replace with real PDF export when ready
+            ),
         }
 
         for p in self._pages.values():
@@ -52,7 +62,7 @@ class App(ctk.CTk):
             p.grid_remove()
 
         # --- Start on Login (not dashboard) ---
-        self._current_page_name = "auditor"
+        self._current_page_name = "landing"
         self.switch_page(self._current_page_name)
 
         # Debounced resize handling

@@ -21,3 +21,8 @@ case_demo/*
 .node_modules/
 *vite/
 .vite/
+#webpages
+node_modules
+dist
+.vite
+.DS_Store
