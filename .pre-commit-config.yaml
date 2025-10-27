@@ -15,6 +15,11 @@ repos:
     rev: v0.14.1
     hooks:
       - id: ruff
+        # Only run the selected categories; avoid complexity (C) and line-length (E501)
+        # checks here because Black handles formatting and we want to avoid C901
+        # false positives on large but acceptable functions. The project-level
+        # ruff settings in pyproject.toml already ignore E501 and C901.
+        args: ["--select", "E,F,W,B,Q", "--extend-ignore", "E501,C901"]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -23,7 +28,6 @@ repos:
       - id: trailing-whitespace
       - id: check-yaml
       - id: debug-statements
-
 # Notes:
 # - The ruff hook runs checks; prefer running `ruff check .` locally for quick linting.
 # - pre-commit will run black/isort/ruff automatically on staged files.
