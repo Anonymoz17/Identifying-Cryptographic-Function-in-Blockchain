@@ -1,0 +1,22 @@
+---
+id: detect-crypto-keywords
+metadata:
+  name: Detect crypto keywords (MVP)
+  author: mvp
+  severity: WARNING
+  description: Detects simple mentions of AES, sha1, sha256, keccak in source files
+  tags:
+    - crypto
+rules:
+  - id: crypto-aes-sha
+    pattern-either:
+      - pattern: |
+          AES
+      - pattern: |
+          sha1
+      - pattern: |
+          sha256
+      - pattern: |
+          keccak
+    languages: [c, cpp, go, python, javascript, typescript, solidity]
+    message: "Possible cryptographic keyword detected"

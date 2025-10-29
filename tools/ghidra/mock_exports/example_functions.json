@@ -1,0 +1,28 @@
+{
+  "functions": [
+    {
+      "name": "encrypt_data",
+      "entry": "0x1000",
+      "instr_count": 42,
+      "sample_mnemonics": ["push", "mov", "xor", "call", "ret"],
+      "refs_to": 3,
+      "refs_from": 1,
+      "called_functions": ["sub_2000", "aes_round"],
+      "called_count": 2,
+      "entry_bytes_sample": "8bff558bec83ec10c70424...",
+      "decompiled": "void encrypt_data(byte *buf, int len) { /* ... */ }"
+    },
+    {
+      "name": "helper_sha",
+      "entry": "0x1100",
+      "instr_count": 28,
+      "sample_mnemonics": ["push", "mov", "add", "ret"],
+      "refs_to": 1,
+      "refs_from": 0,
+      "called_functions": [],
+      "called_count": 0,
+      "entry_bytes_sample": "5589e583ec10c70424...",
+      "decompiled": "uint32_t helper_sha(const uint8_t *data, size_t len) { /* ... */ }"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+This file intentionally includes AES and SHA256 markers to exercise static rules.
+Function: AES_encrypt
+Algorithm: AES-128-CBC
+Digest: SHA256
