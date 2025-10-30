@@ -136,7 +136,7 @@ export async function getCurrentUser() {
 
 // Call this AFTER your payment succeeds (Stripe/PayNow/etc.)
 export async function upgradeUserPlan({ userId, plan }) {
-  if (!["free", "premium", "admin"].includes(plan)) {
+  if (!["free", "premium"].includes(plan)) {
     return { error: "Invalid plan" };
   }
   const { data, error } = await supabase

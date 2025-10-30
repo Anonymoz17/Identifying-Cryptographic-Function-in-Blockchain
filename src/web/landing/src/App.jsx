@@ -242,8 +242,9 @@ function Hero() { /* … keep your existing Hero from earlier message … */ ret
           Detect &amp; Understand <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">Cryptographic Functions</span> fast.
         </h1>
         <p className="text-white/70 text-base sm:text-lg max-w-xl">
-          CryptoScope scans binaries, source code, and repos to identify hashes, ciphers, and protocols — ranking strength, performance, and compliance so auditors and teams can remediate with confidence.
+          Purpose-built for auditors: CryptoScope maps cryptographic usage across codebases and binaries, highlights weak/legacy algorithms, and provides NIST-informed scoring so you can justify findings and remediation with evidence.
         </p>
+
         <div className="flex flex-wrap gap-3 pt-2">
           <Button as="a" href="#get-started" className="bg-gradient-to-r from-emerald-400 to-cyan-500 text-black">
             <Download className="h-4 w-4" /> Download (Desktop)
@@ -284,12 +285,36 @@ function Hero() { /* … keep your existing Hero from earlier message … */ ret
 );}
 
 const features = [
-  { icon: <FileSearch className="h-5 w-5" />, title: "Multi-source scanning", desc: "Analyze binaries, source code, or entire GitHub repos with one click." },
-  { icon: <Cpu className="h-5 w-5" />, title: "Static + Dynamic", desc: "Hybrid detection pipeline with signatures, AST, and optional Frida hooks." },
-  { icon: <Gauge className="h-5 w-5" />, title: "Fast & scalable", desc: "Parallel scanning and caching for large workspaces and CI/CD." },
-  { icon: <ShieldCheck className="h-5 w-5" />, title: "NIST-informed scoring", desc: "Weighted metrics for strength, performance, adoption, and risk." },
-  { icon: <Database className="h-5 w-5" />, title: "NDJSON/JSON exports", desc: "Stream-friendly logs for SIEMs, notebooks, and diffable audits." },
-  { icon: <Layers className="h-5 w-5" />, title: "Tiered roles", desc: "Free, Premium, and Admin tiers map to your workflow and governance." },
+  {
+    icon: <FileSearch className="h-5 w-5" />,
+    title: "Audit-grade discovery",
+    desc: "Identify hashes, ciphers, KDFs and protocols across source, repos, and compiled artifacts."
+  },
+  {
+    icon: <Cpu className="h-5 w-5" />,
+    title: "Static + runtime hints",
+    desc: "Signature rules and AST analysis with optional Frida hooks for runtime confirmation."
+  },
+  {
+    icon: <Gauge className="h-5 w-5" />,
+    title: "Fast evidence collection",
+    desc: "Parallel scans with cached results for repeatable, diffable audit runs."
+  },
+  {
+    icon: <ShieldCheck className="h-5 w-5" />,
+    title: "NIST-informed scoring",
+    desc: "Rank algorithms by strength, performance, and adoption to prioritize risk."
+  },
+  {
+    icon: <Database className="h-5 w-5" />,
+    title: "Defensible reports",
+    desc: "Export JSON/NDJSON with locations, confidence, and context for your workpapers."
+  },
+  {
+    icon: <Layers className="h-5 w-5" />,
+    title: "Fits audit workflows",
+    desc: "CLI/CI integration, role-appropriate outputs, and reproducible pipelines."
+  },
 ];
 function Features(){ /* unchanged */ return (
   <section id="features" className="py-20">
@@ -343,55 +368,85 @@ function HowItWorks(){ /* unchanged */ return (
 );}
 function Pricing({ onRequireAuth }) {
   const { user, plan, setPlan } = useAuth();
+
   async function handleSelect(planName) {
-    if (!user) { onRequireAuth?.("signin"); return; }
-    // TODO: trigger real checkout → on success:
+    if (!user) return onRequireAuth?.("signin");
     const { error, plan: newPlan } = await upgradeUserPlan({ userId: user.id, plan: planName });
     if (error) return alert("Upgrade failed: " + error);
     setPlan(newPlan || planName);
     alert("You're now on " + (newPlan || planName) + " 🎉");
   }
+
   const cards = [
-    { name: "Free", price: "$0", tagline: "For quick checks & students", cta: plan === "free" ? "Current plan" : "Start Free",
-      features: ["Single-file scans", "Core ruleset", "JSON export"] },
-    { name: "Premium", price: "$19/mo", tagline: "For professional audits", cta: plan === "premium" ? "Current plan" : "Go Premium", featured: true,
-      features: ["Multi-file & repo scanning", "NDJSON streaming", "Diffable audit history", "Optional dynamic hooks"] },
-    { name: "Admin", price: "Custom", tagline: "For teams & governance", cta: "Talk to Sales",
-      features: ["Role-based access", "Policy overrides", "On-prem / air-gapped", "SAML/SSO"] },
+    {
+      name: "Free",
+      price: "$0",
+      tagline: "For quick checks & students",
+      cta: plan === "free" ? "Current plan" : "Start Free",
+      features: ["Single-file scans", "Core ruleset", "JSON export"],
+    },
+    {
+      name: "Premium",
+      price: "$19/mo",
+      tagline: "For professional audits",
+      cta: plan === "premium" ? "Current plan" : "Go Premium",
+      featured: true,
+      features: ["Multi-file & repo scanning", "NDJSON streaming", "Diffable audit history", "Optional dynamic hooks"],
+    },
   ];
+
   return (
     <section id="pricing" className="py-20">
       <Container>
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="text-3xl sm:text-4xl font-semibold">Simple, transparent pricing</h2>
-          <p className="mt-3 text-white/70">Choose a plan that matches your workflow. Upgrade anytime.</p>
+          <p className="mt-3 text-white/70">Choose a plan that matches your audit workflow. Upgrade anytime.</p>
         </div>
-        <div className="mt-10 grid gap-6 lg:grid-cols-3">
+
+        {/* Centered 2-col grid, equal-height cards */}
+        <div className="mt-10 grid gap-6 sm:grid-cols-2 max-w-4xl mx-auto items-stretch">
           {cards.map((p, i) => (
-            <Card key={i} className={`${p.featured ? "border-emerald-400/30 bg-emerald-400/5" : ""}`}>
+            <Card
+              key={i}
+              className={`h-full flex flex-col ${p.featured ? "border-emerald-400/30 bg-emerald-400/5" : ""}`}
+            >
               <div className="flex items-baseline justify-between">
                 <h3 className="text-xl font-semibold">{p.name}</h3>
                 <Badge>{p.tagline}</Badge>
               </div>
+
               <div className="mt-4 text-4xl font-bold">{p.price}</div>
+
               <ul className="mt-6 space-y-2 text-sm text-white/80">
                 {p.features.map((f, idx) => (
                   <li key={idx} className="flex items-center gap-2">
-                    <div className="h-5 w-5 rounded-md border border-white/15 bg-white/5 grid place-content-center"><span className="text-emerald-300">✓</span></div>
+                    <div className="h-5 w-5 rounded-md border border-white/15 bg-white/5 grid place-content-center">
+                      <span className="text-emerald-300">✓</span>
+                    </div>
                     {f}
                   </li>
                 ))}
               </ul>
+
+              {/* push CTA to bottom for equal alignment */}
+              <div className="flex-1" />
+
               {p.name === "Premium" ? (
-                <Button onClick={() => handleSelect("premium")} className={`mt-6 w-full justify-center ${p.featured ? "bg-gradient-to-r from-emerald-400 to-cyan-500 text-black" : "border border-white/15 text-white/90 hover:bg-white/5"}`}>
-                  {p.cta}
-                </Button>
-              ) : p.name === "Free" ? (
-                <Button onClick={() => (user ? alert("You're on Free.") : onRequireAuth?.("signup"))} className="mt-6 w-full justify-center border border-white/15 text-white/90 hover:bg-white/5">
+                <Button
+                  onClick={() => handleSelect("premium")}
+                  className={`mt-6 w-full justify-center ${
+                    p.featured
+                      ? "bg-gradient-to-r from-emerald-400 to-cyan-500 text-black"
+                      : "border border-white/15 text-white/90 hover:bg-white/5"
+                  }`}
+                >
                   {p.cta}
                 </Button>
               ) : (
-                <Button as="a" href="#contact" className="mt-6 w-full justify-center border border-white/15 text-white/90 hover:bg-white/5">
+                <Button
+                  onClick={() => (user ? alert("You're on Free.") : onRequireAuth?.("signup"))}
+                  className="mt-6 w-full justify-center border border-white/15 text-white/90 hover:bg-white/5"
+                >
                   {p.cta}
                 </Button>
               )}
@@ -402,6 +457,7 @@ function Pricing({ onRequireAuth }) {
     </section>
   );
 }
+
 function FAQ(){ /* unchanged */ return (
   <section id="faq" className="py-20">
     <Container>
@@ -411,7 +467,7 @@ function FAQ(){ /* unchanged */ return (
       </div>
       <div className="mx-auto mt-10 max-w-3xl divide-y divide-white/10 rounded-2xl border border-white/10 bg-white/[0.03]">
         {[
-          { q: "What platforms are supported?", a: "Windows, macOS, and Linux for the desktop app. A lightweight web demo is also available." },
+          { q: "What platforms are supported?", a: "Windows for the desktop app"},
           { q: "Which languages/targets can you scan?", a: "Start with EVM/solidity sources and bytecode, common C/C++/Rust/Go/JS repos, and generic binaries. More to come." },
           { q: "How do exports work?", a: "Use JSON for single reports or NDJSON for streaming line-by-line detections." },
           { q: "Does it work offline?", a: "Yes. Premium and Admin tiers support full offline scanning with local rule packs." },
