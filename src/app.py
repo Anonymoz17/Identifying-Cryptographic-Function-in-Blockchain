@@ -1,5 +1,3 @@
-"""Top-level app runner moved under src for packaging."""
-
 from pathlib import Path
 
 import customtkinter as ctk
@@ -25,7 +23,7 @@ class App(ctk.CTk):
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
-        # --- Session + scan state ---
+
         self.auth_token = None
         # safer default for local usage
         self.current_user_role = "free"
@@ -44,7 +42,7 @@ class App(ctk.CTk):
             "landing": LandingPage(self, self.switch_page),  # ← NEW
             "advisor": AdvisorPage(
                 self, self.switch_page
-            ),  # <-- fixed: real frame instance
+            ),  
             "auditor": AuditorPage(self, self.switch_page),
             "reports": ReportsPage(
                 self,
@@ -52,8 +50,8 @@ class App(ctk.CTk):
                 get_role=lambda: self.current_user_role,
                 export_json_cb=lambda: self._pages[
                     "dashboard"
-                ]._export_json_from_preview(),  # reuse dashboard export
-                export_pdf_cb=lambda: None,  # stub; replace with real PDF export when ready
+                ]._export_json_from_preview(), 
+                export_pdf_cb=lambda: None,  
             ),
         }
 
@@ -61,8 +59,8 @@ class App(ctk.CTk):
             p.grid(row=0, column=0, sticky="nsew")
             p.grid_remove()
 
-        # --- Start on Login (not dashboard) ---
-        self._current_page_name = "landing"
+
+        self._current_page_name = "login"
         self.switch_page(self._current_page_name)
 
         # Debounced resize handling
@@ -87,14 +85,14 @@ class App(ctk.CTk):
             else:
                 page.grid_remove()
 
-    # -------- Logout (clear state, reset pages, go to login) --------
+
     def logout(self):
         self.auth_token = None
         self.current_user_role = "free"
         self.current_user_email = None
         self.current_scan_meta = None
 
-        # Let pages clear their UI if they implement reset_ui()
+
         for key in ("dashboard", "analysis", "login"):
             page = self._pages.get(key)
             if page and hasattr(page, "reset_ui"):
@@ -104,17 +102,14 @@ class App(ctk.CTk):
                     pass
 
         self.switch_page("login")
-        # blur inputs so caret doesn't appear automatically; pass callable to after
         blur_cb = getattr(self._pages["login"], "blur_inputs", lambda: None)
-        # pass the callable directly to tkinter.after (no args)
         self.after(10, blur_cb)
 
     # ---------- Resize (debounced) ----------
     def _on_configure(self, event):
-        # Ignore noisy events triggered during closing
         if self._closing:
             return
-        # Debounce: schedule a single resize after 30ms
+
         if self._resize_job is not None:
             try:
                 self.after_cancel(self._resize_job)
