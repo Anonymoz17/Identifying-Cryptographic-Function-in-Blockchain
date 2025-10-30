@@ -41,7 +41,9 @@ class SetupPage(ctk.CTkFrame):
         # Workdir / case / scope
         form = ctk.CTkFrame(content, fg_color="transparent")
         form.pack(padx=12, pady=(6, 6), fill="x")
+        # allow the entry columns to expand (col 1 and col 3)
         form.grid_columnconfigure(1, weight=1)
+        form.grid_columnconfigure(3, weight=1)
 
         ctk.CTkLabel(form, text="Workdir:").grid(row=0, column=0, sticky="w")
         self.workdir_entry = ctk.CTkEntry(
@@ -53,6 +55,11 @@ class SetupPage(ctk.CTkFrame):
             default_workdir = str(Path.home() / "CryptoScope" / "cases")
         self.workdir_entry.insert(0, default_workdir)
         self.workdir_entry.grid(row=0, column=1, sticky="we", padx=(6, 0))
+        # Workdir browse button
+        self.workdir_browse = ctk.CTkButton(
+            form, text="Browse", width=90, command=self._browse_workdir
+        )
+        self.workdir_browse.grid(row=0, column=2, padx=(8, 0))
 
         ctk.CTkLabel(form, text="Case ID:").grid(row=1, column=0, sticky="w")
         self.case_entry = ctk.CTkEntry(form, placeholder_text="e.g. CASE-001")
@@ -79,21 +86,21 @@ class SetupPage(ctk.CTkFrame):
         )
         self.scope_browse.grid(row=2, column=2, padx=(8, 0))
 
-        # Policy baseline
-        ctk.CTkLabel(form, text="Policy:").grid(row=2, column=2, sticky="w")
+        # Policy baseline on its own row
+        ctk.CTkLabel(form, text="Policy:").grid(row=3, column=0, sticky="w")
         self.policy_entry = ctk.CTkEntry(
             form, placeholder_text="Optional policy baseline (JSON)"
         )
-        self.policy_entry.grid(row=2, column=3, sticky="we", padx=(6, 0))
+        self.policy_entry.grid(row=3, column=1, sticky="we", padx=(6, 0))
         self.policy_browse = ctk.CTkButton(
             form, text="Browse", width=90, command=self._browse_policy
         )
-        self.policy_browse.grid(row=2, column=4, padx=(8, 0))
+        self.policy_browse.grid(row=3, column=2, padx=(8, 0))
 
         # Preproc options
-        ctk.CTkLabel(form, text="Preproc Options:").grid(row=3, column=0, sticky="w")
+        ctk.CTkLabel(form, text="Preproc Options:").grid(row=4, column=0, sticky="w")
         opts = ctk.CTkFrame(form, fg_color="transparent")
-        opts.grid(row=3, column=1, sticky="we", padx=(6, 0))
+        opts.grid(row=4, column=1, sticky="we", padx=(6, 0))
         self.extract_var = tk.BooleanVar(value=True)
         ctk.CTkCheckBox(opts, text="Extract archives", variable=self.extract_var).grid(
             row=0, column=0, sticky="w"
@@ -155,6 +162,17 @@ class SetupPage(ctk.CTkFrame):
         if path:
             self.scope_entry.delete(0, "end")
             self.scope_entry.insert(0, path)
+
+    def _browse_workdir(self):
+        from tkinter import filedialog
+
+        path = filedialog.askdirectory(title="Select work directory")
+        if path:
+            try:
+                self.workdir_entry.delete(0, "end")
+                self.workdir_entry.insert(0, path)
+            except Exception:
+                pass
 
     def _browse_policy(self):
         from tkinter import filedialog

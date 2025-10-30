@@ -12,6 +12,7 @@ from pages import (
     DetectorsPage,
     LoginPage,
     RegisterPage,
+    ResultsPage,
     SetupPage,
 )
 
@@ -47,6 +48,7 @@ class App(ctk.CTk):
             ),  # <-- fixed: real frame instance
             "setup": SetupPage(self, self.switch_page),
             "detectors": DetectorsPage(self, self.switch_page),
+            "results": ResultsPage(self, self.switch_page),
         }
 
         for p in self._pages.values():
@@ -54,7 +56,7 @@ class App(ctk.CTk):
             p.grid_remove()
 
         # --- Start on the new Setup page (two-step flow) ---
-        self._current_page_name = "login"
+        self._current_page_name = "results"
         self.switch_page(self._current_page_name)
 
         # Debounced resize handling

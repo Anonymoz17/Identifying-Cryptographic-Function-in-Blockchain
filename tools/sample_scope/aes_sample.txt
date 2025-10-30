@@ -1,10 +1,32 @@
-AES ExampleThis file contains AES and sha256 references for testing.
+AES Example
 
-This file shows an AES literal reference: AES_encrypt(data, key)AES encryption routine placeholder
+/*
+ * This synthetic test file intentionally contains a number of insecure
+ * crypto usage patterns to exercise static detectors and auditor visuals.
+ */
 
-Also mentions sha3 for detection: sha3("abc")sha256
+// Hard-coded AES key (insecure): should be detected as a secret / hard-coded key
+const unsigned char HMAC_KEY[] = "\x01\x23\x45\x67\x89\xab\xcd\xef\x00\x11\x22\x33\x44\x55\x66";
 
-This file intentionally includes AES and SHA256 markers to exercise static rules.
-Function: AES_encrypt
-Algorithm: AES-128-CBC
-Digest: SHA256
+// Example of AES use with fixed IV (IV reuse vulnerability)
+void encrypt_payload(const unsigned char *data, size_t len) {
+	unsigned char iv[16] = {0}; // insecure: constant IV reuse
+	// placeholder AES call that detectors should flag by pattern
+	AES_encrypt(data, HMAC_KEY, iv, len);
+}
+
+// SHA3 / Keccak usage (crypto function names to surface)
+// keccak256("abc") and sha3("abc") should be caught by signature detectors
+hash_t h = keccak256((const unsigned char *)"abc", 3);
+
+// Weak randomness: uses time-based seeding
+int insecure_rand() {
+	srand((unsigned)time(NULL)); // predictable seed
+	return rand();
+}
+
+// Example of a mislabeled comment that looks like a secret
+// SECRET_KEY=deadbeefcafebabe
+
+// Footer: include a SHA256 string literal for pattern coverage
+// digest: sha256("example") = e3b0c44298fc1c149afbf4c8996fb924

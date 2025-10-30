@@ -1,29 +1,37 @@
-// Simple Solidity contract sample for detection// Dummy Solidity contract sample
+// Solidity sample with several intentional crypto anti-patterns for testing
+pragma solidity ^0.8.0;
 
-pragma solidity ^0.8.0;function verify(bytes32 hash) public pure returns (bool) {
+contract SampleCrypto {
+    // Hard-coded address (could be used for access control bypass testing)
+    address public constant OWNER = 0x1111111111111111111111111111111111111111;
 
-    // ecrecover and keccak usage placeholder
+    // Uses block.timestamp for randomness -> predictable
+    function getPseudoRandom(uint256 max) public view returns (uint256) {
+        // insecure: block.timestamp is not a secure source of entropy
+        return uint256(keccak256(abi.encodePacked(block.timestamp, msg.sender))) % max;
+    }
 
-contract Sample {    bytes32 h = keccak256(abi.encodePacked(hash));
+    // Example of keccak usage and explicit hashing pattern
+    function hashData(bytes memory data) public pure returns (bytes32) {
+        return keccak256(data); // detectors should catch keccak/sha3 patterns
+    }
 
-    function encryptData(bytes memory data) public pure returns (bytes memory) {    return true;
+    // Demonstrate ecrecover misuse: missing proper message prefix
+    function recoverSigner(bytes32 hash, uint8 v, bytes32 r, bytes32 s) public pure returns (address) {
+        // Insecure: using raw hash directly without Ethereum signed message prefix
+        // Attackers can craft signatures if not using the standard prefixed message
+        return ecrecover(hash, v, r, s);
+    }
 
-        // pretend encryption}
+    // Hard-coded symmetric key (commented) to emulate embedded secret
+    // NOTE: this is intentionally insecure to exercise detectors
+    // SECRET_KEY: 0xdeadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabe
 
-        bytes memory out = data;pragma solidity ^0.8.0;
-
-        return out;
-
-    }contract TestCrypto {
-
-    function verify(bytes32 hash, uint8 v, bytes32 r, bytes32 s) public pure returns (address) {
-
-    function helper_sha(bytes memory data) public pure returns (bytes32) {        // uses ecrecover and keccak256
-
-        return keccak256(data);        bytes32 message = keccak256(abi.encodePacked("test"));
-
-    }        return ecrecover(message, v, r, s);
-
-}    }
-
+    // Example function that returns true (logic error) and uses outdated patterns
+    function verify(bytes32 hash) public pure returns (bool) {
+        // Broken verification logic — placeholder for auditor to highlight
+        bytes32 h = keccak256(abi.encodePacked(hash));
+        // incorrectly returns true for all inputs
+        return true;
+    }
 }

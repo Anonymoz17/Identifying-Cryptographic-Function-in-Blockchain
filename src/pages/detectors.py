@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import tkinter as tk
+import tkinter.messagebox as messagebox
 from pathlib import Path
 
 from auditor.workspace import Workspace
@@ -9,7 +10,7 @@ from detectors.adapter import SimpleSemgrepAdapter, YaraAdapter
 from detectors.disasm_adapter import DisasmJsonAdapter
 from detectors.ghidra_adapter import GhidraAdapter
 from detectors.merge import dedupe_detections
-from detectors.runner import run_adapters, write_ndjson_detections
+from detectors.runner import generate_summary, run_adapters, write_ndjson_detections
 from detectors.tree_sitter_detector import TreeSitterDetector
 
 import customtkinter as ctk  # isort:skip
@@ -37,6 +38,37 @@ class DetectorsPage(ctk.CTkFrame):
             content, text="Detectors — Configure & Run", font=("Roboto", 28)
         )
         header.pack(pady=(12, 6))
+
+        # Mode selector: Static (default) or Dynamic (skeleton)
+        mode_frame = ctk.CTkFrame(content, fg_color="transparent")
+        mode_frame.pack(padx=12, pady=(0, 6), fill="x")
+        ctk.CTkLabel(mode_frame, text="Mode:").pack(side="left", padx=(0, 8))
+        self.mode_var = tk.StringVar(value="static")
+        try:
+            # CTkSegmentedButton provides a compact two-state control
+            self.mode_selector = ctk.CTkSegmentedButton(
+                mode_frame, values=["static", "dynamic"], command=self._on_mode_change
+            )
+            self.mode_selector.set("static")
+            self.mode_selector.pack(side="left")
+        except Exception:
+            # fallback to radio buttons if segmented button isn't available
+            r1 = ctk.CTkRadioButton(
+                mode_frame,
+                text="Static",
+                variable=self.mode_var,
+                value="static",
+                command=self._on_mode_change,
+            )
+            r2 = ctk.CTkRadioButton(
+                mode_frame,
+                text="Dynamic",
+                variable=self.mode_var,
+                value="dynamic",
+                command=self._on_mode_change,
+            )
+            r1.pack(side="left", padx=(0, 6))
+            r2.pack(side="left")
 
         # Detector checkboxes
         det_frame = ctk.CTkFrame(content, fg_color="transparent")
@@ -119,6 +151,43 @@ class DetectorsPage(ctk.CTkFrame):
 
         # internal
         self._runner_thread = None
+
+    def _on_mode_change(self, *args):
+        # Called when the mode selector changes. Enable/disable dynamic options.
+        try:
+            mode = self.mode_var.get() if hasattr(self, "mode_var") else None
+        except Exception:
+            # CTkSegmentedButton may not update mode_var; try reading selector value
+            try:
+                mode = (
+                    self.mode_selector.get()
+                    if hasattr(self, "mode_selector")
+                    else "static"
+                )
+            except Exception:
+                mode = "static"
+
+        # Update UI: when in static mode, keep Ghidra options disabled by default
+        try:
+            if mode == "static":
+                # disable exports entry to avoid inviting dynamic runs
+                try:
+                    self.gh_exports_entry.configure(state="disabled")
+                except Exception:
+                    pass
+                self.status_label.configure(
+                    text="Static mode: runs detectors on preprocessed artifacts only"
+                )
+            else:
+                try:
+                    self.gh_exports_entry.configure(state="normal")
+                except Exception:
+                    pass
+                self.status_label.configure(
+                    text="Dynamic mode: runs dynamic steps first (skeleton) then static detectors"
+                )
+        except Exception:
+            pass
 
     def on_enter(self):
         # Called when page becomes active: check if we have a case from Setup
@@ -259,13 +328,22 @@ class DetectorsPage(ctk.CTkFrame):
             return
         case_dir = Path(ctx.get("workdir"))
         res_dir = case_dir / "detector_output"
-        if res_dir.exists():
+        # Prefer to show an in-app Results page if available; fall back to opening
+        # the folder in Explorer when running outside the GUI or if Results page
+        # isn't registered.
+        try:
+            # ask the app to switch pages to the results view
             try:
+                self.switch_page("results")
+                return
+            except Exception:
+                pass
+            if res_dir.exists():
                 import subprocess
 
                 subprocess.Popen(["explorer.exe", str(res_dir)])
-            except Exception:
-                pass
+        except Exception:
+            pass
 
     def _on_run_detectors(self):
         ctx = getattr(self.master, "current_scan_meta", None)
@@ -309,6 +387,7 @@ class DetectorsPage(ctk.CTkFrame):
             try:
                 self._append("Starting detectors...")
                 adapters = []
+                gh_root = None
                 if self.semgrep_var.get():
                     sem_rules = {"se:keccak": "keccak", "se:sha3": "sha3"}
                     adapters.append(SimpleSemgrepAdapter(sem_rules))
@@ -337,7 +416,45 @@ class DetectorsPage(ctk.CTkFrame):
                                 else ""
                             )
                             if gh_entry:
-                                gh_root = Path(gh_entry)
+                                cand = Path(gh_entry).resolve()
+                                # allowed locations: case_dir/artifacts/ghidra_exports or repo/tools/ghidra/mock_exports
+                                repo_root = Path(__file__).resolve().parents[2]
+                                allowed = [
+                                    (
+                                        case_dir / "artifacts" / "ghidra_exports"
+                                    ).resolve(),
+                                    (
+                                        repo_root / "tools" / "ghidra" / "mock_exports"
+                                    ).resolve(),
+                                ]
+                                ok = any(str(cand).startswith(str(a)) for a in allowed)
+                                if not ok:
+                                    # ask user to confirm using an external path
+                                    try:
+                                        msg = (
+                                            "The Ghidra exports path you provided is outside the case "
+                                            "workspace. Using external paths may expose sensitive data or "
+                                            "overwrite files. Do you want to continue?"
+                                        )
+                                        res = messagebox.askyesno(
+                                            "Confirm external exports path", msg
+                                        )
+                                        if res:
+                                            gh_root = cand
+                                        else:
+                                            # fallback to case-local exports
+                                            gh_root = (
+                                                case_dir
+                                                / "artifacts"
+                                                / "ghidra_exports"
+                                            )
+                                    except Exception:
+                                        # If messagebox isn't available (headless tests), disallow external
+                                        gh_root = (
+                                            case_dir / "artifacts" / "ghidra_exports"
+                                        )
+                                else:
+                                    gh_root = cand
                             else:
                                 gh_root = case_dir / "artifacts" / "ghidra_exports"
                     except Exception:
@@ -353,6 +470,13 @@ class DetectorsPage(ctk.CTkFrame):
                 write_ndjson_detections(dets, str(raw_path))
                 merged = dedupe_detections(dets)
                 write_ndjson_detections(merged, str(merged_path))
+                # Generate a summary JSON for the UI (includes aggregates and examples)
+                try:
+                    generate_summary(dets, out_dir, case_dir, adapters)
+                except Exception:
+                    # don't fail the whole run for summary write errors
+                    pass
+
                 self._append("Detectors finished — results written to detector_output/")
                 try:
                     self.open_results_btn.configure(state="normal")

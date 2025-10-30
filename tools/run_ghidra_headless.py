@@ -22,14 +22,46 @@ from pathlib import Path
 
 
 def find_analyze_headless():
+    """Try to locate the analyzeHeadless executable.
+
+    Strategy:
+    - check PATH via shutil.which
+    - check GHIDRA_INSTALL_DIR environment variable
+    - probe a few common install prefixes on Windows/macOS/Linux
+    """
     cmd = shutil.which("analyzeHeadless")
     if cmd:
         return cmd
+
     gh = os.environ.get("GHIDRA_INSTALL_DIR")
     if gh:
-        cand = Path(gh) / "support" / "analyzeHeadless"
+        cand = (
+            Path(gh)
+            / "support"
+            / ("analyzeHeadless.bat" if os.name == "nt" else "analyzeHeadless")
+        )
         if cand.exists():
             return str(cand)
+
+    # common locations (best-effort)
+    candidates = []
+    if os.name == "nt":
+        # Program Files or root ghidra directory patterns
+        candidates += list(Path("C:/Program Files").glob("ghidra*"))
+        candidates += list(Path("C:/").glob("ghidra*"))
+        for base in candidates:
+            cand = base / "support" / "analyzeHeadless.bat"
+            if cand.exists():
+                return str(cand)
+    else:
+        # Linux / macOS common locations
+        candidates += list(Path("/opt").glob("ghidra*"))
+        candidates += list(Path.home().glob("ghidra*"))
+        for base in candidates:
+            cand = base / "support" / "analyzeHeadless"
+            if cand.exists():
+                return str(cand)
+
     return None
 
 

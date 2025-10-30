@@ -52,3 +52,9 @@ pip install -r requirements-dev.txt
 ```
 
 If you need the native extras (tree-sitter, capstone, yara-python) install them after activating the venv as described in `docs/optional-deps.md`.
+
+## Ghidra (optional, headless analysis)
+
+This project can optionally run Ghidra in headless mode to produce function
+exports. See `docs/ghidra.md` for detailed installation steps and how to set
+`GHIDRA_INSTALL_DIR` or add `analyzeHeadless` to your PATH.
