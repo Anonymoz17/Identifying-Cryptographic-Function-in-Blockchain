@@ -1,0 +1,10 @@
+AES ExampleThis file contains AES and sha256 references for testing.
+
+This file shows an AES literal reference: AES_encrypt(data, key)AES encryption routine placeholder
+
+Also mentions sha3 for detection: sha3("abc")sha256
+
+This file intentionally includes AES and SHA256 markers to exercise static rules.
+Function: AES_encrypt
+Algorithm: AES-128-CBC
+Digest: SHA256

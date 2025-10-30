@@ -5,6 +5,8 @@ from __future__ import annotations
 import threading
 import tkinter as tk
 import webbrowser
+import subprocess
+import sys
 from functools import partial
 from pathlib import Path
 
@@ -13,6 +15,14 @@ from auditor.case import Engagement
 from auditor.intake import count_inputs, enumerate_inputs, write_manifest
 from auditor.preproc import build_ast_cache, build_disasm_cache, preprocess_items
 from auditor.workspace import Workspace
+from detectors.adapter import SimpleSemgrepAdapter, YaraAdapter
+from detectors.disasm_adapter import DisasmJsonAdapter
+from detectors.ghidra_adapter import GhidraAdapter
+from detectors.merge import dedupe_detections
+
+# detectors runner + adapters (UI wires into these lightweight adapters)
+from detectors.runner import run_adapters, write_ndjson_detections
+from detectors.tree_sitter_detector import TreeSitterDetector
 
 import customtkinter as ctk  # isort:skip
 
@@ -152,6 +162,14 @@ class AuditorPage(ctk.CTkFrame):
             state="disabled",
         )
         self.cancel_btn.pack(side="left")
+        # quick access to pipeline helper page
+        self.pipeline_btn = ctk.CTkButton(
+            actions,
+            text="Pipeline",
+            width=90,
+            command=lambda: self.switch_page("pipeline"),
+        )
+        self.pipeline_btn.pack(side="left", padx=(8, 0))
 
         # Progress and preview
         self.preview_label = ctk.CTkLabel(content, text="Preview: 0 files")
@@ -161,6 +179,83 @@ class AuditorPage(ctk.CTkFrame):
         self.progress = ctk.CTkProgressBar(content, width=480)
         self.progress.pack(pady=(2, 12))
         self.progress.set(0.0)
+
+        # --- Detectors section (static detection up to Ghidra) ---
+        det_card = ctk.CTkFrame(content, fg_color="transparent")
+        det_card.pack(fill="x", padx=12, pady=(6, 8))
+        ctk.CTkLabel(det_card, text="Detectors (static)", font=("Roboto", 16)).grid(
+            row=0, column=0, sticky="w", padx=(2, 6)
+        )
+        # detector checkboxes
+        self.yara_var = tk.BooleanVar(value=True)
+        self.semgrep_var = tk.BooleanVar(value=True)
+        self.ts_var = tk.BooleanVar(value=False)
+        self.disasm_var2 = tk.BooleanVar(value=False)
+        self.ghidra_var = tk.BooleanVar(value=True)
+
+        ctk.CTkCheckBox(det_card, text="YARA rules", variable=self.yara_var).grid(
+            row=1, column=0, sticky="w", padx=6
+        )
+        ctk.CTkCheckBox(
+            det_card, text="Semgrep (light)", variable=self.semgrep_var
+        ).grid(row=1, column=1, sticky="w", padx=6)
+        ctk.CTkCheckBox(
+            det_card, text="Tree-sitter queries", variable=self.ts_var
+        ).grid(row=1, column=2, sticky="w", padx=6)
+        ctk.CTkCheckBox(
+            det_card, text="Disassembly rules", variable=self.disasm_var2
+        ).grid(row=2, column=0, sticky="w", padx=6)
+        ctk.CTkCheckBox(det_card, text="Ghidra exports", variable=self.ghidra_var).grid(
+            row=2, column=1, sticky="w", padx=6
+        )
+
+        # Ghidra options: exports root and mock toggle
+        gh_frame = ctk.CTkFrame(det_card, fg_color="transparent")
+        gh_frame.grid(row=3, column=0, columnspan=3, sticky="we", pady=(6, 0), padx=6)
+        ctk.CTkLabel(gh_frame, text="Ghidra exports root:").grid(
+            row=0, column=0, sticky="w"
+        )
+        self.gh_exports_entry = ctk.CTkEntry(
+            gh_frame,
+            placeholder_text="path to artifacts/ghidra_exports or leave blank for case defaults",
+        )
+        self.gh_exports_entry.grid(row=0, column=1, sticky="we", padx=(6, 8))
+        gh_frame.grid_columnconfigure(1, weight=1)
+        self.gh_mock_var = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            gh_frame,
+            text="Use mock Ghidra exports (tools/ghidra/mock_exports)",
+            variable=self.gh_mock_var,
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
+
+        # Run detectors action
+        det_actions = ctk.CTkFrame(content, fg_color="transparent")
+        det_actions.pack(pady=(4, 8))
+        self.run_detectors_btn = ctk.CTkButton(
+            det_actions,
+            text="Run Detectors",
+            command=self._on_run_detectors,
+            state="disabled",
+        )
+        self.run_detectors_btn.pack(side="left", padx=(0, 8))
+        self.run_ghidra_btn = ctk.CTkButton(
+            det_actions,
+            text="Run Ghidra headless",
+            command=self._on_run_ghidra,
+            state="disabled",
+        )
+        self.run_ghidra_btn.pack(side="left", padx=(0, 8))
+        self.open_results_btn = ctk.CTkButton(
+            det_actions,
+            text="Open Results Folder",
+            command=self._open_results,
+            state="disabled",
+        )
+        self.open_results_btn.pack(side="left")
+
+        # Results preview area
+        self.results_box = tk.Text(content, height=12, wrap="none")
+        self.results_box.pack(fill="both", padx=12, pady=(6, 12), expand=False)
 
         # Quick actions row
         quick = ctk.CTkFrame(content, fg_color="transparent")
@@ -190,6 +285,9 @@ class AuditorPage(ctk.CTkFrame):
 
         # Cancellation event holder
         self._cancel_event = None
+        # results file paths (last run)
+        self._last_raw_results = None
+        self._last_merged_results = None
 
         # (No additional tooltips or extra browse buttons added — only defaults are prefilled.)
 
@@ -210,13 +308,10 @@ class AuditorPage(ctk.CTkFrame):
             self.workdir_entry.insert(0, path)
 
     def _browse_scope(self):
-        # allow files or directories
+        # allow only directories for scope (we need a folder to run preproc on)
         from tkinter import filedialog
 
-        path = filedialog.askopenfilename(title="Select file or folder for scope")
-        if not path:
-            # fallback to choose directory
-            path = filedialog.askdirectory(title="Select folder for scope")
+        path = filedialog.askdirectory(title="Select folder for scope")
         if path:
             self.scope_entry.delete(0, "end")
             self.scope_entry.insert(0, path)
@@ -235,6 +330,12 @@ class AuditorPage(ctk.CTkFrame):
         self._cancel_event = threading.Event()
         self.cancel_btn.configure(state="normal")
         self.start_btn.configure(state="disabled")
+        # while engagement runs, ensure detectors/results buttons are disabled
+        try:
+            self.run_detectors_btn.configure(state="disabled")
+            self.open_results_btn.configure(state="disabled")
+        except Exception:
+            pass
         t = threading.Thread(target=self._run_engagement_flow, daemon=True)
         t.start()
 
@@ -354,6 +455,16 @@ class AuditorPage(ctk.CTkFrame):
                     "preproc.completed", {"index_lines": stats.get("index_lines")}
                 )
                 self.after(0, self._set_status, "Preprocessing completed")
+                # enable detectors button now that preproc artifacts exist
+                try:
+                    self.after(0, partial(self.run_detectors_btn.configure, state="normal"))
+                except Exception:
+                    pass
+                    # enable optional Ghidra headless runner button as well
+                    try:
+                        self.after(0, partial(self.run_ghidra_btn.configure, state="normal"))
+                    except Exception:
+                        pass
                 # optionally build AST/disasm caches
                 try:
                     if bool(self.ast_var.get()):
@@ -618,3 +729,217 @@ class AuditorPage(ctk.CTkFrame):
 
         btn = ctk.CTkButton(top, text="Verify Chain", command=on_verify)
         btn.pack(side="bottom", pady=8)
+
+    # ---- Detectors UI actions ----
+    def _on_run_detectors(self):
+        """Start detectors against the current case workspace in background."""
+        # determine case dir
+        wd = self.workdir_entry.get().strip() or str(Path.cwd() / "case_demo")
+        case_id = self.case_entry.get().strip() or "CASE-000"
+        ws = Workspace(Path(wd), case_id)
+        ws.ensure()
+        # Require preprocessed files: look under <case_root>/preproc/<sha>/input.bin
+        preproc_dir = ws.root / "preproc"
+        files = []
+        if preproc_dir.exists() and preproc_dir.is_dir():
+            try:
+                for sub in preproc_dir.iterdir():
+                    if sub.is_dir():
+                        cand = sub / "input.bin"
+                        if cand.exists():
+                            files.append(str(cand))
+            except Exception:
+                files = []
+
+        if not files:
+            # No preproc artifacts available - instruct user to run Start Engagement first
+            self._set_status(
+                "No preprocessed files found for this case. Run 'Start Engagement' first.",
+                True,
+            )
+            return
+
+        # build adapters list according to UI
+        adapters = []
+        try:
+            if bool(self.semgrep_var.get()):
+                sem_rules = {"se:keccak": "keccak", "se:sha3": "sha3"}
+                adapters.append(SimpleSemgrepAdapter(sem_rules))
+        except Exception:
+            pass
+
+        try:
+            if bool(self.yara_var.get()):
+                # lightweight fallback yara-like rules so UI works without yara runtime
+                fallback = {
+                    "aes_literal": "AES|aes",
+                    "sha_literal": "sha256|sha3|keccak",
+                }
+                try:
+                    adapters.append(YaraAdapter(rules_map=fallback))
+                except Exception:
+                    # if YaraAdapter refuses, skip gracefully
+                    pass
+        except Exception:
+            pass
+
+        try:
+            if bool(self.ts_var.get()):
+                adapters.append(TreeSitterDetector())
+        except Exception:
+            pass
+
+        try:
+            if bool(self.disasm_var2.get()):
+                adapters.append(DisasmJsonAdapter())
+        except Exception:
+            pass
+
+        try:
+            if bool(self.ghidra_var.get()):
+                # choose exports root based on mock toggle or explicit entry
+                if bool(self.gh_mock_var.get()):
+                    gh_root = Path("tools") / "ghidra" / "mock_exports"
+                    adapters.append(GhidraAdapter(exports_root=str(gh_root)))
+                else:
+                    gh_entry = self.gh_exports_entry.get().strip()
+                    if gh_entry:
+                        adapters.append(GhidraAdapter(exports_root=gh_entry))
+                    else:
+                        # default to case-specific artifacts/ghidra_exports
+                        adapters.append(
+                            GhidraAdapter(
+                                exports_root=str(
+                                    ws.root / "artifacts" / "ghidra_exports"
+                                )
+                            )
+                        )
+        except Exception:
+            pass
+
+        # start worker thread
+        self.run_detectors_btn.configure(state="disabled")
+        self._set_status("Running detectors...")
+        self._cancel_event = threading.Event()
+
+        def worker():
+            try:
+                dets = list(run_adapters(adapters, files))
+                # write raw detections
+                out_dir = ws.root / "detector_output"
+                out_dir.mkdir(parents=True, exist_ok=True)
+                raw_path = out_dir / "detector_results.ndjson"
+                merged_path = out_dir / "detector_results_merged.ndjson"
+                write_ndjson_detections(dets, str(raw_path))
+                # merge/dedupe
+                merged = dedupe_detections(dets)
+                write_ndjson_detections(merged, str(merged_path))
+
+                # update results view
+                by_engine = {}
+                for d in dets:
+                    eng = getattr(d, "engine", "unknown")
+                    by_engine[eng] = by_engine.get(eng, 0) + 1
+
+                summary_lines = [f"Detections total: {len(dets)}"]
+                for eng, cnt in sorted(by_engine.items(), key=lambda x: -x[1]):
+                    summary_lines.append(f"  {eng}: {cnt}")
+                summary_lines.append("")
+                # show top 20 detections
+                for d in dets[:20] if dets else []:
+                    summary_lines.append(
+                        f"{d.rule} @ {d.path} [{getattr(d, 'engine', '')}]"
+                    )
+
+                self._last_raw_results = str(raw_path)
+                self._last_merged_results = str(merged_path)
+
+                self.after(0, self.results_box.delete, "1.0", "end")
+                self.after(0, self.results_box.insert, "end", "\n".join(summary_lines))
+                self.after(
+                    0, self._set_status, f"Detectors finished — {len(dets)} findings"
+                )
+                # enable the Open Results button so user can view outputs
+                try:
+                    self.after(0, partial(self.open_results_btn.configure, state="normal"))
+                except Exception:
+                    pass
+            except Exception as e:
+                try:
+                    self.after(0, self._set_status, f"Detectors error: {e}", True)
+                except Exception:
+                    pass
+            finally:
+                try:
+                    self.after(
+                        0, partial(self.run_detectors_btn.configure, state="normal")
+                    )
+                except Exception:
+                    pass
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+
+    def _open_results(self):
+        wd = self.workdir_entry.get().strip() or str(Path.cwd() / "case_demo")
+        case_id = self.case_entry.get().strip() or "CASE-000"
+        try:
+            ws = Workspace(Path(wd), case_id)
+            out_dir = ws.root / "detector_output"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            webbrowser.open(out_dir.as_uri())
+        except Exception:
+            self._set_status("Could not open results folder", True)
+
+    def _on_run_ghidra(self):
+        """Run the headless Ghidra runner script for the current case in background.
+
+        This calls `tools/run_ghidra_headless.py --case <case_root> --run` using the
+        current Python interpreter. The script will detect `analyzeHeadless` or
+        print commands if Ghidra is not configured.
+        """
+        wd = self.workdir_entry.get().strip() or str(Path.cwd() / "case_demo")
+        case_id = self.case_entry.get().strip() or "CASE-000"
+        ws = Workspace(Path(wd), case_id)
+        ws.ensure()
+
+        script = Path.cwd() / "tools" / "run_ghidra_headless.py"
+        if not script.exists():
+            self._set_status("Ghidra runner script not found (tools/run_ghidra_headless.py)", True)
+            return
+
+        try:
+            self.run_ghidra_btn.configure(state="disabled")
+        except Exception:
+            pass
+        self._set_status("Running headless Ghidra (background)...")
+
+        def worker():
+            try:
+                cmd = [sys.executable, str(script), "--case", str(ws.root), "--run"]
+                proc = subprocess.run(cmd, capture_output=True, text=True)
+                out = proc.stdout or ""
+                err = proc.stderr or ""
+                if proc.returncode == 0:
+                    # display runner output in results box and update status
+                    if out:
+                        self.after(0, self.results_box.insert, "end", "\n[ghidra stdout]\n" + out)
+                    if err:
+                        self.after(0, self.results_box.insert, "end", "\n[ghidra stderr]\n" + err)
+                    self.after(0, self._set_status, "Ghidra headless completed")
+                else:
+                    self.after(0, self.results_box.insert, "end", "\n[ghidra stdout]\n" + out + "\n[ghidra stderr]\n" + err)
+                    self.after(0, self._set_status, f"Ghidra runner failed (rc={proc.returncode})", True)
+            except Exception as e:
+                try:
+                    self.after(0, self._set_status, f"Ghidra run error: {e}", True)
+                except Exception:
+                    pass
+            finally:
+                try:
+                    self.after(0, partial(self.run_ghidra_btn.configure, state="normal"))
+                except Exception:
+                    pass
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
