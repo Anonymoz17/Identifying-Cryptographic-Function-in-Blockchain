@@ -77,6 +77,24 @@ class DashboardPage(ctk.CTkScrollableFrame):
         header.grid_columnconfigure(0, weight=1)
         logout_btn.grid(row=0, column=1, rowspan=2, sticky="e")
 
+
+        back_btn = ctk.CTkButton(
+            header,
+            text="Back",
+            width=84,
+            height=30,
+            corner_radius=8,
+            fg_color="transparent",
+            border_width=1,
+            border_color=OUTLINE_BR,
+            hover_color=OUTLINE_H,
+            text_color=TEXT,
+            command=lambda: self.switch_page("landing"),
+        )
+
+        back_btn.grid(row=2, column=1, sticky="e", pady=(6, 0))
+
+
         # === Upload Section ===
         upload_card = ctk.CTkFrame(
             self,
