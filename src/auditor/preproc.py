@@ -220,6 +220,40 @@ def preprocess_items(
             # skip on copy failure; continue to write metadata
             pass
 
+        # also prepare a Ghidra-friendly inputs dir under artifacts/ghidra_inputs/<sha>/
+        # this gives a canonical place for headless Ghidra runners to look
+        try:
+            gh_in_root = Path(workdir) / "artifacts" / "ghidra_inputs" / sha
+            gh_in_root.mkdir(parents=True, exist_ok=True)
+            gh_input = gh_in_root / "input.bin"
+            try:
+                # copy the canonical input.bin into ghidra_inputs if not present
+                if not gh_input.exists() and dst_input.exists():
+                    shutil.copy2(str(dst_input), str(gh_input))
+            except Exception:
+                pass
+            # write minimal metadata so headless runners have context
+            try:
+                gh_meta = {
+                    "id": sha,
+                    "input": str(dst_input.resolve()) if dst_input.exists() else "",
+                    "artifact_dir": gh_in_root.relative_to(Path(workdir)).as_posix(),
+                    "generated_at": datetime.datetime.now(
+                        datetime.timezone.utc
+                    ).isoformat(),
+                }
+                try:
+                    _atomic_write(
+                        gh_in_root / "metadata.json",
+                        json.dumps(gh_meta, sort_keys=True, indent=2),
+                    )
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        except Exception:
+            pass
+
         # attempt extraction for archives using helper; extracted files will be
         # placed under workdir/extracted/<sha>/ and added to manifest_entries.
         if do_extract:
@@ -742,9 +776,15 @@ def build_ast_cache(shas: List[str], workdir: str) -> None:
             # support multiple extensions (.so, .dll, .dylib, .pyd)
             patterns = ["**/tree_sitter_langs.*", "**/tree_sitter_languages.*"]
             candidates = []
+            # Limit search to the current workdir (test temporary dirs) to avoid
+            # scanning the full repository (node_modules etc) which can be very large
+            # and cause tests to hang. If the user has a prebuilt lang lib elsewhere,
+            # they should set up the environment accordingly.
             for pat in patterns:
-                candidates.extend(list(Path(workdir).glob(pat)))
-                candidates.extend(list(Path.cwd().glob(pat)))
+                try:
+                    candidates.extend(list(Path(workdir).glob(pat)))
+                except Exception:
+                    continue
             libpath = None
             for c in candidates:
                 if c.is_file():
@@ -884,6 +924,67 @@ def build_disasm_cache(shas: List[str], workdir: str) -> None:
             except Exception:
                 b_arch = None
                 b_bitness = None
+                b_endianness = None
+
+            # Attempt to autodetect a base address for PE / Mach-O so we can
+            # pass a sensible base to capstone and produce offset mappings.
+            base_address = 0
+            try:
+                with open(bin_path, "rb") as bf:
+                    head = bf.read(64)
+                    # PE detection: look for DOS header + e_lfanew -> PE header
+                    if head.startswith(b"MZ"):
+                        try:
+                            bf.seek(0x3C)
+                            e_lfanew = int.from_bytes(bf.read(4), "little")
+                            bf.seek(e_lfanew)
+                            sig = bf.read(4)
+                            if sig == b"PE\x00\x00":
+                                # Optional header starts after PE signature + file header (4 + 20)
+                                optional_start = e_lfanew + 4 + 20
+                                bf.seek(optional_start)
+                                magic = int.from_bytes(bf.read(2), "little")
+                                if magic == 0x20B:
+                                    # PE32+ ImageBase is 8 bytes at offset 24 from optional start
+                                    bf.seek(optional_start + 24)
+                                    base_address = int.from_bytes(bf.read(8), "little")
+                                else:
+                                    # PE32 ImageBase is 4 bytes at offset 28
+                                    bf.seek(optional_start + 28)
+                                    base_address = int.from_bytes(bf.read(4), "little")
+                        except Exception:
+                            base_address = 0
+                    # Mach-O detection (little-endian variants): try to read first load command vmaddr
+                    elif head[:4] in (
+                        b"\xca\xfe\xba\xbe",
+                        b"\xfe\xed\xfa\xce",
+                        b"\xfe\xed\xfa\xcf",
+                    ):
+                        try:
+                            # read ncmds at offset 16 (after magic, cputype, cpusub, filetype)
+                            ncmds = int.from_bytes(head[16:20], "little")
+                            # header size for 64-bit Mach-O is 32 bytes
+                            bf.seek(32)
+                            if ncmds >= 1:
+                                # read first load command header
+                                first8 = bf.read(8)
+                                if len(first8) >= 8:
+                                    _cmd = int.from_bytes(first8[0:4], "little")
+                                    cmdsize = int.from_bytes(first8[4:8], "little")
+                                    # read rest of the load command
+                                    lc_rest = bf.read(max(0, cmdsize - 8))
+                                    # vmaddr is typically at offset 24 from load command start,
+                                    # which is index 16 inside lc_rest (since we already consumed 8 bytes)
+                                    if len(lc_rest) >= 24:
+                                        vmaddr = int.from_bytes(
+                                            lc_rest[16:24], "little"
+                                        )
+                                        base_address = vmaddr or 0
+                        except Exception:
+                            base_address = 0
+
+            except Exception:
+                base_address = 0
 
             # Map detected arch/bitness to capstone constants (best-effort)
             cs_Cs = getattr(_capstone, "Cs", None)
@@ -930,11 +1031,31 @@ def build_disasm_cache(shas: List[str], workdir: str) -> None:
 
             md = cs_Cs(arch_const, mode)
             insns = []
-            for i in md.disasm(data, 0x0):
+            for i in md.disasm(data, base_address):
                 insns.append(
                     {"addr": i.address, "mnemonic": i.mnemonic, "op_str": i.op_str}
                 )
-            dest.write_text(json.dumps({"sha": s, "disasm": insns}), encoding="utf-8")
+
+            # produce mappings (offset = virtual_addr - base_address)
+            mappings = []
+            for ins in insns:
+                try:
+                    addr = int(ins.get("addr") or 0)
+                    mappings.append({"addr": addr, "offset": addr - int(base_address)})
+                except Exception:
+                    continue
+
+            dest.write_text(
+                json.dumps(
+                    {
+                        "sha": s,
+                        "disasm": insns,
+                        "mappings": mappings,
+                        "base_address": int(base_address),
+                    }
+                ),
+                encoding="utf-8",
+            )
         except Exception:
             logger.debug("disasm failed for %s: %s", s, traceback.format_exc())
             dest.write_text(json.dumps({"sha": s, "disasm": None}), encoding="utf-8")

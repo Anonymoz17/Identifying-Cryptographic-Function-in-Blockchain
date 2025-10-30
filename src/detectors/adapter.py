@@ -118,13 +118,31 @@ class YaraAdapter(BaseAdapter):
                 if self.rules_path:
                     self._compiled = self._yara.compile(filepath=self.rules_path)
                 elif self.rules_dir:
-                    # compile a directory of .yar files
-                    self._compiled = self._yara.compile(
-                        filepaths={
-                            p.name: str(p)
-                            for p in Path(self.rules_dir).glob("**/*.yar")
-                        }
+                    # compile a directory of .yar files. Try a few sensible
+                    # resolution strategies so callers may pass a relative
+                    # path (e.g., "detectors/yara") and we still find
+                    # the rules under src/detectors/yara when tests run from
+                    # the repository root.
+                    candidates = [Path(self.rules_dir)]
+                    # also try under src/ (common project layout)
+                    candidates.append(Path("src") / self.rules_dir)
+                    # and try relative to this module (src/detectors)
+                    candidates.append(
+                        Path(__file__).resolve().parent.parent / self.rules_dir
                     )
+
+                    filepaths = {}
+                    for cand in candidates:
+                        for p in cand.glob("**/*.yar") if cand.exists() else []:
+                            filepaths[p.name] = str(p)
+                        if filepaths:
+                            break
+
+                    if filepaths:
+                        self._compiled = self._yara.compile(filepaths=filepaths)
+                    else:
+                        # no rule files found under provided paths; leave _compiled None
+                        self._compiled = None
                 elif self.rules_str:
                     # compile from a raw string
                     self._compiled = self._yara.compile(source=self.rules_str)

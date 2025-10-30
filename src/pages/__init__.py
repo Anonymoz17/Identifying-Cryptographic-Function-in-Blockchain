@@ -2,18 +2,18 @@
 
 from .advisor import AdvisorPage
 from .analysis import AnalysisPage
-from .auditor import AuditorPage
 from .dashboard import DashboardPage
+from .detectors import DetectorsPage
 from .login import LoginPage
-from .pipeline import PipelinePage
 from .register import RegisterPage
 from .reports import ReportsPage
+from .setup import SetupPage
 
 __all__ = [
     "AnalysisPage",
-    "AuditorPage",
     "DashboardPage",
-    "PipelinePage",
+    "SetupPage",
+    "DetectorsPage",
     "LoginPage",
     "RegisterPage",
     "ReportsPage",

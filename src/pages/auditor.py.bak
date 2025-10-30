@@ -5,6 +5,8 @@ from __future__ import annotations
 import threading
 import tkinter as tk
 import webbrowser
+import subprocess
+import sys
 from functools import partial
 from pathlib import Path
 
@@ -160,6 +162,14 @@ class AuditorPage(ctk.CTkFrame):
             state="disabled",
         )
         self.cancel_btn.pack(side="left")
+        # quick access to pipeline helper page
+        self.pipeline_btn = ctk.CTkButton(
+            actions,
+            text="Pipeline",
+            width=90,
+            command=lambda: self.switch_page("pipeline"),
+        )
+        self.pipeline_btn.pack(side="left", padx=(8, 0))
 
         # Progress and preview
         self.preview_label = ctk.CTkLabel(content, text="Preview: 0 files")
@@ -222,11 +232,24 @@ class AuditorPage(ctk.CTkFrame):
         det_actions = ctk.CTkFrame(content, fg_color="transparent")
         det_actions.pack(pady=(4, 8))
         self.run_detectors_btn = ctk.CTkButton(
-            det_actions, text="Run Detectors", command=self._on_run_detectors
+            det_actions,
+            text="Run Detectors",
+            command=self._on_run_detectors,
+            state="disabled",
         )
         self.run_detectors_btn.pack(side="left", padx=(0, 8))
+        self.run_ghidra_btn = ctk.CTkButton(
+            det_actions,
+            text="Run Ghidra headless",
+            command=self._on_run_ghidra,
+            state="disabled",
+        )
+        self.run_ghidra_btn.pack(side="left", padx=(0, 8))
         self.open_results_btn = ctk.CTkButton(
-            det_actions, text="Open Results Folder", command=self._open_results
+            det_actions,
+            text="Open Results Folder",
+            command=self._open_results,
+            state="disabled",
         )
         self.open_results_btn.pack(side="left")
 
@@ -307,6 +330,12 @@ class AuditorPage(ctk.CTkFrame):
         self._cancel_event = threading.Event()
         self.cancel_btn.configure(state="normal")
         self.start_btn.configure(state="disabled")
+        # while engagement runs, ensure detectors/results buttons are disabled
+        try:
+            self.run_detectors_btn.configure(state="disabled")
+            self.open_results_btn.configure(state="disabled")
+        except Exception:
+            pass
         t = threading.Thread(target=self._run_engagement_flow, daemon=True)
         t.start()
 
@@ -426,6 +455,16 @@ class AuditorPage(ctk.CTkFrame):
                     "preproc.completed", {"index_lines": stats.get("index_lines")}
                 )
                 self.after(0, self._set_status, "Preprocessing completed")
+                # enable detectors button now that preproc artifacts exist
+                try:
+                    self.after(0, partial(self.run_detectors_btn.configure, state="normal"))
+                except Exception:
+                    pass
+                    # enable optional Ghidra headless runner button as well
+                    try:
+                        self.after(0, partial(self.run_ghidra_btn.configure, state="normal"))
+                    except Exception:
+                        pass
                 # optionally build AST/disasm caches
                 try:
                     if bool(self.ast_var.get()):
@@ -820,6 +859,11 @@ class AuditorPage(ctk.CTkFrame):
                 self.after(
                     0, self._set_status, f"Detectors finished — {len(dets)} findings"
                 )
+                # enable the Open Results button so user can view outputs
+                try:
+                    self.after(0, partial(self.open_results_btn.configure, state="normal"))
+                except Exception:
+                    pass
             except Exception as e:
                 try:
                     self.after(0, self._set_status, f"Detectors error: {e}", True)
@@ -846,3 +890,56 @@ class AuditorPage(ctk.CTkFrame):
             webbrowser.open(out_dir.as_uri())
         except Exception:
             self._set_status("Could not open results folder", True)
+
+    def _on_run_ghidra(self):
+        """Run the headless Ghidra runner script for the current case in background.
+
+        This calls `tools/run_ghidra_headless.py --case <case_root> --run` using the
+        current Python interpreter. The script will detect `analyzeHeadless` or
+        print commands if Ghidra is not configured.
+        """
+        wd = self.workdir_entry.get().strip() or str(Path.cwd() / "case_demo")
+        case_id = self.case_entry.get().strip() or "CASE-000"
+        ws = Workspace(Path(wd), case_id)
+        ws.ensure()
+
+        script = Path.cwd() / "tools" / "run_ghidra_headless.py"
+        if not script.exists():
+            self._set_status("Ghidra runner script not found (tools/run_ghidra_headless.py)", True)
+            return
+
+        try:
+            self.run_ghidra_btn.configure(state="disabled")
+        except Exception:
+            pass
+        self._set_status("Running headless Ghidra (background)...")
+
+        def worker():
+            try:
+                cmd = [sys.executable, str(script), "--case", str(ws.root), "--run"]
+                proc = subprocess.run(cmd, capture_output=True, text=True)
+                out = proc.stdout or ""
+                err = proc.stderr or ""
+                if proc.returncode == 0:
+                    # display runner output in results box and update status
+                    if out:
+                        self.after(0, self.results_box.insert, "end", "\n[ghidra stdout]\n" + out)
+                    if err:
+                        self.after(0, self.results_box.insert, "end", "\n[ghidra stderr]\n" + err)
+                    self.after(0, self._set_status, "Ghidra headless completed")
+                else:
+                    self.after(0, self.results_box.insert, "end", "\n[ghidra stdout]\n" + out + "\n[ghidra stderr]\n" + err)
+                    self.after(0, self._set_status, f"Ghidra runner failed (rc={proc.returncode})", True)
+            except Exception as e:
+                try:
+                    self.after(0, self._set_status, f"Ghidra run error: {e}", True)
+                except Exception:
+                    pass
+            finally:
+                try:
+                    self.after(0, partial(self.run_ghidra_btn.configure, state="normal"))
+                except Exception:
+                    pass
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
