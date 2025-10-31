@@ -164,17 +164,21 @@ class SetupPage(ctk.CTkFrame):
         self._cancel_event = None
 
     def _browse_scope(self):
-        from tkinter import filedialog
-
-        path = filedialog.askdirectory(title="Select folder for scope")
+        path = self._open_dialog(
+            filedialog.askdirectory,
+            parent=self.winfo_toplevel(),
+            title="Select folder for scope",
+        )
         if path:
             self.scope_entry.delete(0, "end")
             self.scope_entry.insert(0, path)
 
     def _browse_workdir(self):
-        from tkinter import filedialog
-
-        path = filedialog.askdirectory(title="Select work directory")
+        path = self._open_dialog(
+            filedialog.askdirectory,
+            parent=self.winfo_toplevel(),
+            title="Select work directory",
+        )
         if path:
             try:
                 self.workdir_entry.delete(0, "end")
@@ -183,13 +187,62 @@ class SetupPage(ctk.CTkFrame):
                 pass
 
     def _browse_policy(self):
-        path = filedialog.askopenfilename(title="Select policy baseline (JSON)")
+        path = self._open_dialog(
+            filedialog.askopenfilename,
+            parent=self.winfo_toplevel(),
+            title="Select policy baseline (JSON)",
+        )
         if path:
             try:
                 self.policy_entry.delete(0, "end")
                 self.policy_entry.insert(0, path)
             except Exception:
                 pass
+
+    def _open_dialog(self, fn, /, **kwargs):
+        """Wrapper to open file dialogs with a small UI pre/post handling.
+
+        - calls update_idletasks() before opening the dialog to flush pending
+          UI updates
+        - calls the provided dialog function `fn(**kwargs)` synchronously
+        - schedules a short post-dialog cleanup via after() so the main loop
+          can handle redraws and avoid perceived hangs
+        Returns the dialog result (or None).
+        """
+        try:
+            # flush pending UI work
+            self.update_idletasks()
+        except Exception:
+            pass
+        try:
+            res = fn(**kwargs)
+        except Exception:
+            res = None
+
+        # schedule a tiny cleanup so focus is restored and UI can redraw
+        try:
+            self.after(50, self._dialog_post_cleanup)
+        except Exception:
+            try:
+                self._dialog_post_cleanup()
+            except Exception:
+                pass
+        return res
+
+    def _dialog_post_cleanup(self):
+        try:
+            # restore focus to top-level window and process pending events
+            top = self.winfo_toplevel()
+            try:
+                top.focus_force()
+            except Exception:
+                pass
+            try:
+                top.update()
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     def _edit_policy_popup(self):
         """Open a small modal that offers policy JSON templates and an editor.
@@ -256,6 +309,7 @@ class SetupPage(ctk.CTkFrame):
 
         def _save_as():
             path = filedialog.asksaveasfilename(
+                parent=top,
                 title="Save policy as...",
                 defaultextension=".json",
                 filetypes=[("JSON files", "*.json"), ("All files", "*")],
@@ -277,7 +331,7 @@ class SetupPage(ctk.CTkFrame):
                     pass
 
         def _load_file_to_editor():
-            p = filedialog.askopenfilename(title="Open policy (JSON)")
+            p = filedialog.askopenfilename(parent=top, title="Open policy (JSON)")
             if not p:
                 return
             try:
@@ -287,7 +341,7 @@ class SetupPage(ctk.CTkFrame):
                 editor.insert("1.0", data)
             except Exception:
                 try:
-                    messagebox.showerror("Error", "Could not read file")
+                    messagebox.showerror("Error", "Could not read file", parent=top)
                 except Exception:
                     pass
 

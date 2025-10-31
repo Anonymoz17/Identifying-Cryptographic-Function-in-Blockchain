@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import threading
 import tkinter as tk
 from pathlib import Path
 from typing import Any, List
@@ -90,6 +91,43 @@ class ResultsPage(ctk.CTkFrame):
         )
         self._no_data_label.pack()
 
+    def _open_dialog(self, fn, /, **kwargs):
+        """Wrapper for file dialogs similar to SetupPage._open_dialog.
+
+        Ensures UI updates before opening, then schedules a small post-dialog
+        cleanup to restore focus and redraw. Returns the dialog result.
+        """
+        try:
+            self.update_idletasks()
+        except Exception:
+            pass
+        try:
+            res = fn(**kwargs)
+        except Exception:
+            res = None
+        try:
+            self.after(50, self._dialog_post_cleanup)
+        except Exception:
+            try:
+                self._dialog_post_cleanup()
+            except Exception:
+                pass
+        return res
+
+    def _dialog_post_cleanup(self):
+        try:
+            top = self.winfo_toplevel()
+            try:
+                top.focus_force()
+            except Exception:
+                pass
+            try:
+                top.update()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     # ---- case discovery and selection helpers ----
     def _discover_cases(self) -> List[Path]:
         # Look in a few likely roots for candidate case directories
@@ -159,8 +197,12 @@ class ResultsPage(ctk.CTkFrame):
             return
         p = Path(val)
         if not p.exists():
-            mb = tk.messagebox
-            mb.showerror("Not found", f"Selected case not found: {p}")
+            # attach messagebox to the app window
+            tk.messagebox.showerror(
+                "Not found",
+                f"Selected case not found: {p}",
+                parent=self.winfo_toplevel(),
+            )
             return
         # set app state
         try:
@@ -168,21 +210,36 @@ class ResultsPage(ctk.CTkFrame):
         except Exception:
             pass
         # load summary if present
-        self.load_case(p)
+        # defer heavy load a tick so the UI can redraw after the file dialog
+        # returns; this prevents a perceived hang on some platforms.
+        try:
+            self.after(50, lambda: self.load_case(p))
+        except Exception:
+            self.load_case(p)
 
     def _on_browse_case(self):
-        d = tk.filedialog.askdirectory(title="Select case/workspace directory")
+        d = self._open_dialog(
+            tk.filedialog.askdirectory,
+            parent=self.winfo_toplevel(),
+            title="Select case/workspace directory",
+        )
         if not d:
             return
         self.case_var.set(d)
-        self._on_case_selected()
+        # defer heavy load to allow UI to refresh
+        try:
+            self.after(50, self._on_case_selected)
+        except Exception:
+            self._on_case_selected()
 
     def _on_run_detectors(self):
         # run the helper script in a detached subprocess so UI stays responsive
         case = self.case_var.get()
         if not case or case == "(none)":
             tk.messagebox.showinfo(
-                "Select case", "Please select or browse to a case first."
+                "Select case",
+                "Please select or browse to a case first.",
+                parent=self.winfo_toplevel(),
             )
             return
         script = self._locate_open_results_script()
@@ -191,8 +248,11 @@ class ResultsPage(ctk.CTkFrame):
             tk.messagebox.showinfo(
                 "Helper not found",
                 "Could not locate tools/open_results.py automatically. Please select it on disk.",
+                parent=self.winfo_toplevel(),
             )
-            chosen = tk.filedialog.askopenfilename(
+            chosen = self._open_dialog(
+                tk.filedialog.askopenfilename,
+                parent=self.winfo_toplevel(),
                 title="Select open_results.py",
                 filetypes=[("Python files", "*.py"), ("All files", "*")],
             )
@@ -203,10 +263,16 @@ class ResultsPage(ctk.CTkFrame):
         try:
             subprocess.Popen(cmd)
             tk.messagebox.showinfo(
-                "Running", "Detectors started in a background process."
+                "Running",
+                "Detectors started in a background process.",
+                parent=self.winfo_toplevel(),
             )
         except Exception as e:
-            tk.messagebox.showerror("Failed", f"Failed to start detectors: {e}")
+            tk.messagebox.showerror(
+                "Failed",
+                f"Failed to start detectors: {e}",
+                parent=self.winfo_toplevel(),
+            )
 
     def _clear_visuals(self):
         for c in self._canvases:
@@ -216,20 +282,12 @@ class ResultsPage(ctk.CTkFrame):
                 pass
         self._canvases = []
 
-    def load_case(self, case_dir: Path):
-        out_dir = case_dir / "detector_output"
-        summary_path = out_dir / "detector_results.summary.json"
-        if not summary_path.exists():
-            self._no_data_label.configure(
-                text=f"No summary found at {summary_path}\nRun detectors first."
-            )
-            self._clear_visuals()
-            self._no_data_label.pack()
-            return
+    def _render_from_data(self, data: dict | None):
+        """Render visuals from already-loaded summary `data` on the main thread.
 
-        try:
-            data = json.loads(summary_path.read_text(encoding="utf-8"))
-        except Exception:
+        If data is None, shows an error message.
+        """
+        if not data:
             self._no_data_label.configure(text="Failed to read summary JSON")
             self._clear_visuals()
             self._no_data_label.pack()
@@ -243,7 +301,6 @@ class ResultsPage(ctk.CTkFrame):
             pass
 
         if Figure is None or FigureCanvasTkAgg is None:
-            # Keep it simple: show a message when matplotlib isn't available.
             lbl = ctk.CTkLabel(
                 self.visual_frame, text="matplotlib not available; cannot render charts"
             )
@@ -267,7 +324,7 @@ class ResultsPage(ctk.CTkFrame):
             canvas.get_tk_widget().pack(side="top", fill="x", pady=(6, 6))
             self._canvases.append(canvas)
 
-        # Engine breakdown pie/horizontal bar
+        # Engine breakdown
         engines = data.get("counts", {}).get("by_engine", {})
         if engines:
             fig = Figure(figsize=(4, 3))
@@ -299,6 +356,42 @@ class ResultsPage(ctk.CTkFrame):
                 side="right", fill="both", expand=True, padx=(6, 0)
             )
             self._canvases.append(canvas)
+
+    def load_case(self, case_dir: Path):
+        out_dir = case_dir / "detector_output"
+        summary_path = out_dir / "detector_results.summary.json"
+        if not summary_path.exists():
+            self._no_data_label.configure(
+                text=f"No summary found at {summary_path}\nRun detectors first."
+            )
+            self._clear_visuals()
+            self._no_data_label.pack()
+            return
+
+        # Show a light-weight loading status while we read the JSON in a thread
+        try:
+            self._no_data_label.configure(text="Loading summary...")
+            self._no_data_label.pack()
+        except Exception:
+            pass
+
+        def _worker():
+            try:
+                text = summary_path.read_text(encoding="utf-8")
+                data = json.loads(text)
+            except Exception:
+                data = None
+            # schedule UI rendering on main thread
+            try:
+                self.after(0, lambda: self._render_from_data(data))
+            except Exception:
+                try:
+                    self._render_from_data(data)
+                except Exception:
+                    pass
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
 
     def _locate_open_results_script(self) -> Path | None:
         # Try a few likely locations for tools/open_results.py

@@ -176,6 +176,7 @@ class AnalysisPage(ctk.CTkFrame):
         }
 
         path = filedialog.asksaveasfilename(
+            parent=self.winfo_toplevel(),
             title="Export Inputs as JSON",
             defaultextension=".json",
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
