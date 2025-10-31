@@ -143,6 +143,69 @@ def count_inputs(paths: List[str]) -> int:
     return total
 
 
+def count_inputs_fast(
+    paths: List[str], timeout: float = 0.5, skip_dirs=None
+) -> Optional[int]:
+    """Attempt a faster file count using os.scandir and an optional timeout.
+
+    - Uses iterative scandir (BFS) which is often faster than os.walk.
+    - Honors a timeout (seconds). If the timeout is exceeded the function
+      returns None to indicate an incomplete count (caller can fall back).
+    - skip_dirs: optional iterable of directory names to skip (e.g. '.git').
+    """
+    if skip_dirs is None:
+        skip_dirs = {
+            ".git",
+            "__pycache__",
+            "node_modules",
+            "venv",
+            ".venv",
+            "build",
+            "dist",
+        }
+    else:
+        skip_dirs = set(skip_dirs)
+
+    import time
+    from collections import deque
+
+    deadline = time.time() + float(timeout)
+    q = deque()
+    total = 0
+    for p in paths:
+        q.append(p)
+
+    try:
+        while q:
+            if time.time() > deadline:
+                return None
+            cur = q.popleft()
+            try:
+                if os.path.isdir(cur):
+                    # scandir entries are faster than walk when there are many
+                    # files because they avoid extra stat calls.
+                    try:
+                        with os.scandir(cur) as it:
+                            for entry in it:
+                                if entry.is_dir(follow_symlinks=False):
+                                    if entry.name in skip_dirs:
+                                        continue
+                                    q.append(entry.path)
+                                elif entry.is_file(follow_symlinks=False):
+                                    total += 1
+                    except PermissionError:
+                        # skip unreadable directories
+                        continue
+                elif os.path.isfile(cur):
+                    total += 1
+            except Exception:
+                # ignore transient errors on specific entries
+                continue
+    except Exception:
+        return None
+    return total
+
+
 def write_manifest(manifest_path: str, items: List[Dict[str, Any]]) -> None:
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(

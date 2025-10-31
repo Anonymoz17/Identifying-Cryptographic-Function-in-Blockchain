@@ -10,9 +10,10 @@ from tkinter import filedialog, messagebox
 
 from auditor.auditlog import AuditLog
 from auditor.case import Engagement
-from auditor.intake import count_inputs, enumerate_inputs, write_manifest
+from auditor.intake import count_inputs_fast, enumerate_inputs, write_manifest
 from auditor.preproc import preprocess_items
 from auditor.workspace import Workspace
+from settings import get_default_workdir, set_default_workdir
 
 import customtkinter as ctk  # isort:skip
 
@@ -52,10 +53,14 @@ class SetupPage(ctk.CTkFrame):
         self.workdir_entry = ctk.CTkEntry(
             form, placeholder_text="Select or enter a work directory"
         )
+        # Use the app's canonical per-user default workdir when available.
         try:
-            default_workdir = str((Path.cwd() / "case_demo" / "cases").resolve())
+            default_workdir = str(get_default_workdir())
         except Exception:
-            default_workdir = str(Path.home() / "CryptoScope" / "cases")
+            try:
+                default_workdir = str((Path.cwd() / "case_demo" / "cases").resolve())
+            except Exception:
+                default_workdir = str(Path.home() / "CryptoScope" / "cases")
         self.workdir_entry.insert(0, default_workdir)
         self.workdir_entry.grid(row=0, column=1, sticky="we", padx=(6, 0))
         # Workdir browse button
@@ -162,6 +167,185 @@ class SetupPage(ctk.CTkFrame):
 
         # internal state
         self._cancel_event = None
+        # indeterminate ticker state for long-running stages
+        self._indeterminate_running = False
+        self._indeterminate_val = 0.0
+        self._current_stage = None
+        self._current_stage_determinate = False
+        # per-stage start timestamps (for simple ETA/rate estimation)
+        self._stage_timers = {}
+        # whether the current flow has been cancelled by the user
+        self._cancelled = False
+        # whether the numeric progress bar is currently visible
+        self._progress_visible = True
+
+    def _append_result(self, text: str):
+        """Append a line to the results box (safe to call from main thread).
+
+        Callers from background threads should schedule via self.after(0, ...).
+        """
+        try:
+            self.results_box.insert("end", text)
+            self.results_box.see("end")
+        except Exception:
+            pass
+
+    def _start_spinner(self, message: str = "Working..."):
+        # Start a lightweight indeterminate ticker that nudges the numeric
+        # bar forward gently and updates the status label. This is simpler
+        # and less error-prone than the previous complex spinner logic.
+        self._indeterminate_running = True
+        self._indeterminate_val = 0.0
+        try:
+            self.progress_label.configure(text=message)
+        except Exception:
+            pass
+        self.after(150, self._indeterminate_tick)
+
+    def _indeterminate_tick(self):
+        # tick function for indeterminate progress: gently advances the bar
+        # but never reaches 100% so later stages can visibly replace it.
+        if not getattr(self, "_indeterminate_running", False):
+            return
+        v = (getattr(self, "_indeterminate_val", 0.0) + 0.02) % 1.0
+        self._indeterminate_val = v
+        # map to a gentle range [0.1, 0.85]
+        pulse = 0.1 + 0.75 * v
+        try:
+            self.progress.set(pulse)
+        except Exception:
+            pass
+        # animate dots in label for visible activity
+        try:
+            base = self.progress_label.cget("text").split("...")[0]
+            dots = int((self._indeterminate_val * 4) % 4)
+            self.progress_label.configure(text=f"{base}{'.' * dots}")
+        except Exception:
+            pass
+        self.after(200, self._indeterminate_tick)
+
+    def _stop_spinner(self):
+        self._indeterminate_running = False
+        try:
+            self.progress.set(0.0)
+        except Exception:
+            pass
+
+    def _show_progress_bar(self, show: bool):
+        """Show or hide the numeric progress bar widget."""
+        try:
+            if show and not getattr(self, "_progress_visible", False):
+                # re-pack the progress widget in the same place it was
+                # originally packed. We assume the layout from __init__.
+                self.progress.pack(pady=(2, 12))
+                self._progress_visible = True
+            elif not show and getattr(self, "_progress_visible", False):
+                try:
+                    self.progress.pack_forget()
+                except Exception:
+                    pass
+                self._progress_visible = False
+        except Exception:
+            pass
+
+    def _begin_stage(self, name: str, determinate: bool = False):
+        """Begin a named stage. Resets the progress bar and updates label.
+
+        If determinate=True the caller is expected to update the bar with
+        fractional values (0.0-1.0). If determinate=False an indeterminate
+        spinner will be shown.
+        """
+        try:
+            # if we've been cancelled, don't start new stages
+            if getattr(self, "_cancelled", False):
+                try:
+                    self.after(
+                        0, self._append_result, f"==> {name} skipped (cancelled)\n"
+                    )
+                except Exception:
+                    pass
+                return
+            # reset numeric bar and record whether this stage will be
+            # determinate (i.e. we expect a known total) or not.
+            self._current_stage = name
+            self._current_stage_determinate = bool(determinate)
+            self.after(0, self.progress.set, 0.0)
+            self.after(0, self.progress_label.configure, {"text": f"{name} — 0"})
+            # if determinate, stop the spinner animation and show numeric
+            # bar; otherwise hide the numeric bar and show indeterminate
+            # spinner label animation.
+            if determinate:
+                # ensure indeterminate ticker is stopped and numeric bar shown
+                self._indeterminate_running = False
+                self._show_progress_bar(True)
+            else:
+                # start indeterminate ticker with a clear message
+                self._show_progress_bar(True)
+                self._start_spinner(f"{name}...")
+            # append a short message to the results box so the user sees a
+            # persistent trace of stage transitions
+            try:
+                self.after(0, self._append_result, f">>> {name} started\n")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _end_stage(self, name: str, keep_message: bool = True):
+        """Mark a named stage as completed. Sets progress to 100% briefly and
+        stops the spinner. If keep_message is False the status label is cleared.
+        After a short delay the bar will be reset to 0 to prepare for the next
+        stage.
+        """
+        try:
+            # stop indeterminate ticker and show completion briefly
+            self._indeterminate_running = False
+            self.after(0, self.progress.set, 1.0)
+            if keep_message:
+                try:
+                    self.after(
+                        0,
+                        self.progress_label.configure,
+                        {"text": f"{name} — completed"},
+                    )
+                except Exception:
+                    pass
+            else:
+                try:
+                    self.after(0, self.progress_label.configure, {"text": ""})
+                except Exception:
+                    pass
+
+            # reset progress after a short pause so the next stage is visually
+            # distinct and the bar does not immediately appear full again.
+            def _reset_after_delay():
+                self.progress.set(0.0)
+                # clear the label if requested
+                if not keep_message:
+                    try:
+                        self.progress_label.configure(text="")
+                    except Exception:
+                        pass
+                # clear current stage marker and determinate flag
+                self._current_stage = None
+                self._current_stage_determinate = False
+
+            try:
+                self.after(700, _reset_after_delay)
+            except Exception:
+                _reset_after_delay()
+
+            # append completion to the results box
+            def _log_end():
+                try:
+                    self.results_box.insert("end", f"<<< {name} completed\n")
+                    self.results_box.see("end")
+                except Exception:
+                    pass
+
+            self.after(0, _log_end)
+        except Exception:
+            pass
 
     def _browse_scope(self):
         path = self._open_dialog(
@@ -173,6 +357,62 @@ class SetupPage(ctk.CTkFrame):
             self.scope_entry.delete(0, "end")
             self.scope_entry.insert(0, path)
 
+    def _update_progress(
+        self,
+        stage: str,
+        processed: int,
+        total: int | None = None,
+        path: str | None = None,
+    ):
+        """Unified progress updater used by background callbacks.
+
+        - stage: human name (e.g. 'Scanning' or 'Preprocessing')
+        - processed: number processed so far
+        - total: optional total; when present we operate in determinate mode
+        - path: optional current item path for short label
+        """
+        # if this stage is different, start it with appropriate mode
+        if self._current_stage != stage:
+            self._begin_stage(stage, determinate=bool(total))
+
+        # cancellation quick-check
+        if (
+            getattr(self, "_cancel_event", None) is not None
+            and self._cancel_event.is_set()
+        ) or getattr(self, "_cancelled", False):
+            self._cancelled = True
+            self._set_status("Cancelling...")
+            self._stop_spinner()
+            self.progress.set(0.0)
+            self._append_result(f"{stage.lower()}: cancelled by user\n")
+            return
+
+        short = Path(path).name if path else ""
+        # determinate path
+        if total and total > 0:
+            # ensure determinate mode
+            if not self._current_stage_determinate:
+                self._begin_stage(stage, determinate=True)
+            frac = min(1.0, float(processed) / float(total))
+            self.progress.set(frac)
+            self.progress_label.configure(text=f"{stage} {processed}/{total} — {short}")
+            # log occasionally to the results box
+            if processed % max(1, total // 10 if total >= 10 else 1) == 0:
+                self._append_result(f"{stage.lower()}: {processed}/{total}\n")
+        else:
+            # indeterminate: keep ticker running and show counts
+            if self._current_stage_determinate:
+                # switch to indeterminate if no total available
+                self._begin_stage(stage, determinate=False)
+            # start ticker if not already
+            if not getattr(self, "_indeterminate_running", False):
+                self._start_spinner(f"{stage}... ({processed})")
+            self.progress_label.configure(
+                text=f"{stage} {processed} (estimating total...) — {short}"
+            )
+            if processed % 50 == 0:
+                self._append_result(f"{stage.lower()}: {processed} items...\n")
+
     def _browse_workdir(self):
         path = self._open_dialog(
             filedialog.askdirectory,
@@ -183,6 +423,11 @@ class SetupPage(ctk.CTkFrame):
             try:
                 self.workdir_entry.delete(0, "end")
                 self.workdir_entry.insert(0, path)
+                # persist preferred workdir for future runs
+                try:
+                    set_default_workdir(path)
+                except Exception:
+                    pass
             except Exception:
                 pass
 
@@ -424,17 +669,26 @@ class SetupPage(ctk.CTkFrame):
             pass
 
     def _on_start_clicked(self):
-        scope = self.scope_entry.get().strip() or "."
-        try:
-            total = count_inputs([scope])
-            self.results_box.delete("1.0", "end")
-            self.results_box.insert("end", f"Preview: {total} files\n")
-        except Exception:
-            self.results_box.insert("end", "Preview: (error counting files)\n")
+        # Start background engagement flow immediately. Counting and
+        # enumeration can be slow on large repositories; we'll show a
+        # non-blocking spinner and update preview when enumeration finishes.
+        self.results_box.delete("1.0", "end")
+        self.results_box.insert("end", "Preview: scanning scope...\n")
         self._set_status("Starting engagement (background)...")
         self._cancel_event = threading.Event()
+        self._cancelled = False
         self.cancel_btn.configure(state="normal")
         self.start_btn.configure(state="disabled")
+        # persist workdir selection on start as a user preference
+        try:
+            wd = self.workdir_entry.get().strip()
+            if wd:
+                try:
+                    set_default_workdir(wd)
+                except Exception:
+                    pass
+        except Exception:
+            pass
         t = threading.Thread(target=self._run_engagement_flow, daemon=True)
         t.start()
 
@@ -465,24 +719,79 @@ class SetupPage(ctk.CTkFrame):
                 {"case_id": case_id, "client": client, "scope": scope},
             )
 
+            # Attempt a fast pre-count with a short timeout so we can show
+            # determinate progress for large repos. If the fast count returns
+            # None we fall back to scanning immediately and use a dynamic
+            # estimation (items/sec) as files are processed.
+            total_count = None
+            try:
+                total_count = count_inputs_fast([scope], timeout=0.8)
+            except Exception:
+                total_count = None
+            try:
+                if total_count and total_count > 0:
+                    # start scanning in determinate mode with known total
+                    self.after(
+                        0, self._append_result, f"Found {total_count} files to scan\n"
+                    )
+                    self.after(0, self._begin_stage, "Scanning scope", True)
+                    # initialize label and tracking
+                    self.after(
+                        0,
+                        self.progress_label.configure,
+                        {"text": f"Scanning 0/{total_count}"},
+                    )
+                    self._scan_total = total_count
+                    self._scan_start_time = None
+                else:
+                    # fall back to indeterminate spinner and dynamic est
+                    self.after(
+                        0,
+                        lambda: self._begin_stage("Scanning scope", determinate=False),
+                    )
+                    self._scan_total = None
+                    self._scan_start_time = None
+            except Exception:
+                pass
+
+            def enum_progress(processed, path, total):
+                # unified, simple progress updater for scanning
+                if (
+                    getattr(self, "_cancel_event", None) is not None
+                    and self._cancel_event.is_set()
+                ) or getattr(self, "_cancelled", False):
+                    self.after(0, self._set_status, "Cancelling...")
+                    self.after(0, self._stop_spinner)
+                    self.after(0, self.progress.set, 0.0)
+                    self.after(0, self._append_result, "scanning: cancelled by user\n")
+                    return
+
+                # prefer pre-count if available
+                use_total = getattr(self, "_scan_total", None) or (
+                    total if total and total > 0 else None
+                )
+                self.after(
+                    0, self._update_progress, "Scanning", processed, use_total, path
+                )
+
             def preproc_progress(processed, total):
-                try:
-                    if total and total > 0:
-                        frac = min(1.0, float(processed) / float(total))
-                        self.after(0, self.progress.set, frac)
-                        self.after(
-                            0,
-                            self.progress_label.configure,
-                            {"text": f"Preproc {processed}/{total}"},
-                        )
-                    else:
-                        self.after(
-                            0,
-                            self.progress_label.configure,
-                            {"text": f"Preproc {processed}"},
-                        )
-                except Exception:
-                    pass
+                if (
+                    getattr(self, "_cancel_event", None) is not None
+                    and self._cancel_event.is_set()
+                ) or getattr(self, "_cancelled", False):
+                    self.after(0, self._set_status, "Cancelling...")
+                    self.after(0, self._stop_spinner)
+                    self.after(0, self.progress.set, 0.0)
+                    self.after(0, self._append_result, "preproc: cancelled by user\n")
+                    return
+                self.after(
+                    0,
+                    self._update_progress,
+                    "Preprocessing",
+                    processed,
+                    (total if total and total > 0 else None),
+                    None,
+                )
 
             try:
                 max_depth = int(self.max_depth_entry.get().strip())
@@ -491,9 +800,18 @@ class SetupPage(ctk.CTkFrame):
             do_extract = bool(self.extract_var.get())
 
             # Enumerate inputs and write manifest into the case workspace (same as Auditor)
-            items = enumerate_inputs(
-                [scope], progress_cb=None, cancel_event=self._cancel_event
-            )
+            # Provide a progress callback so UI can show scanning progress.
+            try:
+                items = enumerate_inputs(
+                    [scope], progress_cb=enum_progress, cancel_event=self._cancel_event
+                )
+            finally:
+                # mark the scanning stage ended (this will show 100% briefly
+                # then reset the bar so the next stage is visually distinct)
+                try:
+                    self.after(0, self._end_stage, "Scanning scope")
+                except Exception:
+                    pass
             # write canonical NDJSON manifest (tests and other code expect .ndjson)
             manifest_path = str(case_dir / "inputs.manifest.ndjson")
             try:
@@ -502,6 +820,11 @@ class SetupPage(ctk.CTkFrame):
                 pass
 
             try:
+                # begin preprocessing stage
+                try:
+                    self.after(0, self._begin_stage, "Preprocessing", False)
+                except Exception:
+                    pass
                 preproc_result = preprocess_items(
                     items,
                     str(case_dir),
@@ -518,6 +841,10 @@ class SetupPage(ctk.CTkFrame):
 
             stats = preproc_result.get("stats", {})
             al.append("preproc.completed", {"index_lines": stats.get("index_lines")})
+            try:
+                self.after(0, self._end_stage, "Preprocessing")
+            except Exception:
+                pass
             self.after(0, self._set_status, "Preprocessing completed")
             # enable Continue button so user can go to detectors page
             try:
@@ -545,8 +872,25 @@ class SetupPage(ctk.CTkFrame):
     def _on_cancel_clicked(self):
         if self._cancel_event is not None:
             try:
+                # signal background workers to stop
                 self._cancel_event.set()
+                # stop any visual spinner and reset the bar so the UI doesn't
+                # keep animating after cancellation
+                try:
+                    self._stop_spinner()
+                except Exception:
+                    pass
+                try:
+                    self.after(0, self.progress.set, 0.0)
+                except Exception:
+                    pass
                 self._set_status("Cancellation requested")
+                # also log into the results box so there's a persistent record
+                try:
+                    self.results_box.insert("end", ">>> Cancellation requested\n")
+                    self.results_box.see("end")
+                except Exception:
+                    pass
                 self.cancel_btn.configure(state="disabled")
             except Exception:
                 pass
