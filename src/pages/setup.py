@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
+import tempfile
 import threading
 import tkinter as tk
 from functools import partial
 from pathlib import Path
+from tkinter import filedialog, messagebox
 
 from auditor.auditlog import AuditLog
 from auditor.case import Engagement
@@ -96,6 +99,11 @@ class SetupPage(ctk.CTkFrame):
             form, text="Browse", width=90, command=self._browse_policy
         )
         self.policy_browse.grid(row=3, column=2, padx=(8, 0))
+        # Policy editor button (templates + editor)
+        self.policy_edit = ctk.CTkButton(
+            form, text="Edit", width=70, command=self._edit_policy_popup
+        )
+        self.policy_edit.grid(row=3, column=3, padx=(8, 0))
 
         # Preproc options
         ctk.CTkLabel(form, text="Preproc Options:").grid(row=4, column=0, sticky="w")
@@ -175,8 +183,6 @@ class SetupPage(ctk.CTkFrame):
                 pass
 
     def _browse_policy(self):
-        from tkinter import filedialog
-
         path = filedialog.askopenfilename(title="Select policy baseline (JSON)")
         if path:
             try:
@@ -184,6 +190,160 @@ class SetupPage(ctk.CTkFrame):
                 self.policy_entry.insert(0, path)
             except Exception:
                 pass
+
+    def _edit_policy_popup(self):
+        """Open a small modal that offers policy JSON templates and an editor.
+
+        The user can pick a template, edit the JSON, then Insert (write to a temp
+        file and set the Policy entry), or Save As... to store it elsewhere.
+        """
+        top = tk.Toplevel(self)
+        top.title("Policy baseline editor")
+        top.transient(self)
+        top.grab_set()
+
+        # Template selector
+        frame = ctk.CTkFrame(top, fg_color="transparent")
+        frame.pack(padx=12, pady=12, fill="both", expand=True)
+
+        ctk.CTkLabel(frame, text="Template:").grid(row=0, column=0, sticky="w")
+        templates = ["Whitelist", "Rule Overrides", "Scoring", "Combined"]
+        tmpl_var = tk.StringVar(value=templates[0])
+        tmpl_menu = ctk.CTkOptionMenu(frame, values=templates, variable=tmpl_var)
+        tmpl_menu.grid(row=0, column=1, sticky="we", padx=(8, 0))
+
+        # Editor (multi-line)
+        editor = tk.Text(frame, width=80, height=20, wrap="none")
+        editor.grid(row=1, column=0, columnspan=3, pady=(8, 8))
+
+        def _render_template(*_):
+            kind = tmpl_var.get()
+            editor.delete("1.0", "end")
+            editor.insert("1.0", self._policy_template_json(kind))
+
+        tmpl_var.trace_add("write", _render_template)
+        # populate initial
+        _render_template()
+
+        # Buttons
+        btn_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        btn_frame.grid(row=2, column=0, columnspan=3, pady=(6, 0))
+
+        def _insert_to_entry():
+            txt = editor.get("1.0", "end").strip()
+            # validate JSON
+            try:
+                json.loads(txt)
+            except Exception as e:
+                try:
+                    messagebox.showerror("Invalid JSON", f"JSON parse error: {e}")
+                except Exception:
+                    pass
+                return
+            # write to temp file and set policy_entry
+            try:
+                fd, path = tempfile.mkstemp(prefix="policy_", suffix=".json")
+                with open(fd, "w", encoding="utf-8") as f:
+                    f.write(txt)
+                self.policy_entry.delete(0, "end")
+                self.policy_entry.insert(0, path)
+                top.destroy()
+            except Exception:
+                try:
+                    messagebox.showerror("Error", "Could not write temp file")
+                except Exception:
+                    pass
+
+        def _save_as():
+            path = filedialog.asksaveasfilename(
+                title="Save policy as...",
+                defaultextension=".json",
+                filetypes=[("JSON files", "*.json"), ("All files", "*")],
+            )
+            if not path:
+                return
+            try:
+                txt = editor.get("1.0", "end").strip()
+                json.loads(txt)  # validate
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(txt)
+                self.policy_entry.delete(0, "end")
+                self.policy_entry.insert(0, path)
+                top.destroy()
+            except Exception as e:
+                try:
+                    messagebox.showerror("Error", f"Could not save file: {e}")
+                except Exception:
+                    pass
+
+        def _load_file_to_editor():
+            p = filedialog.askopenfilename(title="Open policy (JSON)")
+            if not p:
+                return
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    data = f.read()
+                editor.delete("1.0", "end")
+                editor.insert("1.0", data)
+            except Exception:
+                try:
+                    messagebox.showerror("Error", "Could not read file")
+                except Exception:
+                    pass
+
+        ctk.CTkButton(btn_frame, text="Insert", command=_insert_to_entry).pack(
+            side="left", padx=(0, 8)
+        )
+        ctk.CTkButton(btn_frame, text="Save As...", command=_save_as).pack(
+            side="left", padx=(0, 8)
+        )
+        ctk.CTkButton(btn_frame, text="Load...", command=_load_file_to_editor).pack(
+            side="left", padx=(0, 8)
+        )
+        ctk.CTkButton(btn_frame, text="Cancel", command=top.destroy).pack(
+            side="left", padx=(0, 8)
+        )
+
+        # keep modal
+        top.wait_window()
+
+    def _policy_template_json(self, kind: str) -> str:
+        """Return a pretty JSON string for the requested template kind."""
+        if kind == "Whitelist":
+            obj = {
+                "metadata": {"author": "", "version": "1.0"},
+                "whitelist": {
+                    "file_hashes": [],
+                    "function_names": [],
+                    "rule_ids": [],
+                },
+            }
+        elif kind == "Rule Overrides":
+            obj = {
+                "rules": {
+                    "YARA-0001": {"action": "allow", "reason": "vendor"},
+                    "TS-weak-rand": {"action": "flag", "severity_override": "low"},
+                },
+                "defaults": {"action": "flag", "severity": "medium"},
+            }
+        elif kind == "Scoring":
+            obj = {
+                "scoring": {
+                    "engine_weights": {"yara": 1.0, "treesitter": 0.8, "disasm": 0.6},
+                    "confidence_thresholds": {"high": 0.9, "medium": 0.6, "low": 0.3},
+                }
+            }
+        else:
+            obj = {
+                "metadata": {"version": "1.0"},
+                "whitelist": {"file_hashes": [], "function_names": [], "rule_ids": []},
+                "rules": {},
+                "scoring": {
+                    "engine_weights": {"yara": 1.0, "treesitter": 0.8, "disasm": 0.6},
+                    "confidence_thresholds": {"high": 0.9, "medium": 0.6, "low": 0.3},
+                },
+            }
+        return json.dumps(obj, sort_keys=True, ensure_ascii=False, indent=2)
 
     def _open_workdir(self):
         # Open the canonical case workspace in the platform file browser
