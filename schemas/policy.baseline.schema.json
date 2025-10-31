@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.org/schemas/policy.baseline.schema.json",
+  "title": "Policy baseline",
+  "description": "Schema for policy.baseline.json used to annotate/whitelist findings.",
+  "type": "object",
+  "properties": {
+    "version": { "type": "string" },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "author": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "whitelist": {
+      "type": "object",
+      "properties": {
+        "file_hashes": { "type": "array", "items": { "type": "string" } },
+        "function_names": { "type": "array", "items": { "type": "string" } },
+        "rule_ids": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "rules": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "string" },
+          "reason": { "type": "string" },
+          "severity_override": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "scoring": {
+      "type": "object",
+      "properties": {
+        "engine_weights": {
+          "type": "object",
+          "additionalProperties": { "type": "number" }
+        },
+        "confidence_thresholds": {
+          "type": "object",
+          "properties": {
+            "high": { "type": "number" },
+            "medium": { "type": "number" },
+            "low": { "type": "number" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "required": ["version"],
+  "anyOf": [
+    { "required": ["whitelist"] },
+    { "required": ["rules"] },
+    { "required": ["scoring"] }
+  ],
+  "additionalProperties": true
+}

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import threading
+import time
 import tkinter as tk
+import urllib.parse
 from functools import partial
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -13,7 +16,16 @@ from auditor.case import Engagement
 from auditor.intake import count_inputs_fast, enumerate_inputs, write_manifest
 from auditor.preproc import preprocess_items
 from auditor.workspace import Workspace
-from settings import get_default_workdir, set_default_workdir
+from policy_import import import_and_record_policy
+from policy_validator import validate_policy_text
+from settings import (
+    get_canonical_workdir,
+    get_default_workdir,
+    get_fast_count_timeout,
+    reset_default_workdir,
+    set_default_workdir,
+    set_fast_count_timeout,
+)
 
 import customtkinter as ctk  # isort:skip
 
@@ -69,6 +81,33 @@ class SetupPage(ctk.CTkFrame):
         )
         self.workdir_browse.grid(row=0, column=2, padx=(8, 0))
 
+        # row below Workdir: show canonical recommended path and quick actions
+        canonical_frame = ctk.CTkFrame(form, fg_color="transparent")
+        canonical_frame.grid(row=0, column=3, sticky="we", padx=(8, 0))
+        try:
+            canonical = str(get_canonical_workdir())
+        except Exception:
+            canonical = ""
+        self._canonical_label = ctk.CTkLabel(
+            canonical_frame, text=f"Recommended: {canonical}", wraplength=320
+        )
+        self._canonical_label.grid(row=0, column=0, sticky="w")
+        # small actions: Use canonical (set entry + persist) and Reset to default (clear user setting)
+        self.use_canonical_btn = ctk.CTkButton(
+            canonical_frame,
+            text="Use canonical",
+            width=120,
+            command=self._use_canonical,
+        )
+        self.use_canonical_btn.grid(row=1, column=0, pady=(6, 0), sticky="w")
+        self.reset_canonical_btn = ctk.CTkButton(
+            canonical_frame,
+            text="Reset to default",
+            width=120,
+            command=self._reset_to_canonical,
+        )
+        self.reset_canonical_btn.grid(row=1, column=1, pady=(6, 0), padx=(6, 0))
+
         ctk.CTkLabel(form, text="Case ID:").grid(row=1, column=0, sticky="w")
         self.case_entry = ctk.CTkEntry(form, placeholder_text="e.g. CASE-001")
         self.case_entry.grid(row=1, column=1, sticky="we", padx=(6, 0))
@@ -93,6 +132,17 @@ class SetupPage(ctk.CTkFrame):
             form, text="Browse", width=90, command=self._browse_scope
         )
         self.scope_browse.grid(row=2, column=2, padx=(8, 0))
+        # Option: treat the scope as a Git repo URL and clone it locally
+        self.git_clone_var = tk.BooleanVar(value=False)
+        try:
+            ctk.CTkCheckBox(
+                form,
+                text="Clone repo (if URL)",
+                variable=self.git_clone_var,
+            ).grid(row=2, column=3, padx=(8, 0))
+        except Exception:
+            # fallback: ignore if customtkinter configuration differs
+            pass
 
         # Policy baseline on its own row
         ctk.CTkLabel(form, text="Policy:").grid(row=3, column=0, sticky="w")
@@ -122,6 +172,17 @@ class SetupPage(ctk.CTkFrame):
         self.max_depth_entry = ctk.CTkEntry(opts, width=60)
         self.max_depth_entry.insert(0, "2")
         self.max_depth_entry.grid(row=0, column=2, padx=(4, 0))
+        # Fast-count timeout (seconds): small numeric input persisted via settings
+        try:
+            fast_default = str(get_fast_count_timeout())
+        except Exception:
+            fast_default = "0.8"
+        ctk.CTkLabel(opts, text="Fast-count timeout (s):").grid(
+            row=0, column=3, padx=(8, 0)
+        )
+        self.fastcount_entry = ctk.CTkEntry(opts, width=80)
+        self.fastcount_entry.insert(0, fast_default)
+        self.fastcount_entry.grid(row=0, column=4, padx=(4, 0))
 
         self.ast_var = tk.BooleanVar(value=False)
         self.disasm_var = tk.BooleanVar(value=False)
@@ -271,6 +332,11 @@ class SetupPage(ctk.CTkFrame):
             self._current_stage_determinate = bool(determinate)
             self.after(0, self.progress.set, 0.0)
             self.after(0, self.progress_label.configure, {"text": f"{name} — 0"})
+            # record stage start time for ETA/rate estimation
+            try:
+                self._stage_timers[name] = time.time()
+            except Exception:
+                pass
             # if determinate, stop the spinner animation and show numeric
             # bar; otherwise hide the numeric bar and show indeterminate
             # spinner label animation.
@@ -343,6 +409,15 @@ class SetupPage(ctk.CTkFrame):
                 except Exception:
                     pass
 
+            # clear any recorded timer for this stage
+            try:
+                if name in self._stage_timers:
+                    try:
+                        del self._stage_timers[name]
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             self.after(0, _log_end)
         except Exception:
             pass
@@ -395,7 +470,28 @@ class SetupPage(ctk.CTkFrame):
                 self._begin_stage(stage, determinate=True)
             frac = min(1.0, float(processed) / float(total))
             self.progress.set(frac)
-            self.progress_label.configure(text=f"{stage} {processed}/{total} — {short}")
+            # compute ETA using recorded stage start time when available
+            eta_text = ""
+            try:
+                start = self._stage_timers.get(stage)
+                if start:
+                    elapsed = max(0.001, time.time() - float(start))
+                    # require a minimum sample size to avoid noisy ETA
+                    if elapsed >= 0.5 and processed >= 5:
+                        rate = float(processed) / float(elapsed)
+                        if rate > 0:
+                            remaining = float(total - processed)
+                            eta = int(remaining / rate)
+                            # format ETA as M:SS or S s
+                            if eta >= 60:
+                                eta_text = f" — ETA: {eta//60}:{eta%60:02d}"
+                            else:
+                                eta_text = f" — ETA: {eta}s"
+            except Exception:
+                eta_text = ""
+            self.progress_label.configure(
+                text=f"{stage} {processed}/{total} — {short}{eta_text}"
+            )
             # log occasionally to the results box
             if processed % max(1, total // 10 if total >= 10 else 1) == 0:
                 self._append_result(f"{stage.lower()}: {processed}/{total}\n")
@@ -407,8 +503,20 @@ class SetupPage(ctk.CTkFrame):
             # start ticker if not already
             if not getattr(self, "_indeterminate_running", False):
                 self._start_spinner(f"{stage}... ({processed})")
+            # indeterminate: show processed count and optionally an
+            # estimated rate if we have a timer.
+            rate_text = ""
+            try:
+                start = self._stage_timers.get(stage)
+                if start:
+                    elapsed = max(0.001, time.time() - float(start))
+                    if elapsed >= 0.5 and processed >= 5:
+                        rate = float(processed) / float(elapsed)
+                        rate_text = f" — {rate:.1f}/s"
+            except Exception:
+                rate_text = ""
             self.progress_label.configure(
-                text=f"{stage} {processed} (estimating total...) — {short}"
+                text=f"{stage} {processed} (estimating total...){rate_text} — {short}"
             )
             if processed % 50 == 0:
                 self._append_result(f"{stage.lower()}: {processed} items...\n")
@@ -421,11 +529,45 @@ class SetupPage(ctk.CTkFrame):
         )
         if path:
             try:
-                self.workdir_entry.delete(0, "end")
-                self.workdir_entry.insert(0, path)
-                # persist preferred workdir for future runs
+                # If the chosen path differs from the recommended canonical
+                # path, ask the user if they'd prefer to use the canonical
+                # location. This is a non-destructive suggestion only.
                 try:
-                    set_default_workdir(path)
+                    canonical = str(get_canonical_workdir())
+                except Exception:
+                    canonical = None
+
+                if canonical and str(Path(path).resolve()) != str(
+                    Path(canonical).resolve()
+                ):
+                    try:
+                        msg = (
+                            f"You selected a non-standard workdir:\n{path}\n\n"
+                            f"Recommended canonical path:\n{canonical}\n\n"
+                            "Would you like to use the recommended location instead?"
+                        )
+                        r = messagebox.askyesno("Use canonical workdir?", msg)
+                        if r:
+                            # user chose canonical
+                            chosen = canonical
+                        else:
+                            chosen = path
+                    except Exception:
+                        chosen = path
+                else:
+                    chosen = path
+
+                # set the entry and persist the chosen preference
+                self.workdir_entry.delete(0, "end")
+                self.workdir_entry.insert(0, chosen)
+                try:
+                    set_default_workdir(chosen)
+                except Exception:
+                    pass
+                # update canonical label in case system defaults changed
+                try:
+                    can = str(get_canonical_workdir())
+                    self._canonical_label.configure(text=f"Recommended: {can}")
                 except Exception:
                     pass
             except Exception:
@@ -523,6 +665,76 @@ class SetupPage(ctk.CTkFrame):
         # populate initial
         _render_template()
 
+        # Inline validation area (debounced): shows parse/schema errors and
+        # disables Insert/Save while errors exist.
+        error_var = tk.StringVar(value="")
+        error_label = ctk.CTkLabel(frame, textvariable=error_var, text_color="#d9534f")
+        error_label.grid(row=3, column=0, columnspan=3, sticky="we", pady=(0, 6))
+
+        # attach simple debounce state to the modal window object
+        top.policy_validate_timer = None
+        top.last_policy_text = None
+
+        def schedule_validate():
+            try:
+                if getattr(top, "policy_validate_timer", None):
+                    top.after_cancel(top.policy_validate_timer)
+            except Exception:
+                pass
+            try:
+                top.policy_validate_timer = top.after(400, run_validate)
+            except Exception:
+                run_validate()
+
+        def run_validate():
+            try:
+                top.policy_validate_timer = None
+                txt = editor.get("1.0", "end").strip()
+                if txt == getattr(top, "last_policy_text", None):
+                    return
+                top.last_policy_text = txt
+                valid, errors = validate_policy_text(txt)
+                if not valid:
+                    try:
+                        error_var.set("\n".join(errors))
+                    except Exception:
+                        pass
+                    try:
+                        insert_btn.configure(state="disabled")
+                    except Exception:
+                        pass
+                    try:
+                        save_btn.configure(state="disabled")
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        error_var.set("")
+                    except Exception:
+                        pass
+                    try:
+                        insert_btn.configure(state="normal")
+                    except Exception:
+                        pass
+                    try:
+                        save_btn.configure(state="normal")
+                    except Exception:
+                        pass
+            except Exception:
+                try:
+                    error_var.set("Validation error")
+                except Exception:
+                    pass
+
+        # validate on keystrokes and when template/file is loaded
+        editor.bind("<KeyRelease>", lambda e: schedule_validate())
+
+        # run an initial validation pass now that schedule_validate is defined
+        try:
+            schedule_validate()
+        except Exception:
+            pass
+
         # Buttons
         btn_frame = ctk.CTkFrame(frame, fg_color="transparent")
         btn_frame.grid(row=2, column=0, columnspan=3, pady=(6, 0))
@@ -530,11 +742,15 @@ class SetupPage(ctk.CTkFrame):
         def _insert_to_entry():
             txt = editor.get("1.0", "end").strip()
             # validate JSON
-            try:
-                json.loads(txt)
-            except Exception as e:
+            # validate JSON + schema
+            valid, errors = validate_policy_text(txt)
+            if not valid:
                 try:
-                    messagebox.showerror("Invalid JSON", f"JSON parse error: {e}")
+                    error_var.set("\n".join(errors))
+                except Exception:
+                    pass
+                try:
+                    messagebox.showerror("Invalid policy", "\n".join(errors))
                 except Exception:
                     pass
                 return
@@ -563,7 +779,17 @@ class SetupPage(ctk.CTkFrame):
                 return
             try:
                 txt = editor.get("1.0", "end").strip()
-                json.loads(txt)  # validate
+                valid, errors = validate_policy_text(txt)
+                if not valid:
+                    try:
+                        error_var.set("\n".join(errors))
+                    except Exception:
+                        pass
+                    try:
+                        messagebox.showerror("Invalid policy", "\n".join(errors))
+                    except Exception:
+                        pass
+                    return
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(txt)
                 self.policy_entry.delete(0, "end")
@@ -584,18 +810,21 @@ class SetupPage(ctk.CTkFrame):
                     data = f.read()
                 editor.delete("1.0", "end")
                 editor.insert("1.0", data)
+                # re-validate newly loaded file
+                try:
+                    schedule_validate()
+                except Exception:
+                    pass
             except Exception:
                 try:
                     messagebox.showerror("Error", "Could not read file", parent=top)
                 except Exception:
                     pass
 
-        ctk.CTkButton(btn_frame, text="Insert", command=_insert_to_entry).pack(
-            side="left", padx=(0, 8)
-        )
-        ctk.CTkButton(btn_frame, text="Save As...", command=_save_as).pack(
-            side="left", padx=(0, 8)
-        )
+        insert_btn = ctk.CTkButton(btn_frame, text="Insert", command=_insert_to_entry)
+        insert_btn.pack(side="left", padx=(0, 8))
+        save_btn = ctk.CTkButton(btn_frame, text="Save As...", command=_save_as)
+        save_btn.pack(side="left", padx=(0, 8))
         ctk.CTkButton(btn_frame, text="Load...", command=_load_file_to_editor).pack(
             side="left", padx=(0, 8)
         )
@@ -610,6 +839,8 @@ class SetupPage(ctk.CTkFrame):
         """Return a pretty JSON string for the requested template kind."""
         if kind == "Whitelist":
             obj = {
+                # include top-level version (schema requires it) and optional metadata
+                "version": "1.0",
                 "metadata": {"author": "", "version": "1.0"},
                 "whitelist": {
                     "file_hashes": [],
@@ -619,6 +850,7 @@ class SetupPage(ctk.CTkFrame):
             }
         elif kind == "Rule Overrides":
             obj = {
+                "version": "1.0",
                 "rules": {
                     "YARA-0001": {"action": "allow", "reason": "vendor"},
                     "TS-weak-rand": {"action": "flag", "severity_override": "low"},
@@ -627,13 +859,15 @@ class SetupPage(ctk.CTkFrame):
             }
         elif kind == "Scoring":
             obj = {
+                "version": "1.0",
                 "scoring": {
                     "engine_weights": {"yara": 1.0, "treesitter": 0.8, "disasm": 0.6},
                     "confidence_thresholds": {"high": 0.9, "medium": 0.6, "low": 0.3},
-                }
+                },
             }
         else:
             obj = {
+                "version": "1.0",
                 "metadata": {"version": "1.0"},
                 "whitelist": {"file_hashes": [], "function_names": [], "rule_ids": []},
                 "rules": {},
@@ -660,6 +894,43 @@ class SetupPage(ctk.CTkFrame):
                 self._set_status(f"Could not open folder: {wd}", error=True)
             except Exception:
                 pass
+
+    def _use_canonical(self):
+        try:
+            can = str(get_canonical_workdir())
+        except Exception:
+            return
+        try:
+            self.workdir_entry.delete(0, "end")
+            self.workdir_entry.insert(0, can)
+            try:
+                set_default_workdir(can)
+            except Exception:
+                pass
+            try:
+                self._canonical_label.configure(text=f"Recommended: {can}")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _reset_to_canonical(self):
+        # remove any saved user preference so the app falls back to the
+        # canonical path returned by get_canonical_workdir()
+        try:
+            reset_default_workdir()
+        except Exception:
+            pass
+        try:
+            can = str(get_canonical_workdir())
+            self.workdir_entry.delete(0, "end")
+            self.workdir_entry.insert(0, can)
+            try:
+                self._canonical_label.configure(text=f"Recommended: {can}")
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     def _set_status(self, text: str, error: bool = False):
         # reuse same status label area as progress_label
@@ -689,6 +960,18 @@ class SetupPage(ctk.CTkFrame):
                     pass
         except Exception:
             pass
+
+        # persist fast-count timeout preference
+        try:
+            ftxt = self.fastcount_entry.get().strip()
+            try:
+                fval = float(ftxt)
+                set_fast_count_timeout(fval)
+            except Exception:
+                # ignore invalid entry and keep previous value
+                pass
+        except Exception:
+            pass
         t = threading.Thread(target=self._run_engagement_flow, daemon=True)
         t.start()
 
@@ -701,14 +984,32 @@ class SetupPage(ctk.CTkFrame):
         try:
             eng = Engagement(workdir=wd, case_id=case_id, client=client, scope=scope)
             eng.write_metadata()
-            # import optional policy baseline
+            # import optional policy baseline (validate first, record audit event)
             try:
                 policy = self.policy_entry.get().strip()
             except Exception:
                 policy = ""
             if policy:
                 try:
-                    eng.import_policy_baseline(policy)
+                    audit_path = Path(eng.workdir) / "auditlog.ndjson"
+                    ok, info = import_and_record_policy(eng, policy, str(audit_path))
+                    if not ok:
+                        # record failure in the UI results box
+                        try:
+                            self.after(
+                                0,
+                                self._append_result,
+                                f"policy import failed: {info}\n",
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            self.after(
+                                0, self._append_result, f"policy imported -> {info}\n"
+                            )
+                        except Exception:
+                            pass
                 except Exception:
                     pass
             case_dir = eng.workdir
@@ -719,13 +1020,140 @@ class SetupPage(ctk.CTkFrame):
                 {"case_id": case_id, "client": client, "scope": scope},
             )
 
+            # If the user asked to treat the scope as a Git repo, attempt to
+            # clone it into the case workspace and use the cloned folder as
+            # the actual scope for scanning. We record audit events for
+            # success/failure.
+            try:
+                if getattr(self, "git_clone_var", None) and self.git_clone_var.get():
+
+                    def _is_git_url(s: str) -> bool:
+                        if not s:
+                            return False
+                        s = s.strip()
+                        if s.startswith("git@"):
+                            return True
+                        if s.startswith("http://") or s.startswith("https://"):
+                            return "github.com" in s or ".git" in s
+                        return False
+
+                    def _repo_name_from_url(s: str) -> str:
+                        try:
+                            if s.startswith("git@"):
+                                s2 = s.split(":", 1)[-1]
+                            else:
+                                parsed = urllib.parse.urlparse(s)
+                                s2 = parsed.path
+                            name = s2.rstrip("/\n\r").split("/")[-1]
+                            if name.endswith(".git"):
+                                name = name[:-4]
+                            return name or "repo"
+                        except Exception:
+                            return "repo"
+
+                    if _is_git_url(scope):
+                        repo_name = _repo_name_from_url(scope)
+                        dest_parent = Path(eng.workdir) / "cloned_repos"
+                        try:
+                            dest_parent.mkdir(parents=True, exist_ok=True)
+                        except Exception:
+                            pass
+                        dest = dest_parent / repo_name
+                        try:
+                            if dest.exists() and (dest / ".git").exists():
+                                # try to update existing clone
+                                subprocess.run(
+                                    [
+                                        "git",
+                                        "-C",
+                                        str(dest),
+                                        "pull",
+                                    ],
+                                    check=True,
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=300,
+                                )
+                                al.append(
+                                    "engagement.clone_repo",
+                                    {
+                                        "repo": scope,
+                                        "dest": str(dest),
+                                        "status": "updated",
+                                    },
+                                )
+                                self.after(
+                                    0,
+                                    self._append_result,
+                                    f"Updated existing clone -> {dest}\n",
+                                )
+                            else:
+                                # clone anew
+                                subprocess.run(
+                                    [
+                                        "git",
+                                        "clone",
+                                        scope,
+                                        str(dest),
+                                    ],
+                                    check=True,
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=600,
+                                )
+                                al.append(
+                                    "engagement.clone_repo",
+                                    {
+                                        "repo": scope,
+                                        "dest": str(dest),
+                                        "status": "cloned",
+                                    },
+                                )
+                                self.after(
+                                    0, self._append_result, f"Cloned repo -> {dest}\n"
+                                )
+                            # use cloned path as the scope
+                            scope = str(dest)
+                        except subprocess.CalledProcessError as e:
+                            err = e.stderr or str(e)
+                            al.append(
+                                "engagement.clone_failed", {"repo": scope, "error": err}
+                            )
+                            self.after(0, self._append_result, f"Clone failed: {err}\n")
+                            try:
+                                self.after(
+                                    0, self._set_status, "Clone failed — aborting"
+                                )
+                            except Exception:
+                                pass
+                            return
+                        except Exception as e:
+                            al.append(
+                                "engagement.clone_failed",
+                                {"repo": scope, "error": str(e)},
+                            )
+                            self.after(0, self._append_result, f"Clone failed: {e}\n")
+                            try:
+                                self.after(
+                                    0, self._set_status, "Clone failed — aborting"
+                                )
+                            except Exception:
+                                pass
+                            return
+            except Exception:
+                pass
+
             # Attempt a fast pre-count with a short timeout so we can show
             # determinate progress for large repos. If the fast count returns
             # None we fall back to scanning immediately and use a dynamic
             # estimation (items/sec) as files are processed.
             total_count = None
             try:
-                total_count = count_inputs_fast([scope], timeout=0.8)
+                fast_timeout = get_fast_count_timeout()
+            except Exception:
+                fast_timeout = 0.8
+            try:
+                total_count = count_inputs_fast([scope], timeout=fast_timeout)
             except Exception:
                 total_count = None
             try:
@@ -814,8 +1242,34 @@ class SetupPage(ctk.CTkFrame):
                     pass
             # write canonical NDJSON manifest (tests and other code expect .ndjson)
             manifest_path = str(case_dir / "inputs.manifest.ndjson")
+            # Write the manifest with a determinate "Writing manifest" stage.
             try:
-                write_manifest(manifest_path, items)
+                # prefer an incremental writer to allow determinate progress
+                try:
+                    self.after(0, self._begin_stage, "Writing manifest", True)
+                except Exception:
+                    pass
+
+                def _write_with_progress():
+                    try:
+                        self._write_manifest_with_progress(manifest_path, items)
+                    except Exception:
+                        try:
+                            # fallback to the library writer if streaming fails
+                            write_manifest(manifest_path, items)
+                        except Exception:
+                            pass
+                    finally:
+                        try:
+                            self.after(0, self._end_stage, "Writing manifest")
+                        except Exception:
+                            pass
+
+                # perform manifest write in the background so UI can update
+                wthr = threading.Thread(target=_write_with_progress, daemon=True)
+                wthr.start()
+                # wait for writer thread to finish before continuing (it is quick)
+                wthr.join()
             except Exception:
                 pass
 
@@ -911,3 +1365,56 @@ class SetupPage(ctk.CTkFrame):
             self.continue_btn.configure(state="disabled")
         except Exception:
             pass
+
+    def _write_manifest_with_progress(self, manifest_path: str, items: list):
+        """Write manifest incrementally so the UI can show determinate progress.
+
+        This writes a regular JSON file compatible with existing consumers by
+        streaming the items array and updating the progress bar based on the
+        number of items written.
+        """
+        try:
+            total = len(items)
+            # ensure determinate stage is active
+            try:
+                self.after(0, self.progress.set, 0.0)
+            except Exception:
+                pass
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                # write header
+                gen = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                f.write('{"generated_at": "')
+                f.write(gen)
+                f.write('", "items": [\n')
+                for i, itm in enumerate(items, start=1):
+                    try:
+                        json.dump(itm, f, ensure_ascii=False)
+                        if i < total:
+                            f.write(",\n")
+                        else:
+                            f.write("\n")
+                    except Exception:
+                        # skip problematic items
+                        continue
+                    # update progress
+                    try:
+                        frac = min(1.0, float(i) / float(total)) if total > 0 else 1.0
+                        self.after(0, self.progress.set, frac)
+                        # update label using unified updater for nice formatting
+                        try:
+                            self.after(
+                                0,
+                                self._update_progress,
+                                "Writing manifest",
+                                i,
+                                total,
+                                None,
+                            )
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+                f.write("]}\n")
+        except Exception:
+            # bubble up to caller who may call fallback writer
+            raise

@@ -146,3 +146,70 @@ def set_default_workdir(path: str) -> None:
     except Exception:
         # best-effort: store raw string
         set_setting("workdir", path)
+
+
+def get_canonical_workdir() -> Path:
+    """Return the platform-canonical workdir (ignores user override).
+
+    This is useful for UI guidance to show the recommended location where
+    cases will be stored by default (e.g., <appdata>/CryptoScope/cases).
+    """
+    data_dir = _get_user_data_dir()
+    try:
+        base = Path(data_dir) / "cases"
+        base.mkdir(parents=True, exist_ok=True)
+        return base.resolve()
+    except Exception:
+        fallback = Path.home() / _APP_NAME / "cases"
+        try:
+            fallback.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        return fallback.resolve()
+
+
+def reset_default_workdir() -> None:
+    """Remove any user-specified workdir from settings so the canonical
+    default will be used on next call to `get_default_workdir()`.
+    """
+    s = load_settings()
+    if "workdir" in s:
+        try:
+            del s["workdir"]
+            save_settings(s)
+        except Exception:
+            # best-effort: rewrite without the key
+            try:
+                s2 = {k: v for k, v in s.items() if k != "workdir"}
+                save_settings(s2)
+            except Exception:
+                pass
+
+
+def get_fast_count_timeout() -> float:
+    """Return the fast-count timeout in seconds (float).
+
+    This controls how long the fast input counting routine should run before
+    giving up and returning None. The default is 0.8 seconds which is a
+    reasonable balance between speed and accuracy on typical machines.
+    """
+    val = get_setting("fast_count_timeout")
+    try:
+        if val is None:
+            return 0.8
+        return float(val)
+    except Exception:
+        return 0.8
+
+
+def set_fast_count_timeout(seconds: float) -> None:
+    """Persist the fast-count timeout (in seconds) into settings."""
+    try:
+        secs = float(seconds)
+    except Exception:
+        # ignore invalid values
+        return
+    # clamp to a sensible range (0.0 allowed to disable fast counting)
+    if secs < 0:
+        secs = 0.0
+    set_setting("fast_count_timeout", secs)

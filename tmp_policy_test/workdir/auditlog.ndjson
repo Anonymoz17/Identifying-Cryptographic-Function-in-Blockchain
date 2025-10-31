@@ -1,0 +1,1 @@
+{"digest": "531ed53415cd97d25564cfc52671bfc760c82bbd6153c1cc7fa37f48e32717a6", "event": "engagement.policy_import_failed", "payload": {"errors": ["(root): 'version' is a required property"], "source": "tmp_policy_test\\policy.json"}, "prev": null, "seq": 1, "ts": "2025-10-31T09:46:08.244652+00:00"}
