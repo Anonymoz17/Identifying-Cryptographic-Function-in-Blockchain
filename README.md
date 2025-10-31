@@ -58,3 +58,22 @@ If you need the native extras (tree-sitter, capstone, yara-python) install them 
 This project can optionally run Ghidra in headless mode to produce function
 exports. See `docs/ghidra.md` for detailed installation steps and how to set
 `GHIDRA_INSTALL_DIR` or add `analyzeHeadless` to your PATH.
+
+## Features added in the `results-page` branch
+
+- Policy baseline editor in the Setup page: auditors can now pick from
+  templates (Whitelist, Rule Overrides, Scoring, Combined), edit JSON in a
+  modal, Insert (write a temp JSON and use it for the engagement) or Save As
+  to persist. The policy file is copied into the case workspace as
+  `policy.baseline.json` and a SHA256 sidecar is written.
+- Results page: a dedicated Results UI reads `detector_results.summary.json`
+  (placed under `<case>/detector_output/`) and renders three charts (top-rule
+  bar chart, engine breakdown, confidence histogram). Chart rendering is
+  optional (matplotlib). The page includes case selection, browse, and a
+  Run Detectors button that launches the helper script `tools/open_results.py`.
+- UI responsiveness improvements: file/folder dialogs are now attached to the
+  application window and heavy summary parsing is performed in a background
+  thread so the GUI remains responsive after closing native file dialogs.
+
+See `docs/audit-roadmap.md` for a prioritized product roadmap and next steps
+aimed at security-auditor workflows.
