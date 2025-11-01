@@ -1270,6 +1270,31 @@ class SetupPage(ctk.CTkFrame):
             frame, text="Follow symlinks by default", variable=follow_var
         ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 8))
 
+        # Confirm thresholds for large scans
+        ctk.CTkLabel(frame, text="Confirm threshold (bytes):").grid(
+            row=5, column=0, sticky="w"
+        )
+        thr_bytes_entry = ctk.CTkEntry(frame, width=160)
+        try:
+            thr_bytes_entry.insert(
+                0, str(get_setting("confirm_threshold_bytes", 5 * 1024 * 1024 * 1024))
+            )
+        except Exception:
+            thr_bytes_entry.insert(0, str(5 * 1024 * 1024 * 1024))
+        thr_bytes_entry.grid(row=5, column=1, sticky="w", pady=(4, 8))
+
+        ctk.CTkLabel(frame, text="Confirm threshold (files):").grid(
+            row=6, column=0, sticky="w"
+        )
+        thr_files_entry = ctk.CTkEntry(frame, width=160)
+        try:
+            thr_files_entry.insert(
+                0, str(get_setting("confirm_threshold_files", 100000))
+            )
+        except Exception:
+            thr_files_entry.insert(0, "100000")
+        thr_files_entry.grid(row=6, column=1, sticky="w", pady=(4, 8))
+
         # Detector defaults are configured on the Detectors page to avoid
         # duplicated UI. The Detectors page persists its own defaults so
         # the Preferences modal does not expose detector toggles.
@@ -1311,6 +1336,17 @@ class SetupPage(ctk.CTkFrame):
                 pass
             try:
                 set_setting("follow_symlinks", bool(follow_var.get()))
+            except Exception:
+                pass
+            try:
+                # confirm thresholds for large-scan prompt
+                tb = int(thr_bytes_entry.get().strip() or 0)
+                set_setting("confirm_threshold_bytes", tb)
+            except Exception:
+                pass
+            try:
+                tf = int(thr_files_entry.get().strip() or 0)
+                set_setting("confirm_threshold_files", tf)
             except Exception:
                 pass
             # Detector defaults are managed on the Detectors page; do not
@@ -1532,6 +1568,84 @@ class SetupPage(ctk.CTkFrame):
 
         # Advanced preferences (filters, extraction, symlink behavior, etc.)
         # are managed in Preferences. Do not persist ephemeral UI fields here.
+        # Before starting the main worker, perform a quick sample estimate of
+        # the scope size and ask for confirmation if it's large. Skip estimate
+        # for repo URLs (we'll clone later in the worker).
+        try:
+            scope_val = self.repo_entry.get().strip() or self.scope_entry.get().strip()
+        except Exception:
+            scope_val = ""
+
+        def _is_git_url(s: str) -> bool:
+            if not s:
+                return False
+            s = s.strip()
+            if s.startswith("git@"):
+                return True
+            if s.startswith("http://") or s.startswith("https://"):
+                return "github.com" in s or ".git" in s
+            return False
+
+        try:
+            # Only estimate for local folder scopes
+            if scope_val and not _is_git_url(scope_val):
+                SAMPLE = int(get_setting("preview_sample_limit", 200))
+                try:
+                    res = estimate_disk_usage(
+                        [scope_val],
+                        sample_limit=SAMPLE,
+                        follow_symlinks=bool(get_setting("follow_symlinks", False)),
+                    )
+                    sampled_bytes = int(res.get("sampled_bytes", 0) or 0)
+                    sampled_files = int(res.get("sampled_files", 0) or 0)
+                    # configurable thresholds (defaults: 5 GiB, 100k files)
+                    try:
+                        thr_bytes = int(
+                            get_setting(
+                                "confirm_threshold_bytes", 5 * 1024 * 1024 * 1024
+                            )
+                        )
+                    except Exception:
+                        thr_bytes = 5 * 1024 * 1024 * 1024
+                    try:
+                        thr_files = int(get_setting("confirm_threshold_files", 100000))
+                    except Exception:
+                        thr_files = 100000
+
+                    if (sampled_bytes and sampled_bytes >= thr_bytes) or (
+                        sampled_files and sampled_files >= thr_files
+                    ):
+                        # present human-friendly size
+                        def _human(b: int) -> str:
+                            if b >= 1024 * 1024 * 1024:
+                                return f"{b/1024/1024/1024:.1f} GB"
+                            if b >= 1024 * 1024:
+                                return f"{b/1024/1024:.1f} MB"
+                            return f"{b/1024:.1f} KB"
+
+                        size_txt = _human(sampled_bytes) if sampled_bytes else "unknown"
+                        msg = (
+                            f"Estimated sample size: {size_txt}\nEstimated files sampled: {sampled_files}\n\n"
+                            "This run may process a very large scope and take significant time or disk.\n"
+                            "Do you want to continue?"
+                        )
+                        try:
+                            cont = messagebox.askyesno("Confirm large scan", msg)
+                        except Exception:
+                            cont = True
+                        if not cont:
+                            try:
+                                self.start_btn.configure(state="normal")
+                                self.cancel_btn.configure(state="disabled")
+                            except Exception:
+                                pass
+                            return
+                except Exception:
+                    # if estimate fails, continue without blocking
+                    pass
+        except Exception:
+            pass
+
         t = threading.Thread(target=self._run_engagement_flow, daemon=True)
         t.start()
         # remember the worker thread so we can avoid concurrent runs
@@ -1957,6 +2071,30 @@ class SetupPage(ctk.CTkFrame):
             except Exception:
                 max_depth = 2
             do_extract = bool(get_setting("do_extract", True))
+
+            # Persist the run-specific preprocessing settings into the case
+            # as a separate JSON file so runs are reproducible. This includes
+            # include/exclude globs, max file size, and extraction prefs.
+            try:
+                run_settings = {
+                    "include_globs": include_globs,
+                    "exclude_globs": exclude_globs,
+                    "max_file_size_bytes": max_bytes,
+                    "do_extract": do_extract,
+                    "max_extract_depth": max_depth,
+                    "follow_symlinks": follow_links,
+                }
+                rs_path = Path(eng.workdir) / "run_settings.json"
+                tmp = rs_path.with_suffix(rs_path.suffix + ".tmp")
+                tmp.write_text(
+                    json.dumps(
+                        run_settings, sort_keys=True, ensure_ascii=False, indent=2
+                    ),
+                    encoding="utf-8",
+                )
+                tmp.replace(rs_path)
+            except Exception:
+                pass
 
             # Enumerate inputs and write manifest into the case workspace (same as Auditor)
             # Provide a progress callback so UI can show scanning progress.
