@@ -482,6 +482,51 @@ def preprocess_items(
     }
 
 
+def generate_detector_artifacts(
+    shas: list[str],
+    workdir: str,
+    progress_cb: Optional[Callable[[int, int, str], None]] = None,
+    cancel_event: Optional[threading.Event] = None,
+    build_ast: bool = True,
+    build_disasm: bool = True,
+) -> None:
+    """Generate detector-specific artifacts (AST/disasm) for the given shas.
+
+    This helper runs per-sha builds and calls progress_cb(processed, total, stage)
+    after each sha is processed. It is best-effort and will not raise on
+    individual failures.
+    """
+    # dedupe while preserving order
+    seen = set()
+    unique = [x for x in shas if x and not (x in seen or seen.add(x))]
+    total = len(unique)
+    processed = 0
+
+    for s in unique:
+        if cancel_event is not None and cancel_event.is_set():
+            break
+        try:
+            if build_ast:
+                try:
+                    build_ast_cache([s], workdir)
+                except Exception:
+                    pass
+            if build_disasm:
+                try:
+                    build_disasm_cache([s], workdir)
+                except Exception:
+                    pass
+        except Exception:
+            # ignore per-sha failures
+            pass
+        processed += 1
+        if callable(progress_cb):
+            try:
+                progress_cb(processed, total, s)
+            except Exception:
+                pass
+
+
 def extract_artifacts(
     items: List[Dict[str, Any]],
     outdir: str,

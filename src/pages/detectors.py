@@ -5,6 +5,7 @@ import tkinter as tk
 import tkinter.messagebox as messagebox
 from pathlib import Path
 
+from auditor.preproc import generate_detector_artifacts
 from auditor.workspace import Workspace
 from detectors.adapter import SimpleSemgrepAdapter, YaraAdapter
 from detectors.disasm_adapter import DisasmJsonAdapter
@@ -12,6 +13,7 @@ from detectors.ghidra_adapter import GhidraAdapter
 from detectors.merge import dedupe_detections
 from detectors.runner import generate_summary, run_adapters, write_ndjson_detections
 from detectors.tree_sitter_detector import TreeSitterDetector
+from settings import get_setting, set_setting
 
 import customtkinter as ctk  # isort:skip
 
@@ -75,11 +77,34 @@ class DetectorsPage(ctk.CTkFrame):
         det_frame.pack(padx=12, pady=(6, 6), fill="x")
         det_frame.grid_columnconfigure(1, weight=1)
 
-        self.yara_var = tk.BooleanVar(value=True)
-        self.semgrep_var = tk.BooleanVar(value=True)
-        self.ts_var = tk.BooleanVar(value=True)
-        self.disasm_var = tk.BooleanVar(value=True)
-        self.ghidra_var = tk.BooleanVar(value=False)
+        # Load persisted detector defaults from settings so the Detectors
+        # page is the single source of truth for detector enablement.
+        try:
+            yara_def = bool(get_setting("detector_yara", True))
+        except Exception:
+            yara_def = True
+        try:
+            semgrep_def = bool(get_setting("detector_semgrep", True))
+        except Exception:
+            semgrep_def = True
+        try:
+            ts_def = bool(get_setting("detector_treesitter", True))
+        except Exception:
+            ts_def = True
+        try:
+            disasm_def = bool(get_setting("detector_disasm", False))
+        except Exception:
+            disasm_def = False
+        try:
+            ghidra_def = bool(get_setting("detector_ghidra", False))
+        except Exception:
+            ghidra_def = False
+
+        self.yara_var = tk.BooleanVar(value=yara_def)
+        self.semgrep_var = tk.BooleanVar(value=semgrep_def)
+        self.ts_var = tk.BooleanVar(value=ts_def)
+        self.disasm_var = tk.BooleanVar(value=disasm_def)
+        self.ghidra_var = tk.BooleanVar(value=ghidra_def)
 
         ctk.CTkCheckBox(det_frame, text="YARA", variable=self.yara_var).grid(
             row=0, column=0, sticky="w"
@@ -123,6 +148,12 @@ class DetectorsPage(ctk.CTkFrame):
             actions, text="← Back to Setup", command=self._on_back
         )
         self.back_btn.pack(side="left", padx=(8, 0))
+
+        # Save current detector toggles as defaults (persist to settings)
+        self.save_defaults_btn = ctk.CTkButton(
+            actions, text="Save defaults", command=self._save_detector_defaults
+        )
+        self.save_defaults_btn.pack(side="left", padx=(8, 0))
 
         # Ghidra options (exports root and mock toggle)
         gh_frame = ctk.CTkFrame(content, fg_color="transparent")
@@ -322,6 +353,34 @@ class DetectorsPage(ctk.CTkFrame):
         t = threading.Thread(target=run_bg, daemon=True)
         t.start()
 
+    def _save_detector_defaults(self):
+        """Persist current detector enablement as defaults in settings."""
+        try:
+            set_setting("detector_yara", bool(self.yara_var.get()))
+        except Exception:
+            pass
+        try:
+            set_setting("detector_semgrep", bool(self.semgrep_var.get()))
+        except Exception:
+            pass
+        try:
+            set_setting("detector_treesitter", bool(self.ts_var.get()))
+        except Exception:
+            pass
+        try:
+            set_setting("detector_disasm", bool(self.disasm_var.get()))
+        except Exception:
+            pass
+        try:
+            set_setting("detector_ghidra", bool(self.ghidra_var.get()))
+        except Exception:
+            pass
+        # provide a short UI echo
+        try:
+            self._append("Detector defaults saved")
+        except Exception:
+            pass
+
     def _open_results(self):
         ctx = getattr(self.master, "current_scan_meta", None)
         if not ctx:
@@ -382,10 +441,101 @@ class DetectorsPage(ctk.CTkFrame):
             self._append("No preprocessed files found for this case. Run Setup first.")
             return
 
+        # decide in main thread whether we should generate missing artifacts
+        generate_needed = False
+        try:
+            need_ast = bool(self.ts_var.get())
+        except Exception:
+            need_ast = False
+        try:
+            need_disasm = bool(self.disasm_var.get())
+        except Exception:
+            need_disasm = False
+
+        if (need_ast or need_disasm) and files:
+            shas = []
+            for f in files:
+                p = Path(f)
+                if "preproc" in p.parts:
+                    try:
+                        sha = p.parts[p.parts.index("preproc") + 1]
+                        shas.append(sha)
+                    except Exception:
+                        continue
+            # check missing artifacts
+            missing_ast = []
+            missing_disasm = []
+            case_root = case_dir
+            if need_ast:
+                for s in shas:
+                    cand = case_root / "artifacts" / "ast" / f"{s}.json"
+                    if not cand.exists():
+                        missing_ast.append(s)
+            if need_disasm:
+                for s in shas:
+                    cand = case_root / "artifacts" / "disasm" / f"{s}.json"
+                    if not cand.exists():
+                        missing_disasm.append(s)
+
+            if missing_ast or missing_disasm:
+                # ask user whether to generate artifacts now
+                try:
+                    msg_lines = []
+                    if missing_ast:
+                        msg_lines.append(
+                            f"AST artifacts missing for {len(missing_ast)} inputs"
+                        )
+                    if missing_disasm:
+                        msg_lines.append(
+                            f"Disasm artifacts missing for {len(missing_disasm)} inputs"
+                        )
+                    msg_lines.append(
+                        "Generate these artifacts now? This may take some time."
+                    )
+                    res = messagebox.askyesno(
+                        "Generate artifacts?", "\n".join(msg_lines)
+                    )
+                    if res:
+                        generate_needed = True
+                except Exception:
+                    # if dialog can't be shown, default to not generate
+                    generate_needed = False
+
         # Run detectors in background
         def worker():
             try:
                 self._append("Starting detectors...")
+                # Optionally generate detector artifacts before running
+                if generate_needed:
+                    try:
+                        self._append("Generating detector artifacts (AST/disasm)...")
+
+                        def art_cb(processed, total, sha):
+                            try:
+                                self._append(f"Artifacts: {processed}/{total} — {sha}")
+                            except Exception:
+                                pass
+
+                        # collect shas again (safe to compute here)
+                        shas = []
+                        for f in files:
+                            p = Path(f)
+                            if "preproc" in p.parts:
+                                try:
+                                    sha = p.parts[p.parts.index("preproc") + 1]
+                                    shas.append(sha)
+                                except Exception:
+                                    continue
+                        generate_detector_artifacts(
+                            shas,
+                            str(case_dir),
+                            progress_cb=art_cb,
+                            build_ast=bool(self.ts_var.get()),
+                            build_disasm=bool(self.disasm_var.get()),
+                        )
+                        self._append("Artifact generation complete")
+                    except Exception as e:
+                        self._append(f"Artifact generation failed: {e}")
                 adapters = []
                 gh_root = None
                 if self.semgrep_var.get():

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -13,7 +14,12 @@ from tkinter import filedialog, messagebox
 
 from auditor.auditlog import AuditLog
 from auditor.case import Engagement
-from auditor.intake import count_inputs_fast, enumerate_inputs, write_manifest
+from auditor.intake import (
+    count_inputs_fast,
+    enumerate_inputs,
+    estimate_disk_usage,
+    write_manifest,
+)
 from auditor.preproc import preprocess_items
 from auditor.workspace import Workspace
 from policy_import import import_and_record_policy
@@ -22,10 +28,13 @@ from settings import (
     get_canonical_workdir,
     get_default_workdir,
     get_fast_count_timeout,
+    get_setting,
     reset_default_workdir,
     set_default_workdir,
     set_fast_count_timeout,
+    set_setting,
 )
+from ui.tooltip import add_tooltip
 
 import customtkinter as ctk  # isort:skip
 
@@ -75,6 +84,13 @@ class SetupPage(ctk.CTkFrame):
                 default_workdir = str(Path.home() / "CryptoScope" / "cases")
         self.workdir_entry.insert(0, default_workdir)
         self.workdir_entry.grid(row=0, column=1, sticky="we", padx=(6, 0))
+        try:
+            add_tooltip(
+                self.workdir_entry,
+                "Path where case data will be created. Use the canonical default or choose a custom folder.",
+            )
+        except Exception:
+            pass
         # Workdir browse button
         self.workdir_browse = ctk.CTkButton(
             form, text="Browse", width=90, command=self._browse_workdir
@@ -107,6 +123,14 @@ class SetupPage(ctk.CTkFrame):
             command=self._reset_to_canonical,
         )
         self.reset_canonical_btn.grid(row=1, column=1, pady=(6, 0), padx=(6, 0))
+        # Migration action: offer to move/copy existing non-canonical workdirs
+        self.migrate_btn = ctk.CTkButton(
+            canonical_frame,
+            text="Migrate workspace",
+            width=140,
+            command=self._open_migration_dialog,
+        )
+        self.migrate_btn.grid(row=2, column=0, columnspan=2, pady=(6, 0), sticky="w")
 
         ctk.CTkLabel(form, text="Case ID:").grid(row=1, column=0, sticky="w")
         self.case_entry = ctk.CTkEntry(form, placeholder_text="e.g. CASE-001")
@@ -132,14 +156,24 @@ class SetupPage(ctk.CTkFrame):
             form, text="Browse", width=90, command=self._browse_scope
         )
         self.scope_browse.grid(row=2, column=2, padx=(8, 0))
+        # Right-side area: optional Repo URL input and clone checkbox so the
+        # UI clearly separates local folder scope vs a repository URL.
+        scope_right = ctk.CTkFrame(form, fg_color="transparent")
+        scope_right.grid(row=2, column=3, padx=(8, 0), sticky="we")
+        # Repo URL entry (if provided, this will be treated as a repo to clone)
+        ctk.CTkLabel(scope_right, text="Repo URL:").grid(row=0, column=0, sticky="w")
+        self.repo_entry = ctk.CTkEntry(
+            scope_right, placeholder_text="https://... or git@..."
+        )
+        self.repo_entry.grid(row=1, column=0, sticky="we", pady=(4, 6))
         # Option: treat the scope as a Git repo URL and clone it locally
         self.git_clone_var = tk.BooleanVar(value=False)
         try:
             ctk.CTkCheckBox(
-                form,
+                scope_right,
                 text="Clone repo (if URL)",
                 variable=self.git_clone_var,
-            ).grid(row=2, column=3, padx=(8, 0))
+            ).grid(row=2, column=0, sticky="w")
         except Exception:
             # fallback: ignore if customtkinter configuration differs
             pass
@@ -159,39 +193,28 @@ class SetupPage(ctk.CTkFrame):
             form, text="Edit", width=70, command=self._edit_policy_popup
         )
         self.policy_edit.grid(row=3, column=3, padx=(8, 0))
-
-        # Preproc options
-        ctk.CTkLabel(form, text="Preproc Options:").grid(row=4, column=0, sticky="w")
-        opts = ctk.CTkFrame(form, fg_color="transparent")
-        opts.grid(row=4, column=1, sticky="we", padx=(6, 0))
-        self.extract_var = tk.BooleanVar(value=True)
-        ctk.CTkCheckBox(opts, text="Extract archives", variable=self.extract_var).grid(
-            row=0, column=0, sticky="w"
-        )
-        ctk.CTkLabel(opts, text="Max depth:").grid(row=0, column=1)
-        self.max_depth_entry = ctk.CTkEntry(opts, width=60)
-        self.max_depth_entry.insert(0, "2")
-        self.max_depth_entry.grid(row=0, column=2, padx=(4, 0))
-        # Fast-count timeout (seconds): small numeric input persisted via settings
         try:
-            fast_default = str(get_fast_count_timeout())
+            add_tooltip(
+                self.policy_edit,
+                "Open the policy editor: pick a template or edit JSON. Use Insert to write a temp policy or Save As to persist.",
+            )
         except Exception:
-            fast_default = "0.8"
-        ctk.CTkLabel(opts, text="Fast-count timeout (s):").grid(
-            row=0, column=3, padx=(8, 0)
-        )
-        self.fastcount_entry = ctk.CTkEntry(opts, width=80)
-        self.fastcount_entry.insert(0, fast_default)
-        self.fastcount_entry.grid(row=0, column=4, padx=(4, 0))
+            pass
 
-        self.ast_var = tk.BooleanVar(value=False)
-        self.disasm_var = tk.BooleanVar(value=False)
-        ctk.CTkCheckBox(opts, text="Generate AST cache", variable=self.ast_var).grid(
-            row=1, column=0, sticky="w", pady=(6, 0)
+        # Advanced preproc options are now managed in Preferences to keep the
+        # Setup page focused. Click Preferences to configure filters, extraction,
+        # symlink behavior, and detector defaults.
+        adv_note = ctk.CTkLabel(
+            form,
+            text="Advanced preprocessing options are in Preferences → Configure advanced settings.",
+            wraplength=520,
+            text_color="#6c757d",
         )
-        ctk.CTkCheckBox(
-            opts, text="Generate disasm cache", variable=self.disasm_var
-        ).grid(row=1, column=1, sticky="w", pady=(6, 0))
+        adv_note.grid(row=4, column=1, sticky="w", padx=(6, 0))
+
+        # Detector selection is handled on the Detectors page; keep Setup focused
+        # on preprocessing options (AST/disasm toggles) and filters. Defaults
+        # for detectors are persisted/read by the Detectors page itself.
 
         # Actions
         actions = ctk.CTkFrame(content, fg_color="transparent")
@@ -215,6 +238,15 @@ class SetupPage(ctk.CTkFrame):
             actions, text="Open workdir", command=self._open_workdir
         )
         self.open_workdir_btn.pack(side="left", padx=(8, 0))
+        self.prefs_btn = ctk.CTkButton(
+            actions, text="Preferences", command=self._open_preferences_modal
+        )
+        self.prefs_btn.pack(side="left", padx=(8, 0))
+        # Quick preview button: sample the scope without hashing to show counts
+        self.preview_btn = ctk.CTkButton(
+            actions, text="Preview Scope", command=self._on_preview_scope
+        )
+        self.preview_btn.pack(side="left", padx=(8, 0))
 
         # Progress
         self.progress_label = ctk.CTkLabel(content, text="")
@@ -222,12 +254,20 @@ class SetupPage(ctk.CTkFrame):
         self.progress = ctk.CTkProgressBar(content, width=480)
         self.progress.pack(pady=(2, 12))
         self.progress.set(0.0)
+        # small transient label shown when waiting for background worker
+        # cleanup after a cancellation (hidden by default)
+        self.cleaning_label = ctk.CTkLabel(
+            content, text="Cleaning up...", text_color="#6c757d"
+        )
+        self._cleaning_visible = False
 
         self.results_box = tk.Text(content, height=10, wrap="none")
         self.results_box.pack(fill="both", padx=12, pady=(6, 12), expand=False)
 
         # internal state
         self._cancel_event = None
+        # background worker thread for the current engagement (if any)
+        self._worker_thread = None
         # indeterminate ticker state for long-running stages
         self._indeterminate_running = False
         self._indeterminate_val = 0.0
@@ -306,6 +346,29 @@ class SetupPage(ctk.CTkFrame):
                 except Exception:
                     pass
                 self._progress_visible = False
+        except Exception:
+            pass
+
+    def _show_cleaning_label(self, show: bool):
+        """Show or hide the small "Cleaning up..." label while worker finishes."""
+        try:
+            if show and not getattr(self, "_cleaning_visible", False):
+                # insert the cleaning label immediately before the numeric
+                # progress bar so it appears beneath the main status label.
+                try:
+                    self.cleaning_label.pack(pady=(0, 4), before=self.progress)
+                except Exception:
+                    try:
+                        self.cleaning_label.pack(pady=(0, 4))
+                    except Exception:
+                        pass
+                self._cleaning_visible = True
+            elif not show and getattr(self, "_cleaning_visible", False):
+                try:
+                    self.cleaning_label.pack_forget()
+                except Exception:
+                    pass
+                self._cleaning_visible = False
         except Exception:
             pass
 
@@ -642,28 +705,210 @@ class SetupPage(ctk.CTkFrame):
         top.transient(self)
         top.grab_set()
 
-        # Template selector
+        # Template selector + two-pane editor: structured form (left) + raw JSON (right)
         frame = ctk.CTkFrame(top, fg_color="transparent")
         frame.pack(padx=12, pady=12, fill="both", expand=True)
 
+        # Row 0: template selector
         ctk.CTkLabel(frame, text="Template:").grid(row=0, column=0, sticky="w")
         templates = ["Whitelist", "Rule Overrides", "Scoring", "Combined"]
         tmpl_var = tk.StringVar(value=templates[0])
         tmpl_menu = ctk.CTkOptionMenu(frame, values=templates, variable=tmpl_var)
-        tmpl_menu.grid(row=0, column=1, sticky="we", padx=(8, 0))
+        tmpl_menu.grid(row=0, column=1, sticky="we", padx=(8, 0), columnspan=2)
 
-        # Editor (multi-line)
-        editor = tk.Text(frame, width=80, height=20, wrap="none")
-        editor.grid(row=1, column=0, columnspan=3, pady=(8, 8))
+        # Split area: structured form (left) and raw JSON editor (right)
+        split = ctk.CTkFrame(frame, fg_color="transparent")
+        split.grid(row=1, column=0, columnspan=3, sticky="nsew", pady=(8, 8))
+        split.grid_columnconfigure(0, weight=1)
+        split.grid_columnconfigure(1, weight=2)
+
+        # Left: structured fields for common policy elements
+        form_frame = ctk.CTkFrame(split, fg_color="transparent")
+        form_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        form_frame.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(form_frame, text="Version:").grid(row=0, column=0, sticky="w")
+        version_entry = ctk.CTkEntry(form_frame)
+        version_entry.grid(row=0, column=1, sticky="we", pady=(2, 6))
+
+        ctk.CTkLabel(form_frame, text="Author:").grid(row=1, column=0, sticky="w")
+        author_entry = ctk.CTkEntry(form_frame)
+        author_entry.grid(row=1, column=1, sticky="we", pady=(2, 6))
+
+        ctk.CTkLabel(form_frame, text="Metadata version:").grid(
+            row=2, column=0, sticky="w"
+        )
+        meta_ver_entry = ctk.CTkEntry(form_frame)
+        meta_ver_entry.grid(row=2, column=1, sticky="we", pady=(2, 6))
+
+        # Scoring engine weights (common tuning knobs)
+        ctk.CTkLabel(form_frame, text="Engine weights (yara/treesitter/disasm):").grid(
+            row=3, column=0, sticky="w", columnspan=2
+        )
+        ew_frame = ctk.CTkFrame(form_frame, fg_color="transparent")
+        ew_frame.grid(row=4, column=0, columnspan=2, sticky="we", pady=(2, 6))
+        yara_w = ctk.CTkEntry(ew_frame, width=60)
+        yara_w.grid(row=0, column=0, padx=(0, 6))
+        ts_w = ctk.CTkEntry(ew_frame, width=60)
+        ts_w.grid(row=0, column=1, padx=(0, 6))
+        disasm_w = ctk.CTkEntry(ew_frame, width=60)
+        disasm_w.grid(row=0, column=2)
+
+        # Whitelist file hashes (comma-separated simple UI)
+        ctk.CTkLabel(form_frame, text="Whitelist file hashes:").grid(
+            row=5, column=0, sticky="w"
+        )
+        whitelist_entry = tk.Text(form_frame, height=6, wrap="none")
+        whitelist_entry.grid(row=5, column=1, sticky="we", pady=(2, 6))
+
+        # Right: raw JSON editor (kept for advanced edits)
+        editor_frame = ctk.CTkFrame(split, fg_color="transparent")
+        editor_frame.grid(row=0, column=1, sticky="nsew")
+        editor_frame.grid_rowconfigure(0, weight=1)
+        editor_frame.grid_columnconfigure(0, weight=1)
+
+        editor = tk.Text(editor_frame, width=80, height=20, wrap="none")
+        editor.grid(row=0, column=0, sticky="nsew")
 
         def _render_template(*_):
             kind = tmpl_var.get()
             editor.delete("1.0", "end")
             editor.insert("1.0", self._policy_template_json(kind))
+            # update the structured form to reflect the template
+            try:
+                obj = json.loads(self._policy_template_json(kind))
+                try:
+                    json_to_form(obj)
+                except Exception:
+                    pass
+            except Exception:
+                pass
 
         tmpl_var.trace_add("write", _render_template)
         # populate initial
         _render_template()
+
+        # Helper: map JSON object -> form fields
+        def json_to_form(obj: dict):
+            try:
+                version = obj.get("version", "")
+                version_entry.delete(0, "end")
+                version_entry.insert(0, str(version))
+            except Exception:
+                pass
+            try:
+                meta = obj.get("metadata", {}) or {}
+                author_entry.delete(0, "end")
+                author_entry.insert(0, str(meta.get("author", "")))
+                meta_ver_entry.delete(0, "end")
+                meta_ver_entry.insert(0, str(meta.get("version", "")))
+            except Exception:
+                pass
+            try:
+                scoring = obj.get("scoring", {}) or {}
+                ew = scoring.get("engine_weights", {}) or {}
+                yara_w.delete(0, "end")
+                yara_w.insert(0, str(ew.get("yara", "")))
+                ts_w.delete(0, "end")
+                ts_w.insert(0, str(ew.get("treesitter", "")))
+                disasm_w.delete(0, "end")
+                disasm_w.insert(0, str(ew.get("disasm", "")))
+            except Exception:
+                pass
+            try:
+                wl = obj.get("whitelist", {}) or {}
+                fh = wl.get("file_hashes", []) or []
+                whitelist_entry.delete("1.0", "end")
+                whitelist_entry.insert("1.0", ",".join(str(x) for x in fh))
+            except Exception:
+                pass
+
+        # Helper: map form fields -> JSON in editor (doesn't validate schema)
+        def form_to_json():
+            out = {}
+            try:
+                v = version_entry.get().strip()
+                if v:
+                    out["version"] = v
+            except Exception:
+                pass
+            try:
+                meta = {}
+                a = author_entry.get().strip()
+                if a:
+                    meta["author"] = a
+                mv = meta_ver_entry.get().strip()
+                if mv:
+                    meta["version"] = mv
+                if meta:
+                    out["metadata"] = meta
+            except Exception:
+                pass
+            try:
+                ew = {}
+                y = yara_w.get().strip()
+                t = ts_w.get().strip()
+                d = disasm_w.get().strip()
+                if y:
+                    try:
+                        ew["yara"] = float(y)
+                    except Exception:
+                        ew["yara"] = y
+                if t:
+                    try:
+                        ew["treesitter"] = float(t)
+                    except Exception:
+                        ew["treesitter"] = t
+                if d:
+                    try:
+                        ew["disasm"] = float(d)
+                    except Exception:
+                        ew["disasm"] = d
+                if ew:
+                    out.setdefault("scoring", {})["engine_weights"] = ew
+            except Exception:
+                pass
+            try:
+                fh_txt = whitelist_entry.get("1.0", "end").strip()
+                if fh_txt:
+                    fh = [s.strip() for s in fh_txt.split(",") if s.strip()]
+                    out.setdefault("whitelist", {})["file_hashes"] = fh
+            except Exception:
+                pass
+            try:
+                editor.delete("1.0", "end")
+                editor.insert(
+                    "1.0", json.dumps(out, sort_keys=True, ensure_ascii=False, indent=2)
+                )
+                schedule_validate()
+            except Exception:
+                pass
+
+        # Debounced form->json sync
+        top.form_sync_timer = None
+
+        def schedule_form_sync():
+            try:
+                if getattr(top, "form_sync_timer", None):
+                    top.after_cancel(top.form_sync_timer)
+            except Exception:
+                pass
+            try:
+                top.form_sync_timer = top.after(300, form_to_json)
+            except Exception:
+                form_to_json()
+
+        # Bind form changes to update raw JSON editor
+        try:
+            version_entry.bind("<KeyRelease>", lambda e: schedule_form_sync())
+            author_entry.bind("<KeyRelease>", lambda e: schedule_form_sync())
+            meta_ver_entry.bind("<KeyRelease>", lambda e: schedule_form_sync())
+            yara_w.bind("<KeyRelease>", lambda e: schedule_form_sync())
+            ts_w.bind("<KeyRelease>", lambda e: schedule_form_sync())
+            disasm_w.bind("<KeyRelease>", lambda e: schedule_form_sync())
+            whitelist_entry.bind("<KeyRelease>", lambda e: schedule_form_sync())
+        except Exception:
+            pass
 
         # Inline validation area (debounced): shows parse/schema errors and
         # disables Insert/Save while errors exist.
@@ -674,6 +919,14 @@ class SetupPage(ctk.CTkFrame):
         # attach simple debounce state to the modal window object
         top.policy_validate_timer = None
         top.last_policy_text = None
+        # option to attach policy on Insert (will set an attribute on the page)
+        attach_var = tk.BooleanVar(value=False)
+        try:
+            ctk.CTkCheckBox(frame, text="Attach on Insert", variable=attach_var).grid(
+                row=4, column=0, sticky="w", pady=(4, 0)
+            )
+        except Exception:
+            pass
 
         def schedule_validate():
             try:
@@ -710,6 +963,15 @@ class SetupPage(ctk.CTkFrame):
                 else:
                     try:
                         error_var.set("")
+                    except Exception:
+                        pass
+                    # when valid, update structured form to reflect current JSON
+                    try:
+                        obj = json.loads(txt)
+                        try:
+                            json_to_form(obj)
+                        except Exception:
+                            pass
                     except Exception:
                         pass
                     try:
@@ -761,6 +1023,12 @@ class SetupPage(ctk.CTkFrame):
                     f.write(txt)
                 self.policy_entry.delete(0, "end")
                 self.policy_entry.insert(0, path)
+                # record attach preference on the page instance so callers
+                # can inspect whether the user wanted the policy attached
+                try:
+                    self._policy_attached = bool(attach_var.get())
+                except Exception:
+                    self._policy_attached = False
                 top.destroy()
             except Exception:
                 try:
@@ -914,6 +1182,293 @@ class SetupPage(ctk.CTkFrame):
         except Exception:
             pass
 
+    def _open_preferences_modal(self):
+        """Open a Preferences modal allowing users to set common defaults.
+
+        Fields: default workdir, fast-count timeout, max-preview-sample,
+        max-file-size default (KB), follow-symlinks default, and simple
+        detector defaults (yara/treesitter/disasm).
+        """
+        top = tk.Toplevel(self)
+        top.title("Preferences")
+        top.transient(self)
+        top.grab_set()
+
+        frame = ctk.CTkFrame(top, fg_color="transparent")
+        frame.pack(padx=12, pady=12, fill="both", expand=True)
+
+        # Default workdir
+        ctk.CTkLabel(frame, text="Default workdir:").grid(row=0, column=0, sticky="w")
+        wd_entry = ctk.CTkEntry(frame, width=480)
+        try:
+            wd_entry.insert(0, str(get_default_workdir()))
+        except Exception:
+            wd_entry.insert(0, "")
+        wd_entry.grid(row=0, column=1, columnspan=2, pady=(4, 8), sticky="we")
+
+        # Fast-count timeout
+        ctk.CTkLabel(frame, text="Fast-count timeout (s):").grid(
+            row=1, column=0, sticky="w"
+        )
+        fc_entry = ctk.CTkEntry(frame, width=80)
+        try:
+            fc_entry.insert(0, str(get_fast_count_timeout()))
+        except Exception:
+            fc_entry.insert(0, "0.8")
+        fc_entry.grid(row=1, column=1, sticky="w", pady=(4, 8))
+
+        # Max preview sample (how many files preview samples)
+        ctk.CTkLabel(frame, text="Preview sample size:").grid(
+            row=2, column=0, sticky="w"
+        )
+        sample_entry = ctk.CTkEntry(frame, width=80)
+        try:
+            sample_entry.insert(0, str(get_setting("preview_sample_limit", 200)))
+        except Exception:
+            sample_entry.insert(0, "200")
+        sample_entry.grid(row=2, column=1, sticky="w", pady=(4, 8))
+
+        # Max file size default (KB)
+        ctk.CTkLabel(frame, text="Default max file size (KB):").grid(
+            row=3, column=0, sticky="w"
+        )
+        maxsz_entry = ctk.CTkEntry(frame, width=80)
+        try:
+            maxsz_entry.insert(0, str(get_setting("max_file_size_kb", 0)))
+        except Exception:
+            maxsz_entry.insert(0, "0")
+        maxsz_entry.grid(row=3, column=1, sticky="w", pady=(4, 8))
+
+        # Extract archives default
+        try:
+            extract_default = bool(get_setting("do_extract", True))
+        except Exception:
+            extract_default = True
+        extract_var = tk.BooleanVar(value=extract_default)
+        ctk.CTkCheckBox(
+            frame, text="Extract archives by default", variable=extract_var
+        ).grid(row=3, column=2, sticky="w", padx=(8, 0))
+
+        # Max extract depth default
+        ctk.CTkLabel(frame, text="Default max extract depth:").grid(
+            row=4, column=0, sticky="w"
+        )
+        maxdepth_entry = ctk.CTkEntry(frame, width=80)
+        try:
+            maxdepth_entry.insert(0, str(get_setting("max_extract_depth", 2)))
+        except Exception:
+            maxdepth_entry.insert(0, "2")
+        maxdepth_entry.grid(row=4, column=1, sticky="w", pady=(4, 8))
+
+        # Follow symlinks default
+        try:
+            fs_default = bool(get_setting("follow_symlinks", False))
+        except Exception:
+            fs_default = False
+        follow_var = tk.BooleanVar(value=fs_default)
+        ctk.CTkCheckBox(
+            frame, text="Follow symlinks by default", variable=follow_var
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 8))
+
+        # Detector defaults are configured on the Detectors page to avoid
+        # duplicated UI. The Detectors page persists its own defaults so
+        # the Preferences modal does not expose detector toggles.
+
+        # Buttons
+        btns = ctk.CTkFrame(frame, fg_color="transparent")
+        btns.grid(row=8, column=0, columnspan=3, pady=(12, 0))
+
+        def _save_prefs():
+            try:
+                wd = wd_entry.get().strip()
+                if wd:
+                    set_default_workdir(wd)
+            except Exception:
+                pass
+            try:
+                fct = float(fc_entry.get().strip() or "0")
+                set_fast_count_timeout(fct)
+            except Exception:
+                pass
+            try:
+                sample = int(sample_entry.get().strip() or "200")
+                set_setting("preview_sample_limit", sample)
+            except Exception:
+                pass
+            try:
+                msz = int(maxsz_entry.get().strip() or "0")
+                set_setting("max_file_size_kb", msz)
+            except Exception:
+                pass
+            try:
+                set_setting("do_extract", bool(extract_var.get()))
+            except Exception:
+                pass
+            try:
+                med = int(maxdepth_entry.get().strip() or "2")
+                set_setting("max_extract_depth", med)
+            except Exception:
+                pass
+            try:
+                set_setting("follow_symlinks", bool(follow_var.get()))
+            except Exception:
+                pass
+            # Detector defaults are managed on the Detectors page; do not
+            # persist detector toggles from Preferences to avoid UI overlap.
+            top.destroy()
+
+        def _cancel():
+            top.destroy()
+
+        ctk.CTkButton(btns, text="Save", command=_save_prefs).pack(
+            side="left", padx=(0, 8)
+        )
+        ctk.CTkButton(btns, text="Cancel", command=_cancel).pack(side="left")
+        top.wait_window()
+
+    def _open_migration_dialog(self):
+        """Open a migration dialog to move or copy a non-canonical workdir
+
+        The dialog samples the selected source (workdir_entry) for a small
+        estimate of file count and size then offers Move / Copy / Cancel.
+        The actual operation runs in a background thread and logs progress
+        into the results box. This is opt-in; no automatic moves happen.
+        """
+        src = self.workdir_entry.get().strip()
+        if not src:
+            messagebox.showinfo("Migrate workspace", "No workdir selected")
+            return
+
+        try:
+            canonical = str(get_canonical_workdir())
+        except Exception:
+            canonical = None
+        if not canonical:
+            messagebox.showerror(
+                "Migrate workspace", "Could not determine canonical workdir"
+            )
+            return
+
+        top = tk.Toplevel(self)
+        top.title("Migrate workspace to canonical location")
+        top.transient(self)
+        top.grab_set()
+
+        frame = ctk.CTkFrame(top, fg_color="transparent")
+        frame.pack(padx=12, pady=12, fill="both", expand=True)
+
+        ctk.CTkLabel(frame, text=f"Source: {src}").pack(anchor="w")
+        ctk.CTkLabel(frame, text=f"Destination parent: {canonical}").pack(
+            anchor="w", pady=(4, 8)
+        )
+
+        # sample counts
+        sample_lbl = ctk.CTkLabel(frame, text="Estimating...")
+        sample_lbl.pack(anchor="w", pady=(4, 8))
+
+        # choice buttons
+        btns = ctk.CTkFrame(frame, fg_color="transparent")
+        btns.pack(pady=(8, 0))
+
+        def _do_estimate():
+            try:
+                SAMPLE = int(get_setting("preview_sample_limit", 200))
+            except Exception:
+                SAMPLE = 200
+            try:
+                res = estimate_disk_usage(
+                    [src],
+                    sample_limit=SAMPLE,
+                    follow_symlinks=bool(get_setting("follow_symlinks", False)),
+                )
+                seen = res.get("sampled_files", 0)
+                total_size = res.get("sampled_bytes", 0)
+                top_dirs = res.get("top_dirs", {})
+                human = (
+                    f"{total_size/1024:.1f} KB"
+                    if total_size < 1024 * 1024
+                    else f"{total_size/1024/1024:.1f} MB"
+                )
+                lines = [f"Sampled files: {seen}; approx size (sample): {human}"]
+                if top_dirs:
+                    lines.append("Top folders (sample):")
+                    for name, sz in list(top_dirs.items())[:8]:
+                        hs = (
+                            f"{sz/1024:.1f} KB"
+                            if sz < 1024 * 1024
+                            else f"{sz/1024/1024:.1f} MB"
+                        )
+                        lines.append(f"  {name}: {hs}")
+                sample_lbl.configure(text="\n".join(lines))
+            except Exception as e:
+                try:
+                    sample_lbl.configure(text=f"Estimate error: {e}")
+                except Exception:
+                    pass
+
+        _do_estimate()
+
+        def _do_migrate(move: bool):
+            # run migration in background
+            def _worker():
+                try:
+                    self.after(
+                        0,
+                        self._append_result,
+                        f"Migration started: {'move' if move else 'copy'} {src} -> {canonical}\n",
+                    )
+                    target_parent = Path(canonical)
+                    target_parent.mkdir(parents=True, exist_ok=True)
+                    dest = target_parent / Path(src).name
+                    if dest.exists():
+                        # avoid overwriting existing dest
+                        self.after(
+                            0,
+                            self._append_result,
+                            f"Destination exists: {dest} — aborting\n",
+                        )
+                        return
+                    if move:
+                        shutil.move(src, str(dest))
+                        self.after(0, self._append_result, f"Moved {src} -> {dest}\n")
+                    else:
+                        # copytree may raise if dest exists; use copytree
+                        shutil.copytree(src, str(dest))
+                        self.after(0, self._append_result, f"Copied {src} -> {dest}\n")
+                    # update UI to point to new canonical location
+                    try:
+                        self.workdir_entry.delete(0, "end")
+                        self.workdir_entry.insert(0, str(dest))
+                        set_default_workdir(str(dest))
+                    except Exception:
+                        pass
+                except Exception as e:
+                    self.after(0, self._append_result, f"Migration error: {e}\n")
+                finally:
+                    try:
+                        self.after(
+                            0, partial(self.migrate_btn.configure, state="normal")
+                        )
+                    except Exception:
+                        pass
+
+            try:
+                # disable button while migrating
+                self.migrate_btn.configure(state="disabled")
+            except Exception:
+                pass
+            threading.Thread(target=_worker, daemon=True).start()
+            top.destroy()
+
+        ctk.CTkButton(
+            btns, text="Move into canonical", command=lambda: _do_migrate(True)
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(
+            btns, text="Copy into canonical", command=lambda: _do_migrate(False)
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(btns, text="Cancel", command=top.destroy).pack(side="left")
+        top.wait_window()
+
     def _reset_to_canonical(self):
         # remove any saved user preference so the app falls back to the
         # canonical path returned by get_canonical_workdir()
@@ -946,6 +1501,20 @@ class SetupPage(ctk.CTkFrame):
         self.results_box.delete("1.0", "end")
         self.results_box.insert("end", "Preview: scanning scope...\n")
         self._set_status("Starting engagement (background)...")
+        # Prevent starting if a previous worker thread is still running.
+        try:
+            if getattr(self, "_worker_thread", None) and self._worker_thread.is_alive():
+                try:
+                    messagebox.showinfo(
+                        "Engagement running",
+                        "An engagement is already running. Please wait for it to finish or cancel it.",
+                    )
+                except Exception:
+                    pass
+                return
+        except Exception:
+            pass
+
         self._cancel_event = threading.Event()
         self._cancelled = False
         self.cancel_btn.configure(state="normal")
@@ -961,25 +1530,145 @@ class SetupPage(ctk.CTkFrame):
         except Exception:
             pass
 
-        # persist fast-count timeout preference
-        try:
-            ftxt = self.fastcount_entry.get().strip()
-            try:
-                fval = float(ftxt)
-                set_fast_count_timeout(fval)
-            except Exception:
-                # ignore invalid entry and keep previous value
-                pass
-        except Exception:
-            pass
+        # Advanced preferences (filters, extraction, symlink behavior, etc.)
+        # are managed in Preferences. Do not persist ephemeral UI fields here.
         t = threading.Thread(target=self._run_engagement_flow, daemon=True)
         t.start()
+        # remember the worker thread so we can avoid concurrent runs
+        try:
+            self._worker_thread = t
+        except Exception:
+            pass
+        # Ensure the transient cleaning label is hidden when starting a run
+        try:
+            self.after(0, self._show_cleaning_label, False)
+        except Exception:
+            pass
+
+    def _on_preview_scope(self):
+        """Run a lightweight non-hashing sample of the scope and show a summary.
+
+        The preview samples up to SAMPLE_LIMIT files using os.scandir (no hashing)
+        and reports total files found (sampled), top extensions and approximate
+        total size. It runs in a background thread to avoid blocking the UI.
+        """
+        SAMPLE_LIMIT = 200
+
+        def _worker():
+            try:
+                self.after(0, partial(self.preview_btn.configure, state="disabled"))
+                scope = self.repo_entry.get().strip() or self.scope_entry.get().strip()
+                if not scope:
+                    self.after(0, self._append_result, "Preview: no scope specified\n")
+                    return
+                import os
+                from collections import Counter, deque
+
+                q = deque([scope])
+                seen = 0
+                total_size = 0
+                ext_counts = Counter()
+                file_preview = []
+
+                while q and seen < SAMPLE_LIMIT:
+                    cur = q.popleft()
+                    try:
+                        if os.path.isdir(cur):
+                            with os.scandir(cur) as it:
+                                for entry in it:
+                                    if seen >= SAMPLE_LIMIT:
+                                        break
+                                    try:
+                                        if entry.is_file(follow_symlinks=False):
+                                            stat = entry.stat(follow_symlinks=False)
+                                            seen += 1
+                                            total_size += stat.st_size
+                                            name = entry.name
+                                            if "." in name:
+                                                ext = name.rsplit(".", 1)[-1].lower()
+                                            else:
+                                                ext = "<noext>"
+                                            ext_counts[ext] += 1
+                                            if len(file_preview) < 10:
+                                                file_preview.append(
+                                                    (entry.path, stat.st_size)
+                                                )
+                                        elif entry.is_dir(follow_symlinks=False):
+                                            q.append(entry.path)
+                                    except Exception:
+                                        continue
+                        elif os.path.isfile(cur):
+                            try:
+                                stat = os.stat(cur)
+                                seen += 1
+                                total_size += stat.st_size
+                                name = os.path.basename(cur)
+                                if "." in name:
+                                    ext = name.rsplit(".", 1)[-1].lower()
+                                else:
+                                    ext = "<noext>"
+                                ext_counts[ext] += 1
+                                if len(file_preview) < 10:
+                                    file_preview.append((cur, stat.st_size))
+                            except Exception:
+                                pass
+                    except Exception:
+                        continue
+
+                # prepare summary
+                most_common = ext_counts.most_common(8)
+
+                def human_size(s):
+                    return (
+                        f"{s/1024:.1f} KB"
+                        if s < 1024 * 1024
+                        else f"{s/1024/1024:.1f} MB"
+                    )
+
+                lines = [f"Preview results (sampled up to {SAMPLE_LIMIT} files):"]
+                lines.append(f"Sampled files: {seen}")
+                lines.append(f"Approx total size (sample): {human_size(total_size)}")
+                if most_common:
+                    lines.append("Top extensions (sample):")
+                    for ext, cnt in most_common:
+                        lines.append(f"  {ext}: {cnt}")
+                if file_preview:
+                    lines.append("Example files:")
+                    for pth, sz in file_preview:
+                        lines.append(f"  {pth} — {human_size(sz)}")
+
+                self.after(0, self._append_result, "\n".join(lines) + "\n")
+            except Exception as e:
+                try:
+                    self.after(0, self._append_result, f"Preview error: {e}\n")
+                except Exception:
+                    pass
+            finally:
+                try:
+                    self.after(0, partial(self.preview_btn.configure, state="normal"))
+                except Exception:
+                    pass
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _run_engagement_flow(self):
         wd = self.workdir_entry.get().strip() or str(Path.cwd() / "case_demo")
         case_id = self.case_entry.get().strip() or "CASE-000"
         client = self.client_entry.get().strip() or "SetupUI"
-        scope = self.scope_entry.get().strip() or str(Path.cwd())
+        # Support two separate scope inputs: a local folder and an optional
+        # repo URL. If the repo field is provided we'll treat the scope as a
+        # repository to clone; otherwise we use the local folder path.
+        try:
+            repo_val = self.repo_entry.get().strip()
+        except Exception:
+            repo_val = ""
+        scope_local = self.scope_entry.get().strip() or str(Path.cwd())
+        if repo_val:
+            scope = repo_val
+            _scope_is_repo = True
+        else:
+            scope = scope_local
+            _scope_is_repo = False
 
         try:
             eng = Engagement(workdir=wd, case_id=case_id, client=client, scope=scope)
@@ -1025,7 +1714,12 @@ class SetupPage(ctk.CTkFrame):
             # the actual scope for scanning. We record audit events for
             # success/failure.
             try:
-                if getattr(self, "git_clone_var", None) and self.git_clone_var.get():
+                # If the user provided a Repo URL we want to clone it. Also
+                # keep the legacy checkbox behavior: if the checkbox is set and
+                # the provided scope looks like a git URL, attempt a clone.
+                if _scope_is_repo or (
+                    getattr(self, "git_clone_var", None) and self.git_clone_var.get()
+                ):
 
                     def _is_git_url(s: str) -> bool:
                         if not s:
@@ -1152,8 +1846,45 @@ class SetupPage(ctk.CTkFrame):
                 fast_timeout = get_fast_count_timeout()
             except Exception:
                 fast_timeout = 0.8
+            # read advanced filter/preproc preferences from stored settings
             try:
-                total_count = count_inputs_fast([scope], timeout=fast_timeout)
+                inc_txt = get_setting("include_globs", "") or ""
+            except Exception:
+                inc_txt = ""
+            try:
+                exc_txt = get_setting("exclude_globs", "") or ""
+            except Exception:
+                exc_txt = ""
+            try:
+                msz_kb = int(get_setting("max_file_size_kb", 0) or 0)
+            except Exception:
+                msz_kb = 0
+            try:
+                follow_links = bool(get_setting("follow_symlinks", False))
+            except Exception:
+                follow_links = False
+
+            include_globs = (
+                [g.strip() for g in inc_txt.split(",") if g.strip()]
+                if inc_txt
+                else None
+            )
+            exclude_globs = (
+                [g.strip() for g in exc_txt.split(",") if g.strip()]
+                if exc_txt
+                else None
+            )
+            max_bytes = (msz_kb * 1024) if (msz_kb and msz_kb > 0) else None
+
+            try:
+                total_count = count_inputs_fast(
+                    [scope],
+                    timeout=fast_timeout,
+                    include_globs=include_globs,
+                    exclude_globs=exclude_globs,
+                    max_file_size_bytes=max_bytes,
+                    follow_symlinks=follow_links,
+                )
             except Exception:
                 total_count = None
             try:
@@ -1222,16 +1953,22 @@ class SetupPage(ctk.CTkFrame):
                 )
 
             try:
-                max_depth = int(self.max_depth_entry.get().strip())
+                max_depth = int(get_setting("max_extract_depth", 2))
             except Exception:
                 max_depth = 2
-            do_extract = bool(self.extract_var.get())
+            do_extract = bool(get_setting("do_extract", True))
 
             # Enumerate inputs and write manifest into the case workspace (same as Auditor)
             # Provide a progress callback so UI can show scanning progress.
             try:
                 items = enumerate_inputs(
-                    [scope], progress_cb=enum_progress, cancel_event=self._cancel_event
+                    [scope],
+                    progress_cb=enum_progress,
+                    cancel_event=self._cancel_event,
+                    include_globs=include_globs,
+                    exclude_globs=exclude_globs,
+                    max_file_size_bytes=max_bytes,
+                    follow_symlinks=follow_links,
                 )
             finally:
                 # mark the scanning stage ended (this will show 100% briefly
@@ -1279,6 +2016,9 @@ class SetupPage(ctk.CTkFrame):
                     self.after(0, self._begin_stage, "Preprocessing", False)
                 except Exception:
                     pass
+                # Perform fundamental preprocessing only. Detector-specific
+                # artifact generation (AST/disasm) is deferred until detectors
+                # are run so Setup stays fast and focused on manifesting/indexing.
                 preproc_result = preprocess_items(
                     items,
                     str(case_dir),
@@ -1286,8 +2026,8 @@ class SetupPage(ctk.CTkFrame):
                     cancel_event=self._cancel_event,
                     max_extract_depth=max_depth,
                     do_extract=do_extract,
-                    build_ast=bool(self.ast_var.get()),
-                    build_disasm=bool(self.disasm_var.get()),
+                    build_ast=False,
+                    build_disasm=False,
                 )
             except Exception as e:
                 preproc_result = {"stats": {}}
@@ -1320,6 +2060,16 @@ class SetupPage(ctk.CTkFrame):
             try:
                 self.after(0, partial(self.start_btn.configure, state="normal"))
                 self.after(0, partial(self.cancel_btn.configure, state="disabled"))
+                # hide transient cleaning indicator when worker fully cleaned up
+                try:
+                    self.after(0, self._show_cleaning_label, False)
+                except Exception:
+                    pass
+                # clear worker thread reference
+                try:
+                    self._worker_thread = None
+                except Exception:
+                    pass
             except Exception:
                 pass
 
@@ -1345,7 +2095,25 @@ class SetupPage(ctk.CTkFrame):
                     self.results_box.see("end")
                 except Exception:
                     pass
-                self.cancel_btn.configure(state="disabled")
+                # Don't re-enable Start here; wait for the worker thread to
+                # finish. _run_engagement_flow's finally block will re-enable
+                # the Start button when cleanup completes.
+                try:
+                    self.cancel_btn.configure(state="disabled")
+                except Exception:
+                    pass
+                # show cleaning indicator if the worker thread is still shutting down
+                try:
+                    if (
+                        getattr(self, "_worker_thread", None)
+                        and self._worker_thread.is_alive()
+                    ):
+                        try:
+                            self.after(0, self._show_cleaning_label, True)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
             except Exception:
                 pass
 

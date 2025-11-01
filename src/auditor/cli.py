@@ -25,6 +25,27 @@ def main(argv=None):
     p.add_argument("--case-id", default="CASE-001")
     p.add_argument("--client", default="ACME Corp")
     p.add_argument("--scope", default=".")
+    p.add_argument(
+        "--include",
+        default=None,
+        help="Comma-separated include glob patterns (e.g. '*.sol,src/**')",
+    )
+    p.add_argument(
+        "--exclude",
+        default=None,
+        help="Comma-separated exclude glob patterns (e.g. 'node_modules,build/**')",
+    )
+    p.add_argument(
+        "--max-size-kb",
+        default=0,
+        type=int,
+        help="Skip files larger than this size in KB (0 = no limit)",
+    )
+    p.add_argument(
+        "--follow-symlinks",
+        action="store_true",
+        help="Follow symbolic links when scanning",
+    )
     p.add_argument("--policy", default=None)
     args = p.parse_args(argv)
 
@@ -50,7 +71,24 @@ def main(argv=None):
         },
     )
 
-    items = enumerate_inputs([args.scope])
+    # parse filters
+    include_globs = [
+        g.strip() for g in (args.include or "").split(",") if g.strip()
+    ] or None
+    exclude_globs = [
+        g.strip() for g in (args.exclude or "").split(",") if g.strip()
+    ] or None
+    max_bytes = (
+        (args.max_size_kb * 1024) if args.max_size_kb and args.max_size_kb > 0 else None
+    )
+
+    items = enumerate_inputs(
+        [args.scope],
+        include_globs=include_globs,
+        exclude_globs=exclude_globs,
+        max_file_size_bytes=max_bytes,
+        follow_symlinks=bool(args.follow_symlinks),
+    )
     manifest_path = ws.paths()["inputs_manifest"]
     write_manifest(str(manifest_path), items)
     al.append("inputs.ingested", {"manifest": manifest_path.name, "count": len(items)})
