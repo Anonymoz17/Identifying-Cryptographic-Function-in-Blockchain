@@ -9,6 +9,7 @@ platform-specific metadata, SBOM capture hooks, and exclusion rules.
 
 from __future__ import annotations
 
+import concurrent.futures
 import datetime
 import hashlib
 import json
@@ -70,20 +71,136 @@ def enumerate_inputs_iter(
     compute_sha: bool = True,
     progress_cb=None,
     cancel_event: Optional["threading.Event"] = None,
+    hash_workers: int = 1,
 ) -> Iterator[Dict[str, Any]]:
     """Iterator variant of enumerate_inputs.
 
     Yields items as they are discovered. If compute_sha is False this
     function will skip expensive hashing and only yield path/size/mtime.
     The iterator stops early if cancel_event is set.
+
+    If hash_workers > 1 and compute_sha is True, a small thread pool is
+    used to compute SHA hashes concurrently to improve throughput on
+    multi-core/IO-heavy systems.
     """
     count = 0
     total = None
-    try:
-        total = count_inputs(paths)
-    except Exception:
-        total = None
 
+    # If requested, run hashing in a small thread pool and stream results
+    if compute_sha and hash_workers and hash_workers > 1:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=hash_workers
+        ) as executor:
+            pending: List[tuple[concurrent.futures.Future, Dict[str, Any]]] = []
+
+            def _drain_completed(pending_list):
+                # collect and yield completed futures (as they finish)
+                for fut, itm in list(pending_list):
+                    if fut.done():
+                        try:
+                            sha = fut.result()
+                            itm["sha256"] = sha
+                        except Exception:
+                            pass
+                        pending_list.remove((fut, itm))
+                        yield itm
+
+            for root_path in paths:
+                if (
+                    cancel_event is not None
+                    and hasattr(cancel_event, "is_set")
+                    and cancel_event.is_set()
+                ):
+                    break
+
+                if os.path.isdir(root_path):
+                    for root, _dirs, files in os.walk(root_path):
+                        for fn in files:
+                            if cancel_event is not None and cancel_event.is_set():
+                                break
+                            fp = os.path.join(root, fn)
+                            try:
+                                stat = os.stat(fp)
+                                item = {
+                                    "path": os.path.abspath(fp),
+                                    "size": stat.st_size,
+                                    "mtime": datetime.datetime.fromtimestamp(
+                                        stat.st_mtime, datetime.timezone.utc
+                                    ).isoformat(),
+                                }
+                                # submit hashing job
+                                fut = executor.submit(
+                                    hash_file_sha256, fp, 8192, cancel_event
+                                )
+                                pending.append((fut, item))
+                                # if we've filled the pipeline, wait for one to finish
+                                if len(pending) >= hash_workers:
+                                    concurrent.futures.wait(
+                                        [f for f, _ in pending],
+                                        return_when=concurrent.futures.FIRST_COMPLETED,
+                                    )
+                                    for itm in _drain_completed(pending):
+                                        count += 1
+                                        if callable(progress_cb):
+                                            try:
+                                                progress_cb(count, itm["path"], total)
+                                            except Exception:
+                                                pass
+                                        yield itm
+                            except Exception:
+                                continue
+                        if cancel_event is not None and cancel_event.is_set():
+                            break
+                elif os.path.isfile(root_path):
+                    if cancel_event is not None and cancel_event.is_set():
+                        break
+                    try:
+                        stat = os.stat(root_path)
+                        item = {
+                            "path": os.path.abspath(root_path),
+                            "size": stat.st_size,
+                            "mtime": datetime.datetime.fromtimestamp(
+                                stat.st_mtime, datetime.timezone.utc
+                            ).isoformat(),
+                        }
+                        fut = executor.submit(
+                            hash_file_sha256, root_path, 8192, cancel_event
+                        )
+                        pending.append((fut, item))
+                        if len(pending) >= hash_workers:
+                            concurrent.futures.wait(
+                                [f for f, _ in pending],
+                                return_when=concurrent.futures.FIRST_COMPLETED,
+                            )
+                            for itm in _drain_completed(pending):
+                                count += 1
+                                if callable(progress_cb):
+                                    try:
+                                        progress_cb(count, itm["path"], total)
+                                    except Exception:
+                                        pass
+                                yield itm
+                    except Exception:
+                        pass
+
+            # drain remaining futures
+            while pending:
+                concurrent.futures.wait(
+                    [f for f, _ in pending],
+                    return_when=concurrent.futures.FIRST_COMPLETED,
+                )
+                for itm in _drain_completed(pending):
+                    count += 1
+                    if callable(progress_cb):
+                        try:
+                            progress_cb(count, itm["path"], total)
+                        except Exception:
+                            pass
+                    yield itm
+
+            return
+
+    # Fallback: single-threaded (original) behavior
     for p in paths:
         if (
             cancel_event is not None
@@ -254,18 +371,18 @@ def write_manifest_iter(manifest_path: str, items_iter, flush: bool = True) -> N
     # Ensure parent exists
     p.parent.mkdir(parents=True, exist_ok=True)
     # Open for writing (truncate) and stream lines as they arrive.
+    # Batch flush every N lines to reduce expensive syscalls (fsync) on some
+    # platforms (Windows), which can make streaming appear to stall.
+    batch_flush = 20
+    written = 0
     with p.open("w", encoding="utf-8") as f:
         for it in items_iter:
             try:
                 f.write(json.dumps(it, sort_keys=True, ensure_ascii=False) + "\n")
-                if flush:
+                written += 1
+                if flush and (written % batch_flush) == 0:
                     try:
                         f.flush()
-                        try:
-                            os.fsync(f.fileno())
-                        except Exception:
-                            # best-effort; some platforms or streams may not support fsync
-                            pass
                     except Exception:
                         pass
             except Exception:

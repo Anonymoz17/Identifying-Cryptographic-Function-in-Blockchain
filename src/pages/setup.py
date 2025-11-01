@@ -7,7 +7,7 @@ from pathlib import Path
 
 from auditor.auditlog import AuditLog
 from auditor.case import Engagement
-from auditor.intake import enumerate_inputs, write_manifest
+from auditor.intake import count_inputs, enumerate_inputs_iter
 from auditor.preproc import preprocess_items
 from auditor.workspace import Workspace
 
@@ -37,6 +37,18 @@ class SetupPage(ctk.CTkFrame):
             content, text="Setup — Inputs & Preprocessing", font=("Roboto", 28)
         )
         header.pack(pady=(12, 6))
+
+        # Brief pipeline summary and details link (keeps UI discoverable)
+        self.pipeline_label = ctk.CTkLabel(
+            content,
+            text="Pipeline: Enumerate → Preprocess → (optional) AST/Disasm",
+            text_color="#aab",
+        )
+        self.pipeline_label.pack()
+        self.pipeline_details = ctk.CTkButton(
+            content, text="Details…", width=90, command=self._open_pipeline_docs
+        )
+        self.pipeline_details.pack(pady=(2, 8))
 
         # Workdir / case / scope
         form = ctk.CTkFrame(content, fg_color="transparent")
@@ -79,17 +91,6 @@ class SetupPage(ctk.CTkFrame):
         )
         self.scope_browse.grid(row=2, column=2, padx=(8, 0))
 
-        # Policy baseline
-        ctk.CTkLabel(form, text="Policy:").grid(row=2, column=2, sticky="w")
-        self.policy_entry = ctk.CTkEntry(
-            form, placeholder_text="Optional policy baseline (JSON)"
-        )
-        self.policy_entry.grid(row=2, column=3, sticky="we", padx=(6, 0))
-        self.policy_browse = ctk.CTkButton(
-            form, text="Browse", width=90, command=self._browse_policy
-        )
-        self.policy_browse.grid(row=2, column=4, padx=(8, 0))
-
         # Preproc options
         ctk.CTkLabel(form, text="Preproc Options:").grid(row=3, column=0, sticky="w")
         opts = ctk.CTkFrame(form, fg_color="transparent")
@@ -102,19 +103,69 @@ class SetupPage(ctk.CTkFrame):
         ctk.CTkCheckBox(
             opts, text="Fast scan (no hashing)", variable=self.fast_scan_var
         ).grid(row=0, column=3, sticky="w", padx=(8, 0))
-        ctk.CTkLabel(opts, text="Max depth:").grid(row=0, column=1)
-        self.max_depth_entry = ctk.CTkEntry(opts, width=60)
+        # Keep main page simple: expose only basic preproc options.
+        # Advanced options (policy, max depth, AST/disasm generation) are
+        # tucked behind a collapsible 'Advanced options' panel to avoid
+        # overwhelming non-technical users.
+        ctk.CTkLabel(form, text="Preproc Options:").grid(row=3, column=0, sticky="w")
+        opts = ctk.CTkFrame(form, fg_color="transparent")
+        opts.grid(row=3, column=1, sticky="we", padx=(6, 0))
+        self.extract_var = tk.BooleanVar(value=True)
+        ctk.CTkCheckBox(opts, text="Extract archives", variable=self.extract_var).grid(
+            row=0, column=0, sticky="w"
+        )
+        self.fast_scan_var = tk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            opts, text="Fast scan (no hashing)", variable=self.fast_scan_var
+        ).grid(row=0, column=1, sticky="w", padx=(8, 0))
+
+        # Advanced options toggle
+        self._advanced_shown = False
+        self._advanced_btn = ctk.CTkButton(
+            form,
+            text="Show advanced options ▾",
+            width=200,
+            command=self._toggle_advanced,
+        )
+        self._advanced_btn.grid(row=3, column=2, columnspan=2, sticky="w", padx=(8, 0))
+
+        # Advanced options frame (hidden by default)
+        self._advanced_frame = ctk.CTkFrame(content, fg_color="#111214")
+        # Policy baseline (advanced)
+        ctk.CTkLabel(self._advanced_frame, text="Policy (advanced):").grid(
+            row=0, column=0, sticky="w"
+        )
+        self.policy_entry = ctk.CTkEntry(
+            self._advanced_frame, placeholder_text="Optional policy baseline (JSON)"
+        )
+        self.policy_entry.grid(row=0, column=1, sticky="we", padx=(6, 0))
+        self.policy_browse = ctk.CTkButton(
+            self._advanced_frame, text="Browse", width=90, command=self._browse_policy
+        )
+        self.policy_browse.grid(row=0, column=2, padx=(8, 0))
+
+        # Max depth and optional caches (advanced)
+        ctk.CTkLabel(self._advanced_frame, text="Max extract depth:").grid(
+            row=1, column=0, sticky="w"
+        )
+        self.max_depth_entry = ctk.CTkEntry(self._advanced_frame, width=80)
         self.max_depth_entry.insert(0, "2")
-        self.max_depth_entry.grid(row=0, column=2, padx=(4, 0))
+        self.max_depth_entry.grid(row=1, column=1, sticky="w", padx=(6, 0))
 
         self.ast_var = tk.BooleanVar(value=False)
         self.disasm_var = tk.BooleanVar(value=False)
-        ctk.CTkCheckBox(opts, text="Generate AST cache", variable=self.ast_var).grid(
-            row=1, column=0, sticky="w", pady=(6, 0)
-        )
         ctk.CTkCheckBox(
-            opts, text="Generate disasm cache", variable=self.disasm_var
-        ).grid(row=1, column=1, sticky="w", pady=(6, 0))
+            self._advanced_frame, text="Generate AST cache", variable=self.ast_var
+        ).grid(row=2, column=0, sticky="w", pady=(6, 0))
+        ctk.CTkCheckBox(
+            self._advanced_frame, text="Generate disasm cache", variable=self.disasm_var
+        ).grid(row=2, column=1, sticky="w", pady=(6, 0))
+
+        # ensure grid expands nicely
+        try:
+            self._advanced_frame.grid_columnconfigure(1, weight=1)
+        except Exception:
+            pass
 
         # Actions
         actions = ctk.CTkFrame(content, fg_color="transparent")
@@ -195,6 +246,44 @@ class SetupPage(ctk.CTkFrame):
                 self.policy_entry.insert(0, path)
             except Exception:
                 pass
+
+    def _open_pipeline_docs(self):
+        # Open the pipeline documentation file if present
+        try:
+            import webbrowser
+            from pathlib import Path
+
+            doc = Path(__file__).parent.parent / "docs" / "pipeline.md"
+            if doc.exists():
+                webbrowser.open(doc.resolve().as_uri())
+            else:
+                # fallback: open repository README
+                webbrowser.open(
+                    (Path(__file__).parent.parent / "README.md").resolve().as_uri()
+                )
+        except Exception:
+            pass
+
+    def _toggle_advanced(self):
+        try:
+            if self._advanced_shown:
+                # hide
+                try:
+                    self._advanced_frame.pack_forget()
+                except Exception:
+                    pass
+                self._advanced_btn.configure(text="Show advanced options ▾")
+                self._advanced_shown = False
+            else:
+                # show
+                try:
+                    self._advanced_frame.pack(fill="x", padx=12, pady=(6, 6))
+                except Exception:
+                    pass
+                self._advanced_btn.configure(text="Hide advanced options ▴")
+                self._advanced_shown = True
+        except Exception:
+            pass
 
     def _open_workdir(self):
         # Open the canonical case workspace in the platform file browser
@@ -342,8 +431,13 @@ class SetupPage(ctk.CTkFrame):
             # Stream enumeration and show per-file preview lines. enumerate_inputs
             # will call the progress callback with (count, path, total). We wrap
             # that callback to throttle updates and keep the UI responsive.
+            # background estimate of total files (filled by a worker below)
+            total_estimate = None
+
             def enum_progress(count, path, total):
                 nonlocal last_enum_update
+                # allow background count thread to provide an estimate
+                nonlocal total_estimate
                 try:
                     now = time.time()
                     # update at most 5 times/sec and always on multiples of 10
@@ -361,33 +455,52 @@ class SetupPage(ctk.CTkFrame):
                         pass
                     # update preview text and a lightweight progress in the label
                     if not bool(self.summary_only_var.get()):
+                        # show a shortened path to avoid flooding UI
+                        short = path
+                        try:
+                            if len(path) > 140:
+                                short = "..." + path[-137:]
+                        except Exception:
+                            short = path
                         self.after(
-                            0, self.results_box.insert, "end", f"Found: {path}\n"
+                            0, self.results_box.insert, "end", f"Found: {short}\n"
                         )
-                    if total and total > 0:
+                    # prefer explicit total from enumerate_inputs, else use
+                    # the background estimate when available
+                    effective_total = total if total else total_estimate
+                    if effective_total and effective_total > 0:
                         # small progress bump to show activity; preproc will set real progress
                         self.after(
-                            0, self.progress.set, min(0.2, float(count) / float(total))
+                            0,
+                            self.progress.set,
+                            min(0.2, float(count) / float(effective_total)),
                         )
                         # ETA estimate for enumeration
                         try:
                             elapsed = max(1e-6, now - (self._enum_start_time or now))
                             rate = float(count) / elapsed if elapsed > 0 else 0.0
                             eta = ""
-                            if rate > 0:
-                                remain = max(0, int((total - count) / rate))
+                            if rate > 0 and effective_total:
+                                remain = max(0, int((effective_total - count) / rate))
                                 eta = f"ETA: {remain}s"
+                            # include rate in the label if available
+                            rate_str = f" ({rate:.1f}/s)" if rate > 0 else ""
                             self.after(
                                 0,
                                 self.progress_label.configure,
-                                {"text": f"Enumerating {count}/{total}"},
+                                {
+                                    "text": f"Enumerating {count}/{effective_total}{rate_str}"
+                                },
                             )
                             self.after(0, self.eta_label.configure, {"text": eta})
                         except Exception:
+                            rate_str = f" ({rate:.1f}/s)" if rate > 0 else ""
                             self.after(
                                 0,
                                 self.progress_label.configure,
-                                {"text": f"Enumerating {count}/{total}"},
+                                {
+                                    "text": f"Enumerating {count}/{effective_total}{rate_str}"
+                                },
                             )
                     else:
                         self.after(
@@ -398,32 +511,129 @@ class SetupPage(ctk.CTkFrame):
                 except Exception:
                     pass
 
-            # If the user selected fast scan, skip expensive SHA256 computation
-            compute_sha = not bool(self.fast_scan_var.get())
-            items = enumerate_inputs(
-                [scope],
-                progress_cb=enum_progress,
-                cancel_event=self._cancel_event,
-                compute_sha=compute_sha,
-            )
-            # write canonical NDJSON manifest (tests and other code expect .ndjson)
-            manifest_path = str(case_dir / "inputs.manifest.ndjson")
+            # Start a background count worker to quickly estimate the number
+            # of files so we can provide an ETA even if enumerate_inputs does
+            # not return a total immediately.
             try:
-                write_manifest(manifest_path, items)
+
+                def _count_worker():
+                    nonlocal total_estimate
+                    try:
+                        total_estimate = count_inputs([scope])
+                    except Exception:
+                        total_estimate = None
+
+                tcount = threading.Thread(target=_count_worker, daemon=True)
+                tcount.start()
             except Exception:
                 pass
 
+            # If the user selected fast scan, skip expensive SHA256 computation
+            compute_sha = not bool(self.fast_scan_var.get())
+
+            # Use the iterator variant so we do not block building a full list
+            # of items for large scopes. Wrap the iterator with a helper that
+            # writes each incoming item to the manifest (NDJSON) and yields it
+            # onward to preprocess_items so both see the same stream.
+            manifest_path = str(case_dir / "inputs.manifest.ndjson")
+
+            def _iter_and_write_manifest(src_iter, manifest_path_local):
+                # local imports to avoid polluting module namespace in tests
+                import json
+                from pathlib import Path
+
+                p = Path(manifest_path_local)
+                p.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    f = p.open("w", encoding="utf-8")
+                except Exception:
+                    f = None
+                # batch writes: flush every N lines to avoid heavy syscalls
+                batch_flush = 20
+                written = 0
+                try:
+                    for it in src_iter:
+                        # write line to manifest (best-effort)
+                        if f is not None:
+                            try:
+                                f.write(
+                                    json.dumps(it, sort_keys=True, ensure_ascii=False)
+                                    + "\n"
+                                )
+                                written += 1
+                                # flush periodically; avoid os.fsync() which blocks on Windows
+                                if (written % batch_flush) == 0:
+                                    try:
+                                        f.flush()
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                # skip serialization errors
+                                pass
+                        yield it
+                finally:
+                    try:
+                        if f is not None:
+                            try:
+                                f.flush()
+                            except Exception:
+                                pass
+                            try:
+                                f.close()
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+
+            # create the enumeration iterator (streaming)
+            # choose a reasonable number of hashing workers for compute_sha
+            try:
+                import os
+
+                cpu_cnt = os.cpu_count() or 1
+                hw = min(4, max(1, cpu_cnt))
+            except Exception:
+                hw = 1
+
+            enum_iter = enumerate_inputs_iter(
+                [scope],
+                compute_sha=compute_sha,
+                progress_cb=enum_progress,
+                cancel_event=self._cancel_event,
+                hash_workers=hw,
+            )
+
+            # stream manifest and feed the same items into preprocessing
+            items_stream = _iter_and_write_manifest(enum_iter, manifest_path)
+
             cancelled = False
             try:
+                # Run preprocessing in streaming mode so manifests and index
+                # lines are written incrementally. By default we do only the
+                # basic preprocessing (copy inputs, extract archives) and
+                # defer expensive AST/disasm builds unless the user enables
+                # them in Advanced options.
+                try:
+                    build_ast_flag = bool(self.ast_var.get())
+                except Exception:
+                    build_ast_flag = False
+                try:
+                    build_disasm_flag = bool(self.disasm_var.get())
+                except Exception:
+                    build_disasm_flag = False
+
                 preproc_result = preprocess_items(
-                    items,
+                    items_stream,
                     str(case_dir),
                     progress_cb=preproc_progress,
                     cancel_event=self._cancel_event,
                     max_extract_depth=max_depth,
                     do_extract=do_extract,
-                    build_ast=bool(self.ast_var.get()),
-                    build_disasm=bool(self.disasm_var.get()),
+                    build_ast=build_ast_flag,
+                    build_disasm=build_disasm_flag,
+                    stream=True,
+                    compute_sha=compute_sha,
+                    copy_inputs=compute_sha,
                 )
                 # preprocess_items may return early on cancellation without
                 # raising; check the cancel event to determine if the run

@@ -94,6 +94,8 @@ def preprocess_items(
     move_extracted: bool = False,
     stream: bool = False,
     resume: bool = False,
+    compute_sha: bool = True,
+    copy_inputs: bool = True,
 ) -> Dict[str, Any]:  # noqa: C901 (complexity; split into helpers later)
     """Process items and write per-file artifacts.
 
@@ -173,8 +175,8 @@ def preprocess_items(
         sha = it.get("sha256")
         src = it.get("path")
         src_path = Path(src) if src else None
-        # If sha256 not provided, try to compute it from the source file
-        if not sha and src_path and src_path.exists():
+        # If sha256 not provided and hashing is enabled, try to compute it
+        if not sha and src_path and src_path.exists() and compute_sha:
             try:
                 h = hashlib.sha256()
                 with open(src_path, "rb") as fh:
@@ -283,11 +285,13 @@ def preprocess_items(
                     pass
             continue
 
-        # copy the original file as input.bin if not present
+        # copy the original file as input.bin if requested (may be disabled
+        # for fast scan to avoid duplicating large scopes)
         dst_input = art_dir / "input.bin"
         try:
-            if not dst_input.exists():
-                shutil.copy2(str(src), str(dst_input))
+            if copy_inputs:
+                if not dst_input.exists():
+                    shutil.copy2(str(src), str(dst_input))
         except Exception:
             # skip on copy failure; continue to write metadata
             pass
@@ -295,15 +299,17 @@ def preprocess_items(
         # also prepare a Ghidra-friendly inputs dir under artifacts/ghidra_inputs/<sha>/
         # this gives a canonical place for headless Ghidra runners to look
         try:
-            gh_in_root = Path(workdir) / "artifacts" / "ghidra_inputs" / sha
-            gh_in_root.mkdir(parents=True, exist_ok=True)
-            gh_input = gh_in_root / "input.bin"
-            try:
-                # copy the canonical input.bin into ghidra_inputs if not present
-                if not gh_input.exists() and dst_input.exists():
-                    shutil.copy2(str(dst_input), str(gh_input))
-            except Exception:
-                pass
+            # only prepare Ghidra-friendly inputs if we copied inputs
+            if copy_inputs:
+                gh_in_root = Path(workdir) / "artifacts" / "ghidra_inputs" / sha
+                gh_in_root.mkdir(parents=True, exist_ok=True)
+                gh_input = gh_in_root / "input.bin"
+                try:
+                    # copy the canonical input.bin into ghidra_inputs if not present
+                    if not gh_input.exists() and dst_input.exists():
+                        shutil.copy2(str(dst_input), str(gh_input))
+                except Exception:
+                    pass
             # write minimal metadata so headless runners have context
             try:
                 gh_meta = {
