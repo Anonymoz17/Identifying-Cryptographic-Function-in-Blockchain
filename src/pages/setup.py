@@ -3,14 +3,14 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-import tempfile
 import threading
 import time
 import tkinter as tk
+import tkinter.filedialog as filedialog
+import tkinter.messagebox as messagebox
 import urllib.parse
 from functools import partial
 from pathlib import Path
-from tkinter import filedialog, messagebox
 
 from auditor.auditlog import AuditLog
 from auditor.case import Engagement
@@ -23,7 +23,6 @@ from auditor.intake import (
 from auditor.preproc import preprocess_items
 from auditor.workspace import Workspace
 from policy_import import import_and_record_policy
-from policy_validator import validate_policy_text
 from settings import (
     get_canonical_workdir,
     get_default_workdir,
@@ -31,28 +30,20 @@ from settings import (
     get_setting,
     reset_default_workdir,
     set_default_workdir,
-    set_fast_count_timeout,
-    set_setting,
 )
+from ui.policy_editor import PolicyEditor
+from ui.preferences import PreferencesDialog
 from ui.tooltip import add_tooltip
 
 import customtkinter as ctk  # isort:skip
 
 
 class SetupPage(ctk.CTkFrame):
-    """Setup page: scope selection and preprocessing (Start Engagement).
-
-    This page prepares the case workspace and runs preprocessing. After
-    preprocessing completes a Continue button becomes enabled which navigates
-    to the Detectors page (which will consume the prepared artifacts).
-    """
+    """Setup page: Inputs & Preprocessing UI."""
 
     def __init__(self, master, switch_page_callback):
         super().__init__(master)
         self.switch_page = switch_page_callback
-
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure(0, weight=1)
 
         content = ctk.CTkFrame(self, fg_color="transparent")
         content.grid(row=0, column=0, sticky="nsew")
@@ -695,413 +686,23 @@ class SetupPage(ctk.CTkFrame):
             pass
 
     def _edit_policy_popup(self):
-        """Open a small modal that offers policy JSON templates and an editor.
-
-        The user can pick a template, edit the JSON, then Insert (write to a temp
-        file and set the Policy entry), or Save As... to store it elsewhere.
-        """
-        top = tk.Toplevel(self)
-        top.title("Policy baseline editor")
-        top.transient(self)
-        top.grab_set()
-
-        # Template selector + two-pane editor: structured form (left) + raw JSON (right)
-        frame = ctk.CTkFrame(top, fg_color="transparent")
-        frame.pack(padx=12, pady=12, fill="both", expand=True)
-
-        # Row 0: template selector
-        ctk.CTkLabel(frame, text="Template:").grid(row=0, column=0, sticky="w")
-        templates = ["Whitelist", "Rule Overrides", "Scoring", "Combined"]
-        tmpl_var = tk.StringVar(value=templates[0])
-        tmpl_menu = ctk.CTkOptionMenu(frame, values=templates, variable=tmpl_var)
-        tmpl_menu.grid(row=0, column=1, sticky="we", padx=(8, 0), columnspan=2)
-
-        # Split area: structured form (left) and raw JSON editor (right)
-        split = ctk.CTkFrame(frame, fg_color="transparent")
-        split.grid(row=1, column=0, columnspan=3, sticky="nsew", pady=(8, 8))
-        split.grid_columnconfigure(0, weight=1)
-        split.grid_columnconfigure(1, weight=2)
-
-        # Left: structured fields for common policy elements
-        form_frame = ctk.CTkFrame(split, fg_color="transparent")
-        form_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-        form_frame.grid_columnconfigure(1, weight=1)
-
-        ctk.CTkLabel(form_frame, text="Version:").grid(row=0, column=0, sticky="w")
-        version_entry = ctk.CTkEntry(form_frame)
-        version_entry.grid(row=0, column=1, sticky="we", pady=(2, 6))
-
-        ctk.CTkLabel(form_frame, text="Author:").grid(row=1, column=0, sticky="w")
-        author_entry = ctk.CTkEntry(form_frame)
-        author_entry.grid(row=1, column=1, sticky="we", pady=(2, 6))
-
-        ctk.CTkLabel(form_frame, text="Metadata version:").grid(
-            row=2, column=0, sticky="w"
-        )
-        meta_ver_entry = ctk.CTkEntry(form_frame)
-        meta_ver_entry.grid(row=2, column=1, sticky="we", pady=(2, 6))
-
-        # Scoring engine weights (common tuning knobs)
-        ctk.CTkLabel(form_frame, text="Engine weights (yara/treesitter/disasm):").grid(
-            row=3, column=0, sticky="w", columnspan=2
-        )
-        ew_frame = ctk.CTkFrame(form_frame, fg_color="transparent")
-        ew_frame.grid(row=4, column=0, columnspan=2, sticky="we", pady=(2, 6))
-        yara_w = ctk.CTkEntry(ew_frame, width=60)
-        yara_w.grid(row=0, column=0, padx=(0, 6))
-        ts_w = ctk.CTkEntry(ew_frame, width=60)
-        ts_w.grid(row=0, column=1, padx=(0, 6))
-        disasm_w = ctk.CTkEntry(ew_frame, width=60)
-        disasm_w.grid(row=0, column=2)
-
-        # Whitelist file hashes (comma-separated simple UI)
-        ctk.CTkLabel(form_frame, text="Whitelist file hashes:").grid(
-            row=5, column=0, sticky="w"
-        )
-        whitelist_entry = tk.Text(form_frame, height=6, wrap="none")
-        whitelist_entry.grid(row=5, column=1, sticky="we", pady=(2, 6))
-
-        # Right: raw JSON editor (kept for advanced edits)
-        editor_frame = ctk.CTkFrame(split, fg_color="transparent")
-        editor_frame.grid(row=0, column=1, sticky="nsew")
-        editor_frame.grid_rowconfigure(0, weight=1)
-        editor_frame.grid_columnconfigure(0, weight=1)
-
-        editor = tk.Text(editor_frame, width=80, height=20, wrap="none")
-        editor.grid(row=0, column=0, sticky="nsew")
-
-        def _render_template(*_):
-            kind = tmpl_var.get()
-            editor.delete("1.0", "end")
-            editor.insert("1.0", self._policy_template_json(kind))
-            # update the structured form to reflect the template
-            try:
-                obj = json.loads(self._policy_template_json(kind))
-                try:
-                    json_to_form(obj)
-                except Exception:
-                    pass
-            except Exception:
-                pass
-
-        tmpl_var.trace_add("write", _render_template)
-        # populate initial
-        _render_template()
-
-        # Helper: map JSON object -> form fields
-        def json_to_form(obj: dict):
-            try:
-                version = obj.get("version", "")
-                version_entry.delete(0, "end")
-                version_entry.insert(0, str(version))
-            except Exception:
-                pass
-            try:
-                meta = obj.get("metadata", {}) or {}
-                author_entry.delete(0, "end")
-                author_entry.insert(0, str(meta.get("author", "")))
-                meta_ver_entry.delete(0, "end")
-                meta_ver_entry.insert(0, str(meta.get("version", "")))
-            except Exception:
-                pass
-            try:
-                scoring = obj.get("scoring", {}) or {}
-                ew = scoring.get("engine_weights", {}) or {}
-                yara_w.delete(0, "end")
-                yara_w.insert(0, str(ew.get("yara", "")))
-                ts_w.delete(0, "end")
-                ts_w.insert(0, str(ew.get("treesitter", "")))
-                disasm_w.delete(0, "end")
-                disasm_w.insert(0, str(ew.get("disasm", "")))
-            except Exception:
-                pass
-            try:
-                wl = obj.get("whitelist", {}) or {}
-                fh = wl.get("file_hashes", []) or []
-                whitelist_entry.delete("1.0", "end")
-                whitelist_entry.insert("1.0", ",".join(str(x) for x in fh))
-            except Exception:
-                pass
-
-        # Helper: map form fields -> JSON in editor (doesn't validate schema)
-        def form_to_json():
-            out = {}
-            try:
-                v = version_entry.get().strip()
-                if v:
-                    out["version"] = v
-            except Exception:
-                pass
-            try:
-                meta = {}
-                a = author_entry.get().strip()
-                if a:
-                    meta["author"] = a
-                mv = meta_ver_entry.get().strip()
-                if mv:
-                    meta["version"] = mv
-                if meta:
-                    out["metadata"] = meta
-            except Exception:
-                pass
-            try:
-                ew = {}
-                y = yara_w.get().strip()
-                t = ts_w.get().strip()
-                d = disasm_w.get().strip()
-                if y:
-                    try:
-                        ew["yara"] = float(y)
-                    except Exception:
-                        ew["yara"] = y
-                if t:
-                    try:
-                        ew["treesitter"] = float(t)
-                    except Exception:
-                        ew["treesitter"] = t
-                if d:
-                    try:
-                        ew["disasm"] = float(d)
-                    except Exception:
-                        ew["disasm"] = d
-                if ew:
-                    out.setdefault("scoring", {})["engine_weights"] = ew
-            except Exception:
-                pass
-            try:
-                fh_txt = whitelist_entry.get("1.0", "end").strip()
-                if fh_txt:
-                    fh = [s.strip() for s in fh_txt.split(",") if s.strip()]
-                    out.setdefault("whitelist", {})["file_hashes"] = fh
-            except Exception:
-                pass
-            try:
-                editor.delete("1.0", "end")
-                editor.insert(
-                    "1.0", json.dumps(out, sort_keys=True, ensure_ascii=False, indent=2)
-                )
-                schedule_validate()
-            except Exception:
-                pass
-
-        # Debounced form->json sync
-        top.form_sync_timer = None
-
-        def schedule_form_sync():
-            try:
-                if getattr(top, "form_sync_timer", None):
-                    top.after_cancel(top.form_sync_timer)
-            except Exception:
-                pass
-            try:
-                top.form_sync_timer = top.after(300, form_to_json)
-            except Exception:
-                form_to_json()
-
-        # Bind form changes to update raw JSON editor
+        # Thin wrapper: delegate to the extracted PolicyEditor modal to keep
+        # behavior identical while removing the large inline implementation.
         try:
-            version_entry.bind("<KeyRelease>", lambda e: schedule_form_sync())
-            author_entry.bind("<KeyRelease>", lambda e: schedule_form_sync())
-            meta_ver_entry.bind("<KeyRelease>", lambda e: schedule_form_sync())
-            yara_w.bind("<KeyRelease>", lambda e: schedule_form_sync())
-            ts_w.bind("<KeyRelease>", lambda e: schedule_form_sync())
-            disasm_w.bind("<KeyRelease>", lambda e: schedule_form_sync())
-            whitelist_entry.bind("<KeyRelease>", lambda e: schedule_form_sync())
-        except Exception:
-            pass
-
-        # Inline validation area (debounced): shows parse/schema errors and
-        # disables Insert/Save while errors exist.
-        error_var = tk.StringVar(value="")
-        error_label = ctk.CTkLabel(frame, textvariable=error_var, text_color="#d9534f")
-        error_label.grid(row=3, column=0, columnspan=3, sticky="we", pady=(0, 6))
-
-        # attach simple debounce state to the modal window object
-        top.policy_validate_timer = None
-        top.last_policy_text = None
-        # option to attach policy on Insert (will set an attribute on the page)
-        attach_var = tk.BooleanVar(value=False)
-        try:
-            ctk.CTkCheckBox(frame, text="Attach on Insert", variable=attach_var).grid(
-                row=4, column=0, sticky="w", pady=(4, 0)
-            )
-        except Exception:
-            pass
-
-        def schedule_validate():
+            path, attached = PolicyEditor.open(self, self._policy_template_json)
+            if path:
+                try:
+                    self.policy_entry.delete(0, "end")
+                    self.policy_entry.insert(0, path)
+                except Exception:
+                    pass
             try:
-                if getattr(top, "policy_validate_timer", None):
-                    top.after_cancel(top.policy_validate_timer)
+                self._policy_attached = bool(attached)
             except Exception:
                 pass
-            try:
-                top.policy_validate_timer = top.after(400, run_validate)
-            except Exception:
-                run_validate()
-
-        def run_validate():
-            try:
-                top.policy_validate_timer = None
-                txt = editor.get("1.0", "end").strip()
-                if txt == getattr(top, "last_policy_text", None):
-                    return
-                top.last_policy_text = txt
-                valid, errors = validate_policy_text(txt)
-                if not valid:
-                    try:
-                        error_var.set("\n".join(errors))
-                    except Exception:
-                        pass
-                    try:
-                        insert_btn.configure(state="disabled")
-                    except Exception:
-                        pass
-                    try:
-                        save_btn.configure(state="disabled")
-                    except Exception:
-                        pass
-                else:
-                    try:
-                        error_var.set("")
-                    except Exception:
-                        pass
-                    # when valid, update structured form to reflect current JSON
-                    try:
-                        obj = json.loads(txt)
-                        try:
-                            json_to_form(obj)
-                        except Exception:
-                            pass
-                    except Exception:
-                        pass
-                    try:
-                        insert_btn.configure(state="normal")
-                    except Exception:
-                        pass
-                    try:
-                        save_btn.configure(state="normal")
-                    except Exception:
-                        pass
-            except Exception:
-                try:
-                    error_var.set("Validation error")
-                except Exception:
-                    pass
-
-        # validate on keystrokes and when template/file is loaded
-        editor.bind("<KeyRelease>", lambda e: schedule_validate())
-
-        # run an initial validation pass now that schedule_validate is defined
-        try:
-            schedule_validate()
         except Exception:
+            # best-effort: preserve previous behavior (no-op on errors)
             pass
-
-        # Buttons
-        btn_frame = ctk.CTkFrame(frame, fg_color="transparent")
-        btn_frame.grid(row=2, column=0, columnspan=3, pady=(6, 0))
-
-        def _insert_to_entry():
-            txt = editor.get("1.0", "end").strip()
-            # validate JSON
-            # validate JSON + schema
-            valid, errors = validate_policy_text(txt)
-            if not valid:
-                try:
-                    error_var.set("\n".join(errors))
-                except Exception:
-                    pass
-                try:
-                    messagebox.showerror("Invalid policy", "\n".join(errors))
-                except Exception:
-                    pass
-                return
-            # write to temp file and set policy_entry
-            try:
-                fd, path = tempfile.mkstemp(prefix="policy_", suffix=".json")
-                with open(fd, "w", encoding="utf-8") as f:
-                    f.write(txt)
-                self.policy_entry.delete(0, "end")
-                self.policy_entry.insert(0, path)
-                # record attach preference on the page instance so callers
-                # can inspect whether the user wanted the policy attached
-                try:
-                    self._policy_attached = bool(attach_var.get())
-                except Exception:
-                    self._policy_attached = False
-                top.destroy()
-            except Exception:
-                try:
-                    messagebox.showerror("Error", "Could not write temp file")
-                except Exception:
-                    pass
-
-        def _save_as():
-            path = filedialog.asksaveasfilename(
-                parent=top,
-                title="Save policy as...",
-                defaultextension=".json",
-                filetypes=[("JSON files", "*.json"), ("All files", "*")],
-            )
-            if not path:
-                return
-            try:
-                txt = editor.get("1.0", "end").strip()
-                valid, errors = validate_policy_text(txt)
-                if not valid:
-                    try:
-                        error_var.set("\n".join(errors))
-                    except Exception:
-                        pass
-                    try:
-                        messagebox.showerror("Invalid policy", "\n".join(errors))
-                    except Exception:
-                        pass
-                    return
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(txt)
-                self.policy_entry.delete(0, "end")
-                self.policy_entry.insert(0, path)
-                top.destroy()
-            except Exception as e:
-                try:
-                    messagebox.showerror("Error", f"Could not save file: {e}")
-                except Exception:
-                    pass
-
-        def _load_file_to_editor():
-            p = filedialog.askopenfilename(parent=top, title="Open policy (JSON)")
-            if not p:
-                return
-            try:
-                with open(p, "r", encoding="utf-8") as f:
-                    data = f.read()
-                editor.delete("1.0", "end")
-                editor.insert("1.0", data)
-                # re-validate newly loaded file
-                try:
-                    schedule_validate()
-                except Exception:
-                    pass
-            except Exception:
-                try:
-                    messagebox.showerror("Error", "Could not read file", parent=top)
-                except Exception:
-                    pass
-
-        insert_btn = ctk.CTkButton(btn_frame, text="Insert", command=_insert_to_entry)
-        insert_btn.pack(side="left", padx=(0, 8))
-        save_btn = ctk.CTkButton(btn_frame, text="Save As...", command=_save_as)
-        save_btn.pack(side="left", padx=(0, 8))
-        ctk.CTkButton(btn_frame, text="Load...", command=_load_file_to_editor).pack(
-            side="left", padx=(0, 8)
-        )
-        ctk.CTkButton(btn_frame, text="Cancel", command=top.destroy).pack(
-            side="left", padx=(0, 8)
-        )
-
-        # keep modal
-        top.wait_window()
 
     def _policy_template_json(self, kind: str) -> str:
         """Return a pretty JSON string for the requested template kind."""
@@ -1183,184 +784,12 @@ class SetupPage(ctk.CTkFrame):
             pass
 
     def _open_preferences_modal(self):
-        """Open a Preferences modal allowing users to set common defaults.
-
-        Fields: default workdir, fast-count timeout, max-preview-sample,
-        max-file-size default (KB), follow-symlinks default, and simple
-        detector defaults (yara/treesitter/disasm).
-        """
-        top = tk.Toplevel(self)
-        top.title("Preferences")
-        top.transient(self)
-        top.grab_set()
-
-        frame = ctk.CTkFrame(top, fg_color="transparent")
-        frame.pack(padx=12, pady=12, fill="both", expand=True)
-
-        # Default workdir
-        ctk.CTkLabel(frame, text="Default workdir:").grid(row=0, column=0, sticky="w")
-        wd_entry = ctk.CTkEntry(frame, width=480)
+        # Thin wrapper: open the extracted preferences dialog so the UI and
+        # behavior remain identical while removing the inline code.
         try:
-            wd_entry.insert(0, str(get_default_workdir()))
+            PreferencesDialog.open(self)
         except Exception:
-            wd_entry.insert(0, "")
-        wd_entry.grid(row=0, column=1, columnspan=2, pady=(4, 8), sticky="we")
-
-        # Fast-count timeout
-        ctk.CTkLabel(frame, text="Fast-count timeout (s):").grid(
-            row=1, column=0, sticky="w"
-        )
-        fc_entry = ctk.CTkEntry(frame, width=80)
-        try:
-            fc_entry.insert(0, str(get_fast_count_timeout()))
-        except Exception:
-            fc_entry.insert(0, "0.8")
-        fc_entry.grid(row=1, column=1, sticky="w", pady=(4, 8))
-
-        # Max preview sample (how many files preview samples)
-        ctk.CTkLabel(frame, text="Preview sample size:").grid(
-            row=2, column=0, sticky="w"
-        )
-        sample_entry = ctk.CTkEntry(frame, width=80)
-        try:
-            sample_entry.insert(0, str(get_setting("preview_sample_limit", 200)))
-        except Exception:
-            sample_entry.insert(0, "200")
-        sample_entry.grid(row=2, column=1, sticky="w", pady=(4, 8))
-
-        # Max file size default (KB)
-        ctk.CTkLabel(frame, text="Default max file size (KB):").grid(
-            row=3, column=0, sticky="w"
-        )
-        maxsz_entry = ctk.CTkEntry(frame, width=80)
-        try:
-            maxsz_entry.insert(0, str(get_setting("max_file_size_kb", 0)))
-        except Exception:
-            maxsz_entry.insert(0, "0")
-        maxsz_entry.grid(row=3, column=1, sticky="w", pady=(4, 8))
-
-        # Extract archives default
-        try:
-            extract_default = bool(get_setting("do_extract", True))
-        except Exception:
-            extract_default = True
-        extract_var = tk.BooleanVar(value=extract_default)
-        ctk.CTkCheckBox(
-            frame, text="Extract archives by default", variable=extract_var
-        ).grid(row=3, column=2, sticky="w", padx=(8, 0))
-
-        # Max extract depth default
-        ctk.CTkLabel(frame, text="Default max extract depth:").grid(
-            row=4, column=0, sticky="w"
-        )
-        maxdepth_entry = ctk.CTkEntry(frame, width=80)
-        try:
-            maxdepth_entry.insert(0, str(get_setting("max_extract_depth", 2)))
-        except Exception:
-            maxdepth_entry.insert(0, "2")
-        maxdepth_entry.grid(row=4, column=1, sticky="w", pady=(4, 8))
-
-        # Follow symlinks default
-        try:
-            fs_default = bool(get_setting("follow_symlinks", False))
-        except Exception:
-            fs_default = False
-        follow_var = tk.BooleanVar(value=fs_default)
-        ctk.CTkCheckBox(
-            frame, text="Follow symlinks by default", variable=follow_var
-        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 8))
-
-        # Confirm thresholds for large scans
-        ctk.CTkLabel(frame, text="Confirm threshold (bytes):").grid(
-            row=5, column=0, sticky="w"
-        )
-        thr_bytes_entry = ctk.CTkEntry(frame, width=160)
-        try:
-            thr_bytes_entry.insert(
-                0, str(get_setting("confirm_threshold_bytes", 5 * 1024 * 1024 * 1024))
-            )
-        except Exception:
-            thr_bytes_entry.insert(0, str(5 * 1024 * 1024 * 1024))
-        thr_bytes_entry.grid(row=5, column=1, sticky="w", pady=(4, 8))
-
-        ctk.CTkLabel(frame, text="Confirm threshold (files):").grid(
-            row=6, column=0, sticky="w"
-        )
-        thr_files_entry = ctk.CTkEntry(frame, width=160)
-        try:
-            thr_files_entry.insert(
-                0, str(get_setting("confirm_threshold_files", 100000))
-            )
-        except Exception:
-            thr_files_entry.insert(0, "100000")
-        thr_files_entry.grid(row=6, column=1, sticky="w", pady=(4, 8))
-
-        # Detector defaults are configured on the Detectors page to avoid
-        # duplicated UI. The Detectors page persists its own defaults so
-        # the Preferences modal does not expose detector toggles.
-
-        # Buttons
-        btns = ctk.CTkFrame(frame, fg_color="transparent")
-        btns.grid(row=8, column=0, columnspan=3, pady=(12, 0))
-
-        def _save_prefs():
-            try:
-                wd = wd_entry.get().strip()
-                if wd:
-                    set_default_workdir(wd)
-            except Exception:
-                pass
-            try:
-                fct = float(fc_entry.get().strip() or "0")
-                set_fast_count_timeout(fct)
-            except Exception:
-                pass
-            try:
-                sample = int(sample_entry.get().strip() or "200")
-                set_setting("preview_sample_limit", sample)
-            except Exception:
-                pass
-            try:
-                msz = int(maxsz_entry.get().strip() or "0")
-                set_setting("max_file_size_kb", msz)
-            except Exception:
-                pass
-            try:
-                set_setting("do_extract", bool(extract_var.get()))
-            except Exception:
-                pass
-            try:
-                med = int(maxdepth_entry.get().strip() or "2")
-                set_setting("max_extract_depth", med)
-            except Exception:
-                pass
-            try:
-                set_setting("follow_symlinks", bool(follow_var.get()))
-            except Exception:
-                pass
-            try:
-                # confirm thresholds for large-scan prompt
-                tb = int(thr_bytes_entry.get().strip() or 0)
-                set_setting("confirm_threshold_bytes", tb)
-            except Exception:
-                pass
-            try:
-                tf = int(thr_files_entry.get().strip() or 0)
-                set_setting("confirm_threshold_files", tf)
-            except Exception:
-                pass
-            # Detector defaults are managed on the Detectors page; do not
-            # persist detector toggles from Preferences to avoid UI overlap.
-            top.destroy()
-
-        def _cancel():
-            top.destroy()
-
-        ctk.CTkButton(btns, text="Save", command=_save_prefs).pack(
-            side="left", padx=(0, 8)
-        )
-        ctk.CTkButton(btns, text="Cancel", command=_cancel).pack(side="left")
-        top.wait_window()
+            pass
 
     def _open_migration_dialog(self):
         """Open a migration dialog to move or copy a non-canonical workdir
@@ -2076,23 +1505,15 @@ class SetupPage(ctk.CTkFrame):
             # as a separate JSON file so runs are reproducible. This includes
             # include/exclude globs, max file size, and extraction prefs.
             try:
-                run_settings = {
-                    "include_globs": include_globs,
-                    "exclude_globs": exclude_globs,
-                    "max_file_size_bytes": max_bytes,
-                    "do_extract": do_extract,
-                    "max_extract_depth": max_depth,
-                    "follow_symlinks": follow_links,
-                }
-                rs_path = Path(eng.workdir) / "run_settings.json"
-                tmp = rs_path.with_suffix(rs_path.suffix + ".tmp")
-                tmp.write_text(
-                    json.dumps(
-                        run_settings, sort_keys=True, ensure_ascii=False, indent=2
-                    ),
-                    encoding="utf-8",
+                self._persist_run_settings(
+                    eng,
+                    include_globs,
+                    exclude_globs,
+                    max_bytes,
+                    do_extract,
+                    max_depth,
+                    follow_links,
                 )
-                tmp.replace(rs_path)
             except Exception:
                 pass
 
@@ -2324,3 +1745,100 @@ class SetupPage(ctk.CTkFrame):
         except Exception:
             # bubble up to caller who may call fallback writer
             raise
+
+    def _persist_run_settings(
+        self,
+        eng,
+        include_globs,
+        exclude_globs,
+        max_bytes,
+        do_extract,
+        max_depth,
+        follow_links,
+    ):
+        """Write run_settings.json into the engagement workdir (atomic)."""
+        try:
+            run_settings = {
+                "include_globs": include_globs,
+                "exclude_globs": exclude_globs,
+                "max_file_size_bytes": max_bytes,
+                "do_extract": do_extract,
+                "max_extract_depth": max_depth,
+                "follow_symlinks": follow_links,
+            }
+            rs_path = Path(eng.workdir) / "run_settings.json"
+            tmp = rs_path.with_suffix(rs_path.suffix + ".tmp")
+            tmp.write_text(
+                json.dumps(run_settings, sort_keys=True, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            tmp.replace(rs_path)
+        except Exception:
+            # best-effort: do not fail the whole run if writing fails
+            pass
+
+    def _confirm_large_scan(self, scope_val: str) -> bool:
+        """Return True to continue, False to cancel; shows a confirm dialog when estimate exceeds thresholds."""
+        try:
+
+            def _is_git_url(s: str) -> bool:
+                if not s:
+                    return False
+                s = s.strip()
+                if s.startswith("git@"):
+                    return True
+                if s.startswith("http://") or s.startswith("https://"):
+                    return "github.com" in s or ".git" in s
+                return False
+
+            if scope_val and not _is_git_url(scope_val):
+                SAMPLE = int(get_setting("preview_sample_limit", 200))
+                try:
+                    res = estimate_disk_usage(
+                        [scope_val],
+                        sample_limit=SAMPLE,
+                        follow_symlinks=bool(get_setting("follow_symlinks", False)),
+                    )
+                    sampled_bytes = int(res.get("sampled_bytes", 0) or 0)
+                    sampled_files = int(res.get("sampled_files", 0) or 0)
+                    try:
+                        thr_bytes = int(
+                            get_setting(
+                                "confirm_threshold_bytes", 5 * 1024 * 1024 * 1024
+                            )
+                        )
+                    except Exception:
+                        thr_bytes = 5 * 1024 * 1024 * 1024
+                    try:
+                        thr_files = int(get_setting("confirm_threshold_files", 100000))
+                    except Exception:
+                        thr_files = 100000
+
+                    if (sampled_bytes and sampled_bytes >= thr_bytes) or (
+                        sampled_files and sampled_files >= thr_files
+                    ):
+
+                        def _human(b: int) -> str:
+                            if b >= 1024 * 1024 * 1024:
+                                return f"{b/1024/1024/1024:.1f} GB"
+                            if b >= 1024 * 1024:
+                                return f"{b/1024/1024:.1f} MB"
+                            return f"{b/1024:.1f} KB"
+
+                        size_txt = _human(sampled_bytes) if sampled_bytes else "unknown"
+                        msg = (
+                            f"Estimated sample size: {size_txt}\nEstimated files sampled: {sampled_files}\n\n"
+                            "This run may process a very large scope and take significant time or disk.\n"
+                            "Do you want to continue?"
+                        )
+                        try:
+                            cont = messagebox.askyesno("Confirm large scan", msg)
+                        except Exception:
+                            cont = True
+                        return bool(cont)
+                except Exception:
+                    # if estimate fails, continue
+                    return True
+        except Exception:
+            return True
+        return True

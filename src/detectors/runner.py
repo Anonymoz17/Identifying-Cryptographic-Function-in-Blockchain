@@ -164,7 +164,7 @@ def generate_summary(
     try:
         dets = list(detections)
     except Exception:
-        dets = [d for d in detections]
+        dets = list(detections)
 
     # aggregates
     by_rule = {}
