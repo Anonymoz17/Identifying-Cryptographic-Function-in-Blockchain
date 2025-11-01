@@ -7,7 +7,7 @@ from pathlib import Path
 
 from auditor.auditlog import AuditLog
 from auditor.case import Engagement
-from auditor.intake import count_inputs, enumerate_inputs, write_manifest
+from auditor.intake import enumerate_inputs, write_manifest
 from auditor.preproc import preprocess_items
 from auditor.workspace import Workspace
 
@@ -98,6 +98,10 @@ class SetupPage(ctk.CTkFrame):
         ctk.CTkCheckBox(opts, text="Extract archives", variable=self.extract_var).grid(
             row=0, column=0, sticky="w"
         )
+        self.fast_scan_var = tk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            opts, text="Fast scan (no hashing)", variable=self.fast_scan_var
+        ).grid(row=0, column=3, sticky="w", padx=(8, 0))
         ctk.CTkLabel(opts, text="Max depth:").grid(row=0, column=1)
         self.max_depth_entry = ctk.CTkEntry(opts, width=60)
         self.max_depth_entry.insert(0, "2")
@@ -141,6 +145,31 @@ class SetupPage(ctk.CTkFrame):
         self.progress = ctk.CTkProgressBar(content, width=480)
         self.progress.pack(pady=(2, 12))
         self.progress.set(0.0)
+
+        # Phase and ETA
+        self.phase_label = ctk.CTkLabel(content, text="")
+        self.phase_label.pack()
+        self.eta_label = ctk.CTkLabel(content, text="")
+        self.eta_label.pack()
+
+        # Small spinner label (improved animation) - kept lightweight so tests don't depend on CTk specifics
+        self._spinner_label = ctk.CTkLabel(content, text="")
+        self._spinner_label.pack()
+        self._spinner_running = False
+        # smoother spinner characters
+        self._spinner_chars = ("◐", "◓", "◑", "◒")
+        self._spinner_index = 0
+
+        # Results buffer for summary-only / throttled display
+        self.summary_only_var = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            content, text="Summary-only", variable=self.summary_only_var
+        ).pack()
+        self._results_buffer = []
+        # keep only the last N lines in the results box to avoid unbounded growth
+        self._results_max = 200
+        self._enum_start_time = None
+        self._preproc_start_time = None
 
         self.results_box = tk.Text(content, height=10, wrap="none")
         self.results_box.pack(fill="both", padx=12, pady=(6, 12), expand=False)
@@ -192,17 +221,23 @@ class SetupPage(ctk.CTkFrame):
             pass
 
     def _on_start_clicked(self):
+        # Start background engagement without doing a blocking pre-count.
+        # For very large scopes counting can itself be expensive, so we stream
+        # enumeration updates into the UI instead of calling count_inputs()
         scope = self.scope_entry.get().strip() or "."
-        try:
-            total = count_inputs([scope])
-            self.results_box.delete("1.0", "end")
-            self.results_box.insert("end", f"Preview: {total} files\n")
-        except Exception:
-            self.results_box.insert("end", "Preview: (error counting files)\n")
+        self.results_box.delete("1.0", "end")
+        self.results_box.insert("end", f"Starting scan for: {scope}\n")
         self._set_status("Starting engagement (background)...")
         self._cancel_event = threading.Event()
         self.cancel_btn.configure(state="normal")
         self.start_btn.configure(state="disabled")
+        # start spinner/animation and reset timers
+        try:
+            self._enum_start_time = None
+            self._preproc_start_time = None
+            self._start_spinner()
+        except Exception:
+            pass
         t = threading.Thread(target=self._run_engagement_flow, daemon=True)
         t.start()
 
@@ -228,13 +263,38 @@ class SetupPage(ctk.CTkFrame):
             case_dir = eng.workdir
             auditlog_path = str(case_dir / "auditlog.ndjson")
             al = AuditLog(auditlog_path)
-            al.append(
-                "engagement.created",
-                {"case_id": case_id, "client": client, "scope": scope},
-            )
+            try:
+                al.append(
+                    "engagement.created",
+                    {"case_id": case_id, "client": client, "scope": scope},
+                )
+            except Exception:
+                # best-effort: don't let logging failures stop the flow
+                pass
+
+            # Throttle UI updates slightly to avoid flooding the text widget
+            import time
+
+            last_enum_update = 0.0
+            last_preproc_update = 0.0
 
             def preproc_progress(processed, total):
+                nonlocal last_preproc_update
                 try:
+                    now = time.time()
+                    # update UI at most 5 times/sec
+                    if now - last_preproc_update < 0.2 and (processed % 5) != 0:
+                        return
+                    last_preproc_update = now
+                    # mark phase and start time
+                    try:
+                        if self._preproc_start_time is None:
+                            self._preproc_start_time = now
+                        self.after(
+                            0, self.phase_label.configure, {"text": "Preprocessing"}
+                        )
+                    except Exception:
+                        pass
                     if total and total > 0:
                         frac = min(1.0, float(processed) / float(total))
                         self.after(0, self.progress.set, frac)
@@ -243,6 +303,27 @@ class SetupPage(ctk.CTkFrame):
                             self.progress_label.configure,
                             {"text": f"Preproc {processed}/{total}"},
                         )
+                        # ETA calculation
+                        try:
+                            elapsed = max(1e-6, now - (self._preproc_start_time or now))
+                            rate = float(processed) / elapsed if elapsed > 0 else 0.0
+                            if rate > 0 and total:
+                                remain = max(0, int((total - processed) / rate))
+                                self.after(
+                                    0,
+                                    self.eta_label.configure,
+                                    {"text": f"ETA: {remain}s"},
+                                )
+                        except Exception:
+                            pass
+                        # append a short message to results box
+                        if not bool(self.summary_only_var.get()):
+                            self.after(
+                                0,
+                                self.results_box.insert,
+                                "end",
+                                f"Preproc: {processed}/{total}\n",
+                            )
                     else:
                         self.after(
                             0,
@@ -258,9 +339,72 @@ class SetupPage(ctk.CTkFrame):
                 max_depth = 2
             do_extract = bool(self.extract_var.get())
 
-            # Enumerate inputs and write manifest into the case workspace (same as Auditor)
+            # Stream enumeration and show per-file preview lines. enumerate_inputs
+            # will call the progress callback with (count, path, total). We wrap
+            # that callback to throttle updates and keep the UI responsive.
+            def enum_progress(count, path, total):
+                nonlocal last_enum_update
+                try:
+                    now = time.time()
+                    # update at most 5 times/sec and always on multiples of 10
+                    if now - last_enum_update < 0.2 and (count % 10) != 0:
+                        return
+                    last_enum_update = now
+                    # mark phase and start time
+                    try:
+                        if self._enum_start_time is None:
+                            self._enum_start_time = now
+                        self.after(
+                            0, self.phase_label.configure, {"text": "Enumerating"}
+                        )
+                    except Exception:
+                        pass
+                    # update preview text and a lightweight progress in the label
+                    if not bool(self.summary_only_var.get()):
+                        self.after(
+                            0, self.results_box.insert, "end", f"Found: {path}\n"
+                        )
+                    if total and total > 0:
+                        # small progress bump to show activity; preproc will set real progress
+                        self.after(
+                            0, self.progress.set, min(0.2, float(count) / float(total))
+                        )
+                        # ETA estimate for enumeration
+                        try:
+                            elapsed = max(1e-6, now - (self._enum_start_time or now))
+                            rate = float(count) / elapsed if elapsed > 0 else 0.0
+                            eta = ""
+                            if rate > 0:
+                                remain = max(0, int((total - count) / rate))
+                                eta = f"ETA: {remain}s"
+                            self.after(
+                                0,
+                                self.progress_label.configure,
+                                {"text": f"Enumerating {count}/{total}"},
+                            )
+                            self.after(0, self.eta_label.configure, {"text": eta})
+                        except Exception:
+                            self.after(
+                                0,
+                                self.progress_label.configure,
+                                {"text": f"Enumerating {count}/{total}"},
+                            )
+                    else:
+                        self.after(
+                            0,
+                            self.progress_label.configure,
+                            {"text": f"Enumerating {count}"},
+                        )
+                except Exception:
+                    pass
+
+            # If the user selected fast scan, skip expensive SHA256 computation
+            compute_sha = not bool(self.fast_scan_var.get())
             items = enumerate_inputs(
-                [scope], progress_cb=None, cancel_event=self._cancel_event
+                [scope],
+                progress_cb=enum_progress,
+                cancel_event=self._cancel_event,
+                compute_sha=compute_sha,
             )
             # write canonical NDJSON manifest (tests and other code expect .ndjson)
             manifest_path = str(case_dir / "inputs.manifest.ndjson")
@@ -269,6 +413,7 @@ class SetupPage(ctk.CTkFrame):
             except Exception:
                 pass
 
+            cancelled = False
             try:
                 preproc_result = preprocess_items(
                     items,
@@ -280,26 +425,60 @@ class SetupPage(ctk.CTkFrame):
                     build_ast=bool(self.ast_var.get()),
                     build_disasm=bool(self.disasm_var.get()),
                 )
+                # preprocess_items may return early on cancellation without
+                # raising; check the cancel event to determine if the run
+                # was cancelled by the user.
+                cancelled = bool(self._cancel_event and self._cancel_event.is_set())
             except Exception as e:
                 preproc_result = {"stats": {}}
-                al.append("preproc.failed", {"error": str(e)})
+                cancelled = bool(self._cancel_event and self._cancel_event.is_set())
+                # record cancellation separately from failures
+                try:
+                    if cancelled:
+                        al.append("preproc.cancelled", {"message": "cancelled by user"})
+                    else:
+                        al.append("preproc.failed", {"error": str(e)})
+                except Exception:
+                    pass
 
-            stats = preproc_result.get("stats", {})
-            al.append("preproc.completed", {"index_lines": stats.get("index_lines")})
-            self.after(0, self._set_status, "Preprocessing completed")
-            # enable Continue button so user can go to detectors page
+            # If the run was cancelled, emit a cancellation audit event and
+            # update the UI accordingly. Otherwise record completion.
             try:
-                self.master.current_scan_meta = {
-                    "workdir": str(case_dir),
-                    "case_id": case_id,
-                }
-                self.after(0, partial(self.continue_btn.configure, state="normal"))
+                if cancelled:
+                    try:
+                        al.append("preproc.cancelled", {"message": "cancelled by user"})
+                    except Exception:
+                        pass
+                    self.after(0, self._set_status, "Preprocessing cancelled")
+                else:
+                    stats = preproc_result.get("stats", {})
+                    try:
+                        al.append(
+                            "preproc.completed",
+                            {"index_lines": stats.get("index_lines")},
+                        )
+                    except Exception:
+                        pass
+                    self.after(0, self._set_status, "Preprocessing completed")
+                    # enable Continue button so user can go to detectors page
+                    try:
+                        self.master.current_scan_meta = {
+                            "workdir": str(case_dir),
+                            "case_id": case_id,
+                        }
+                        self.after(
+                            0, partial(self.continue_btn.configure, state="normal")
+                        )
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
+            # finalize progress bar
             self.after(0, self.progress.set, 1.0)
         except Exception as e:
             try:
+                # log to status area; avoid printing to stdout in GUI
                 self.after(0, self._set_status, f"Preproc error: {e}")
             except Exception:
                 pass
@@ -307,6 +486,10 @@ class SetupPage(ctk.CTkFrame):
             try:
                 self.after(0, partial(self.start_btn.configure, state="normal"))
                 self.after(0, partial(self.cancel_btn.configure, state="disabled"))
+                try:
+                    self._stop_spinner()
+                except Exception:
+                    pass
             except Exception:
                 pass
 
@@ -318,6 +501,46 @@ class SetupPage(ctk.CTkFrame):
                 self.cancel_btn.configure(state="disabled")
             except Exception:
                 pass
+
+    def _start_spinner(self):
+        try:
+            if self._spinner_running:
+                return
+            self._spinner_running = True
+            self._spinner_index = 0
+
+            def _tick():
+                if not self._spinner_running:
+                    return
+                try:
+                    ch = self._spinner_chars[
+                        self._spinner_index % len(self._spinner_chars)
+                    ]
+                    self._spinner_index += 1
+                    self._spinner_label.configure(text=ch)
+                except Exception:
+                    pass
+                try:
+                    self.after(200, _tick)
+                except Exception:
+                    pass
+
+            try:
+                self.after(0, _tick)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _stop_spinner(self):
+        try:
+            self._spinner_running = False
+            try:
+                self._spinner_label.configure(text="")
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     def _on_continue(self):
         # navigate to detectors page; Detectors page will read master.current_scan_meta

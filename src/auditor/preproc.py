@@ -16,7 +16,7 @@ import threading
 import traceback
 import zipfile
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 
 def _atomic_write(path: Path, data: str) -> None:
@@ -82,7 +82,7 @@ def _detect_binary_metadata(
 
 
 def preprocess_items(
-    items: List[Dict[str, Any]],
+    items: Union[List[Dict[str, Any]], Iterable[Dict[str, Any]]],
     workdir: str,
     progress_cb: Optional[Callable[[int, int], None]] = None,
     cancel_event: Optional[threading.Event] = None,
@@ -92,14 +92,24 @@ def preprocess_items(
     build_disasm: bool = False,
     preserve_permissions: bool = True,
     move_extracted: bool = False,
-) -> List[Dict[str, Any]]:  # noqa: C901 (complexity; split into helpers later)
+    stream: bool = False,
+    resume: bool = False,
+) -> Dict[str, Any]:  # noqa: C901 (complexity; split into helpers later)
     """Process items and write per-file artifacts.
+
+    Supports a streaming mode when `stream=True` where manifest lines are
+    written incrementally to a temporary ndjson file (flushed after each write)
+    so downstream consumers and the UI can observe progress without buffering
+    the entire manifest in memory.
 
     progress_cb, if provided, will be called as progress_cb(processed_count, total)
     after each item is completed. If cancel_event is set the function will stop
     early and return the index entries created up to that point.
 
-    Returns list of index entries written to preproc.index.jsonl.
+    Returns a dict with keys:
+    - index: list of index entries written to preproc.index.jsonl
+    - manifest_path: path to inputs.manifest.ndjson (or None on failure)
+    - stats: summary stats
     """
 
     wd = Path(workdir)
@@ -109,12 +119,54 @@ def preprocess_items(
     index_entries: List[Dict[str, Any]] = []
     manifest_entries: List[Dict[str, Any]] = []
 
-    total = len(items)
+    manifest_path = wd / "inputs.manifest.ndjson"
+    tmp_manifest = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
+    manifest_writer = None
+    if stream:
+        try:
+            manifest_writer = tmp_manifest.open("w", encoding="utf-8")
+        except Exception:
+            manifest_writer = None
+
+    # support iterators: try to determine total when possible
+    try:
+        total = len(items)  # type: ignore[arg-type]
+    except Exception:
+        total = None
+
     processed = 0
 
-    # extraction configuration is now passed in as parameter
+    # build resume set from existing index/dirs when requested
+    processed_shas_set = set()
+    if resume:
+        try:
+            # read existing index entries
+            if index_path.exists():
+                try:
+                    with index_path.open("r", encoding="utf-8") as f:
+                        for ln in f:
+                            try:
+                                obj = json.loads(ln)
+                                mid = obj.get("manifest_id") or obj.get("sha256")
+                                if mid:
+                                    processed_shas_set.add(mid)
+                            except Exception:
+                                continue
+                except Exception:
+                    pass
+            # also include any existing directories under preproc/
+            try:
+                if preproc_dir.exists():
+                    for d in preproc_dir.iterdir():
+                        if d.is_dir():
+                            processed_shas_set.add(d.name)
+            except Exception:
+                pass
+        except Exception:
+            processed_shas_set = set()
 
-    for it in items:
+    # iterate over items (items may be an iterator)
+    for it in items:  # type: ignore
         if cancel_event is not None and cancel_event.is_set():
             break
 
@@ -138,6 +190,16 @@ def preprocess_items(
                 sha = None
 
         if not sha:
+            processed += 1
+            if callable(progress_cb):
+                try:
+                    progress_cb(processed, total)
+                except Exception:
+                    pass
+            continue
+
+        # if resuming and this sha was already processed, skip
+        if resume and sha in processed_shas_set:
             processed += 1
             if callable(progress_cb):
                 try:
@@ -192,7 +254,17 @@ def preprocess_items(
                     "error": "source_missing",
                 }
                 index_entries.append(idx)
-                manifest_entries.append(meta)
+                # write manifest entry immediately in stream mode
+                if stream and manifest_writer is not None:
+                    try:
+                        manifest_writer.write(
+                            json.dumps(meta, sort_keys=True, ensure_ascii=False) + "\n"
+                        )
+                        manifest_writer.flush()
+                    except Exception:
+                        pass
+                else:
+                    manifest_entries.append(meta)
                 try:
                     with index_path.open("a", encoding="utf-8") as f:
                         f.write(
@@ -266,8 +338,19 @@ def preprocess_items(
                         preserve_permissions=preserve_permissions,
                         move_extracted=move_extracted,
                     )
-                    # extend manifest entries with the returned records
-                    manifest_entries.extend(extracted_records)
+                    # write/collect extracted records
+                    if stream and manifest_writer is not None:
+                        try:
+                            for mrec in extracted_records:
+                                manifest_writer.write(
+                                    json.dumps(mrec, sort_keys=True, ensure_ascii=False)
+                                    + "\n"
+                                )
+                            manifest_writer.flush()
+                        except Exception:
+                            pass
+                    else:
+                        manifest_entries.extend(extracted_records)
                 except Exception:
                     # top-level safeguard: do not stop preprocessing on extraction failure
                     pass
@@ -417,7 +500,17 @@ def preprocess_items(
         # include both ISO and epoch seconds in the manifest for flexibility
         manifest_entry["mtime"] = mtime_iso
         manifest_entry["mtime_epoch"] = mtime_epoch
-        manifest_entries.append(manifest_entry)
+        if stream and manifest_writer is not None:
+            try:
+                manifest_writer.write(
+                    json.dumps(manifest_entry, sort_keys=True, ensure_ascii=False)
+                    + "\n"
+                )
+                manifest_writer.flush()
+            except Exception:
+                pass
+        else:
+            manifest_entries.append(manifest_entry)
 
         # append to index file (ndjson)
         try:
@@ -433,14 +526,21 @@ def preprocess_items(
             except Exception:
                 pass
 
-    # write inputs.manifest.ndjson atomically
+    # finish manifest writer if streaming, else write manifest atomically
     try:
-        manifest_path = wd / "inputs.manifest.ndjson"
-        tmp_manifest = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
-        with tmp_manifest.open("w", encoding="utf-8") as mf:
-            for m in manifest_entries:
-                mf.write(json.dumps(m, sort_keys=True, ensure_ascii=False) + "\n")
-        tmp_manifest.replace(manifest_path)
+        if stream and manifest_writer is not None:
+            try:
+                manifest_writer.close()
+                tmp_manifest.replace(manifest_path)
+            except Exception:
+                pass
+        else:
+            manifest_path = wd / "inputs.manifest.ndjson"
+            tmp_manifest = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
+            with tmp_manifest.open("w", encoding="utf-8") as mf:
+                for m in manifest_entries:
+                    mf.write(json.dumps(m, sort_keys=True, ensure_ascii=False) + "\n")
+            tmp_manifest.replace(manifest_path)
     except Exception:
         # best-effort: don't fail the whole preprocess if manifest write fails
         pass
@@ -472,7 +572,7 @@ def preprocess_items(
         "total_input_items": total,
         "processed": processed,
         "index_lines": len(index_entries),
-        "manifest_lines": len(manifest_entries),
+        "manifest_lines": len(manifest_entries) if not stream else None,
     }
 
     return {
