@@ -16,6 +16,9 @@ class SetupConfig:
     archive_exts: tuple = (".zip", ".tar", ".gz", ".bz2")
     skip_symlinks: bool = True
     forbid_root: bool = True
+    # Whether to allow prebuilt binary libraries (e.g., .so/.dll/.a) to be
+    # included for preprocessing. Default: False (skip such binaries).
+    allow_binary_libs: bool = False
 
 
 @dataclass
