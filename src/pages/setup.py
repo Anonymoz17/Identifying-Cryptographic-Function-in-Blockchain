@@ -45,38 +45,14 @@ class SetupPage(ctk.CTkFrame):
             text_color="#aab",
         )
         self.pipeline_label.pack()
-        self.pipeline_details = ctk.CTkButton(
-            content, text="Details…", width=90, command=self._open_pipeline_docs
-        )
-        self.pipeline_details.pack(pady=(2, 8))
 
         # Workdir / case / scope
         form = ctk.CTkFrame(content, fg_color="transparent")
         form.pack(padx=12, pady=(6, 6), fill="x")
         form.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(form, text="Workdir:").grid(row=0, column=0, sticky="w")
-        self.workdir_entry = ctk.CTkEntry(
-            form, placeholder_text="Select or enter a work directory"
-        )
-        try:
-            default_workdir = str((Path.cwd() / "case_demo" / "cases").resolve())
-        except Exception:
-            default_workdir = str(Path.home() / "CryptoScope" / "cases")
-        self.workdir_entry.insert(0, default_workdir)
-        self.workdir_entry.grid(row=0, column=1, sticky="we", padx=(6, 0))
-
-        ctk.CTkLabel(form, text="Case ID:").grid(row=1, column=0, sticky="w")
-        self.case_entry = ctk.CTkEntry(form, placeholder_text="e.g. CASE-001")
-        self.case_entry.grid(row=1, column=1, sticky="we", padx=(6, 0))
-
-        ctk.CTkLabel(form, text="Client: ").grid(row=1, column=2, sticky="w")
-        self.client_entry = ctk.CTkEntry(
-            form, placeholder_text="Client name (optional)"
-        )
-        self.client_entry.grid(row=1, column=3, sticky="we", padx=(6, 0))
-
-        ctk.CTkLabel(form, text="Scope:").grid(row=2, column=0, sticky="w")
+        # Scope comes first (primary input for scanning)
+        ctk.CTkLabel(form, text="Scope:").grid(row=0, column=0, sticky="w")
         self.scope_entry = ctk.CTkEntry(
             form, placeholder_text="Folder to scan (use Browse)"
         )
@@ -85,11 +61,42 @@ class SetupPage(ctk.CTkFrame):
         except Exception:
             default_scope = str(Path.home())
         self.scope_entry.insert(0, default_scope)
-        self.scope_entry.grid(row=2, column=1, sticky="we", padx=(6, 0))
+        self.scope_entry.grid(row=0, column=1, sticky="we", padx=(6, 0))
         self.scope_browse = ctk.CTkButton(
             form, text="Browse", width=90, command=self._browse_scope
         )
-        self.scope_browse.grid(row=2, column=2, padx=(8, 0))
+        self.scope_browse.grid(row=0, column=2, padx=(8, 0))
+
+        # Workdir is secondary and appears after scope
+        ctk.CTkLabel(form, text="Workdir:").grid(row=1, column=0, sticky="w")
+        self.workdir_entry = ctk.CTkEntry(
+            form, placeholder_text="Select or enter a work directory"
+        )
+        try:
+            default_workdir = str((Path.cwd() / "case_demo" / "cases").resolve())
+        except Exception:
+            default_workdir = str(Path.home() / "CryptoScope" / "cases")
+        self.workdir_entry.insert(0, default_workdir)
+        self.workdir_entry.grid(row=1, column=1, sticky="we", padx=(6, 0))
+        self.workdir_browse = ctk.CTkButton(
+            form, text="Browse", width=90, command=self._browse_workdir
+        )
+        self.workdir_browse.grid(row=1, column=2, padx=(8, 0))
+
+        # Case ID and Client come after workdir — compact vertical layout
+        ctk.CTkLabel(form, text="Case ID / Client:").grid(
+            row=2, column=0, sticky="nw"
+        )
+        meta = ctk.CTkFrame(form, fg_color="transparent")
+        meta.grid(row=2, column=1, columnspan=3, sticky="w", padx=(6, 0), pady=(8, 12))
+
+        # smaller, stacked fields (closer together vertically)
+        self.case_entry = ctk.CTkEntry(meta, width=260, placeholder_text="e.g. CASE-001")
+        self.case_entry.grid(row=0, column=0, sticky="w")
+        self.client_entry = ctk.CTkEntry(
+            meta, width=260, placeholder_text="Client name (optional)"
+        )
+        self.client_entry.grid(row=1, column=0, sticky="w", pady=(6, 0))
 
         # Preproc options
         ctk.CTkLabel(form, text="Preproc Options:").grid(row=3, column=0, sticky="w")
@@ -211,11 +218,7 @@ class SetupPage(ctk.CTkFrame):
         self._spinner_chars = ("◐", "◓", "◑", "◒")
         self._spinner_index = 0
 
-        # Results buffer for summary-only / throttled display
-        self.summary_only_var = tk.BooleanVar(value=False)
-        ctk.CTkCheckBox(
-            content, text="Summary-only", variable=self.summary_only_var
-        ).pack()
+        # Results buffer for throttled display
         self._results_buffer = []
         # keep only the last N lines in the results box to avoid unbounded growth
         self._results_max = 200
@@ -227,14 +230,96 @@ class SetupPage(ctk.CTkFrame):
 
         # internal state
         self._cancel_event = None
+        # cache last folder used by browse dialogs to avoid slow initialdir
+        try:
+            self._last_browse_dir = str(Path.home())
+        except Exception:
+            self._last_browse_dir = "."
 
     def _browse_scope(self):
+        # Use filedialog with a parent and initialdir to reduce platform
+        # overhead and avoid long hangs on Windows when opening the dialog.
         from tkinter import filedialog
 
-        path = filedialog.askdirectory(title="Select folder for scope")
+        # Prefer the directory already present in the entry (if any).
+        try:
+            entry_val = self.scope_entry.get().strip()
+        except Exception:
+            entry_val = ""
+        initial = None
+        try:
+            if entry_val:
+                p = Path(entry_val)
+                # if path exists and is dir, use it
+                if p.exists() and p.is_dir():
+                    initial = str(p)
+                else:
+                    # try resolving relative to cwd; if that exists use it or its parent
+                    try:
+                        rp = (Path.cwd() / p).resolve()
+                        if rp.exists():
+                            initial = str(rp if rp.is_dir() else rp.parent)
+                    except Exception:
+                        pass
+            # fall back to last browse dir or home
+            if not initial:
+                initial = self._last_browse_dir or str(Path.home())
+        except Exception:
+            initial = self._last_browse_dir or str(Path.home())
+        # parent helps the native dialog attach to the main window
+        try:
+            parent = self.master.winfo_toplevel()
+        except Exception:
+            parent = None
+        path = filedialog.askdirectory(title="Select folder for scope", initialdir=initial, parent=parent)
+
         if path:
-            self.scope_entry.delete(0, "end")
-            self.scope_entry.insert(0, path)
+            # update entry through .after to ensure the UI remains responsive
+            self.after(0, lambda: (self.scope_entry.delete(0, "end"), self.scope_entry.insert(0, path)))
+            # update cached last dir to speed up subsequent dialogs
+            try:
+                self._last_browse_dir = path
+            except Exception:
+                pass
+
+    def _browse_workdir(self):
+        # Browse button for workdir (select a folder)
+        from tkinter import filedialog
+
+        # Prefer the directory already present in the workdir entry (if any).
+        try:
+            entry_val = self.workdir_entry.get().strip()
+        except Exception:
+            entry_val = ""
+        initial = None
+        try:
+            if entry_val:
+                p = Path(entry_val)
+                if p.exists() and p.is_dir():
+                    initial = str(p)
+                else:
+                    try:
+                        rp = (Path.cwd() / p).resolve()
+                        if rp.exists():
+                            initial = str(rp if rp.is_dir() else rp.parent)
+                    except Exception:
+                        pass
+            if not initial:
+                initial = self._last_browse_dir or str(Path.home())
+        except Exception:
+            initial = self._last_browse_dir or str(Path.home())
+        try:
+            parent = self.master.winfo_toplevel()
+        except Exception:
+            parent = None
+        path = filedialog.askdirectory(title="Select workdir folder", initialdir=initial, parent=parent)
+
+        if path:
+            self.after(0, lambda: (self.workdir_entry.delete(0, "end"), self.workdir_entry.insert(0, path)))
+            try:
+                self._last_browse_dir = path
+            except Exception:
+                pass
 
     def _browse_policy(self):
         from tkinter import filedialog
@@ -246,23 +331,6 @@ class SetupPage(ctk.CTkFrame):
                 self.policy_entry.insert(0, path)
             except Exception:
                 pass
-
-    def _open_pipeline_docs(self):
-        # Open the pipeline documentation file if present
-        try:
-            import webbrowser
-            from pathlib import Path
-
-            doc = Path(__file__).parent.parent / "docs" / "pipeline.md"
-            if doc.exists():
-                webbrowser.open(doc.resolve().as_uri())
-            else:
-                # fallback: open repository README
-                webbrowser.open(
-                    (Path(__file__).parent.parent / "README.md").resolve().as_uri()
-                )
-        except Exception:
-            pass
 
     def _toggle_advanced(self):
         try:
@@ -406,13 +474,12 @@ class SetupPage(ctk.CTkFrame):
                         except Exception:
                             pass
                         # append a short message to results box
-                        if not bool(self.summary_only_var.get()):
-                            self.after(
-                                0,
-                                self.results_box.insert,
-                                "end",
-                                f"Preproc: {processed}/{total}\n",
-                            )
+                        self.after(
+                            0,
+                            self.results_box.insert,
+                            "end",
+                            f"Preproc: {processed}/{total}\n",
+                        )
                     else:
                         self.after(
                             0,
@@ -454,17 +521,14 @@ class SetupPage(ctk.CTkFrame):
                     except Exception:
                         pass
                     # update preview text and a lightweight progress in the label
-                    if not bool(self.summary_only_var.get()):
-                        # show a shortened path to avoid flooding UI
+                    # show a shortened path to avoid flooding UI
+                    short = path
+                    try:
+                        if len(path) > 140:
+                            short = "..." + path[-137:]
+                    except Exception:
                         short = path
-                        try:
-                            if len(path) > 140:
-                                short = "..." + path[-137:]
-                        except Exception:
-                            short = path
-                        self.after(
-                            0, self.results_box.insert, "end", f"Found: {short}\n"
-                        )
+                    self.after(0, self.results_box.insert, "end", f"Found: {short}\n")
                     # prefer explicit total from enumerate_inputs, else use
                     # the background estimate when available
                     effective_total = total if total else total_estimate
