@@ -187,7 +187,7 @@ class SetupPage(ctk.CTkFrame):
         )
         self.start_btn.pack(side="left", padx=(0, 8))
         self.cancel_btn = ctk.CTkButton(
-            actions, text="Cancel", command=self._on_cancel_clicked, state="disabled"
+            actions, text="Cancel", command=(lambda: None), state="disabled"
         )
         self.cancel_btn.pack(side="left", padx=(0, 8))
         self.continue_btn = ctk.CTkButton(
@@ -388,25 +388,25 @@ class SetupPage(ctk.CTkFrame):
         # For very large scopes counting can itself be expensive, so we stream
         # enumeration updates into the UI instead of calling count_inputs()
         scope = self.scope_entry.get().strip() or "."
-        # write to the Setup page results box
+        # NOTE: Start is stubbed out. We do not start background processing
+        # from the Setup page at this time — this handler only updates the
+        # UI to acknowledge the button press. The full pipeline was removed
+        # intentionally so it can be reintroduced later.
         try:
             self.setup_results_box.delete("1.0", "end")
-            self.setup_results_box.insert("end", f"Starting scan for: {scope}\n")
+            self.setup_results_box.insert("end", f"Start pressed (stub). Scope: {scope}\n")
         except Exception:
             pass
-        self._set_status("Starting engagement (background)...")
-        self._cancel_event = threading.Event()
-        self.cancel_btn.configure(state="normal")
-        self.start_btn.configure(state="disabled")
-        # start spinner/animation and reset timers
         try:
-            self._enum_start_time = None
-            self._preproc_start_time = None
-            self._start_spinner()
+            self._set_status("Start pressed — background processing disabled")
         except Exception:
             pass
-        t = threading.Thread(target=self._run_engagement_flow, daemon=True)
-        t.start()
+        try:
+            # disable start to avoid repeated presses; cancel remains disabled
+            self.start_btn.configure(state="disabled")
+            self.cancel_btn.configure(state="disabled")
+        except Exception:
+            pass
 
     def _run_engagement_flow(self):
         wd = self.workdir_entry.get().strip() or str(Path.cwd() / "case_demo")
@@ -778,61 +778,12 @@ class SetupPage(ctk.CTkFrame):
             try:
                 self.after(0, partial(self.start_btn.configure, state="normal"))
                 self.after(0, partial(self.cancel_btn.configure, state="disabled"))
-                try:
-                    self._stop_spinner()
-                except Exception:
-                    pass
             except Exception:
                 pass
 
-    def _on_cancel_clicked(self):
-        if self._cancel_event is not None:
-            try:
-                self._cancel_event.set()
-                self._set_status("Cancellation requested")
-                self.cancel_btn.configure(state="disabled")
-            except Exception:
-                pass
-
-    def _start_spinner(self):
-        try:
-            if self._spinner_running:
-                return
-            self._spinner_running = True
-            self._spinner_index = 0
-
-            def _tick():
-                if not self._spinner_running:
-                    return
-                try:
-                    ch = self._spinner_chars[
-                        self._spinner_index % len(self._spinner_chars)
-                    ]
-                    self._spinner_index += 1
-                    self._spinner_label.configure(text=ch)
-                except Exception:
-                    pass
-                try:
-                    self.after(200, _tick)
-                except Exception:
-                    pass
-
-            try:
-                self.after(0, _tick)
-            except Exception:
-                pass
-        except Exception:
-            pass
-
-    def _stop_spinner(self):
-        try:
-            self._spinner_running = False
-            try:
-                self._spinner_label.configure(text="")
-            except Exception:
-                pass
-        except Exception:
-            pass
+    # NOTE: _on_cancel_clicked, _start_spinner and _stop_spinner removed.
+    # These functions were intentionally stripped so the start/cancel
+    # spinner behaviour can be redesigned and reintroduced later.
 
     def _on_continue(self):
         # navigate to detectors page; Detectors page will read master.current_scan_meta
