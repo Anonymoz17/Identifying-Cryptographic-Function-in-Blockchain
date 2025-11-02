@@ -7,7 +7,12 @@ from pathlib import Path
 
 from auditor.auditlog import AuditLog
 from auditor.case import Engagement
-from auditor.intake import count_inputs, enumerate_inputs_iter
+from auditor.intake import (
+    count_inputs,
+    enumerate_inputs_iter,
+    enumerate_inputs,
+    write_manifest,
+)
 from auditor.preproc import preprocess_items
 from auditor.workspace import Workspace
 
@@ -225,8 +230,9 @@ class SetupPage(ctk.CTkFrame):
         self._enum_start_time = None
         self._preproc_start_time = None
 
-        self.results_box = tk.Text(content, height=10, wrap="none")
-        self.results_box.pack(fill="both", padx=12, pady=(6, 12), expand=False)
+        # Separate results box for Setup page (do not reuse Detectors' widget)
+        self.setup_results_box = tk.Text(content, height=10, wrap="none")
+        self.setup_results_box.pack(fill="both", padx=12, pady=(6, 12), expand=False)
 
         # internal state
         self._cancel_event = None
@@ -382,8 +388,12 @@ class SetupPage(ctk.CTkFrame):
         # For very large scopes counting can itself be expensive, so we stream
         # enumeration updates into the UI instead of calling count_inputs()
         scope = self.scope_entry.get().strip() or "."
-        self.results_box.delete("1.0", "end")
-        self.results_box.insert("end", f"Starting scan for: {scope}\n")
+        # write to the Setup page results box
+        try:
+            self.setup_results_box.delete("1.0", "end")
+            self.setup_results_box.insert("end", f"Starting scan for: {scope}\n")
+        except Exception:
+            pass
         self._set_status("Starting engagement (background)...")
         self._cancel_event = threading.Event()
         self.cancel_btn.configure(state="normal")
@@ -474,12 +484,16 @@ class SetupPage(ctk.CTkFrame):
                         except Exception:
                             pass
                         # append a short message to results box
-                        self.after(
-                            0,
-                            self.results_box.insert,
-                            "end",
-                            f"Preproc: {processed}/{total}\n",
-                        )
+                        # append preproc progress into Setup's results box
+                        try:
+                            self.after(
+                                0,
+                                self.setup_results_box.insert,
+                                "end",
+                                f"Preproc: {processed}/{total}\n",
+                            )
+                        except Exception:
+                            pass
                     else:
                         self.after(
                             0,
@@ -528,7 +542,11 @@ class SetupPage(ctk.CTkFrame):
                             short = "..." + path[-137:]
                     except Exception:
                         short = path
-                    self.after(0, self.results_box.insert, "end", f"Found: {short}\n")
+                    # append enumeration preview into Setup's results box
+                    try:
+                        self.after(0, self.setup_results_box.insert, "end", f"Found: {short}\n")
+                    except Exception:
+                        pass
                     # prefer explicit total from enumerate_inputs, else use
                     # the background estimate when available
                     effective_total = total if total else total_estimate
@@ -828,7 +846,10 @@ class SetupPage(ctk.CTkFrame):
         try:
             self.progress.set(0.0)
             self.progress_label.configure(text="")
-            self.results_box.delete("1.0", "end")
+            try:
+                self.setup_results_box.delete("1.0", "end")
+            except Exception:
+                pass
             self.continue_btn.configure(state="disabled")
         except Exception:
             pass

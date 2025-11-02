@@ -59,7 +59,7 @@ def make_setup_instance(tmp_path):
     inst.fast_scan_var = DummyVar(True)
     inst.ast_var = DummyVar(False)
     inst.disasm_var = DummyVar(False)
-    inst.results_box = DummyWidget()
+    inst.setup_results_box = DummyWidget()
     inst.progress = DummyProgress()
     inst.progress_label = DummyLabel()
     inst.continue_btn = DummyBtn()

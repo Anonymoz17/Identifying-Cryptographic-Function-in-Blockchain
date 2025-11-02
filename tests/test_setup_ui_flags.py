@@ -55,7 +55,7 @@ def make_setup_instance(tmp_path):
     inst.scope_entry = DummyEntry(str(tmp_path))
     inst.policy_entry = DummyEntry("")
     inst.max_depth_entry = DummyEntry("1")
-    inst.results_box = DummyWidget()
+    inst.setup_results_box = DummyWidget()
     inst.progress = DummyProgress()
     inst.progress_label = DummyLabel()
     inst.continue_btn = DummyBtn()
