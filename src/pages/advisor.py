@@ -1,7 +1,27 @@
 import customtkinter as ctk
 
-from core.kb import list_algorithms
-from core.recommender import compare, top_n
+try:
+    from core.kb import list_algorithms
+    from core.recommender import compare, top_n
+except ImportError:
+    # `core` package was removed; provide safe fallbacks so the UI remains functional.
+    def list_algorithms():
+        """Fallback: no algorithms available."""
+        return []
+
+    def compare(a_id, b_id):
+        """Fallback comparison: return neutral scores for expected metrics."""
+        return {
+            "security": (0, 0),
+            "performance": (0, 0),
+            "adoption": (0, 0),
+            "compatibility": (0, 0),
+            "risk": (0, 0),
+        }
+
+    def top_n(n):
+        """Fallback: no recommendations."""
+        return []
 from roles import is_premium
 from ui.card import Card
 from ui.grid import grid_evenly

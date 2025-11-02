@@ -6,7 +6,6 @@ from .dashboard import DashboardPage
 from .detectors import DetectorsPage
 from .login import LoginPage
 from .register import RegisterPage
-from .reports import ReportsPage
 from .setup import SetupPage
 
 __all__ = [
@@ -16,6 +15,5 @@ __all__ = [
     "DetectorsPage",
     "LoginPage",
     "RegisterPage",
-    "ReportsPage",
     "AdvisorPage",
 ]
