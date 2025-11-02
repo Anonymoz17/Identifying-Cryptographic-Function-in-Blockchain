@@ -53,6 +53,9 @@ EXCLUDE_DIRS = {
     ".pytest_cache",
     ".mypy_cache",
     ".cache",
+    ".ruff_cache",
+    ".gradle",
+    ".terraform",
 }
 
 EXCLUDE_FILES = {
@@ -62,6 +65,12 @@ EXCLUDE_FILES = {
     "makefile",
     "dockerfile",
     "requirements.txt",
+    ".env",
+    ".gitignore",
+    ".gitattributes",
+    ".pre-commit-config.yaml",
+    ".dockerignore",
+    ".editorconfig",
 }
 
 EXCLUDE_EXTENSIONS = {
@@ -82,6 +91,9 @@ EXCLUDE_EXTENSIONS = {
     ".sqlite",
     ".tmp",
     ".bak",
+    ".pem",
+    ".key",
+    ".bin",
 }
 
 
