@@ -21,6 +21,69 @@ from typing import Any, Dict, Iterator, List, Optional
 
 logger = logging.getLogger(__name__)
 
+# Global exclusion lists for enumeration. Lower-cased for case-insensitive
+# comparisons on Windows and POSIX file systems.
+EXCLUDE_DIRS = {
+    ".git",
+    ".github",
+    ".idea",
+    ".vscode",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "node_modules",
+    "build",
+    "dist",
+    "target",
+    "bin",
+    "obj",
+    "out",
+    "vendor",
+    "external",
+    "third_party",
+    "examples",
+    "tests",
+    "docs",
+    "artifacts",
+    "cache",
+    "generated",
+    "proto",
+    "abis",
+    "contracts",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".cache",
+}
+
+EXCLUDE_FILES = {
+    "readme.md",
+    "license",
+    "license.txt",
+    "makefile",
+    "dockerfile",
+    "requirements.txt",
+}
+
+EXCLUDE_EXTENSIONS = {
+    ".log",
+    ".json",
+    ".lock",
+    ".csv",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".pdf",
+    ".so",
+    ".dll",
+    ".exe",
+    ".pyc",
+    ".pyo",
+    ".db",
+    ".sqlite",
+    ".tmp",
+    ".bak",
+}
+
 
 def hash_file_sha256(
     path: str, chunk_size: int = 8192, cancel_event: Optional[threading.Event] = None
@@ -115,7 +178,26 @@ def enumerate_inputs_iter(
 
                 if os.path.isdir(root_path):
                     for root, _dirs, files in os.walk(root_path):
+                        # prune directories we don't want to descend into
+                        try:
+                            _dirs[:] = [
+                                d for d in _dirs if d.lower() not in EXCLUDE_DIRS
+                            ]
+                        except Exception:
+                            pass
+
                         for fn in files:
+                            # skip unwanted filenames and extensions
+                            try:
+                                lfn = fn.lower()
+                                if lfn in EXCLUDE_FILES:
+                                    continue
+                                ext = os.path.splitext(fn)[1].lower()
+                                if ext in EXCLUDE_EXTENSIONS:
+                                    continue
+                            except Exception:
+                                pass
+
                             if cancel_event is not None and cancel_event.is_set():
                                 break
                             fp = os.path.join(root, fn)
@@ -155,6 +237,13 @@ def enumerate_inputs_iter(
                     if cancel_event is not None and cancel_event.is_set():
                         break
                     try:
+                        # skip excluded filenames/extensions
+                        bname = os.path.basename(root_path).lower()
+                        if (
+                            bname in EXCLUDE_FILES
+                            or os.path.splitext(bname)[1].lower() in EXCLUDE_EXTENSIONS
+                        ):
+                            continue
                         stat = os.stat(root_path)
                         item = {
                             "path": os.path.abspath(root_path),
@@ -211,7 +300,24 @@ def enumerate_inputs_iter(
 
         if os.path.isdir(p):
             for root, _dirs, files in os.walk(p):
+                # prune directories we don't want to descend into
+                try:
+                    _dirs[:] = [d for d in _dirs if d.lower() not in EXCLUDE_DIRS]
+                except Exception:
+                    pass
+
                 for fn in files:
+                    # skip unwanted filenames and extensions
+                    try:
+                        lfn = fn.lower()
+                        if lfn in EXCLUDE_FILES:
+                            continue
+                        ext = os.path.splitext(fn)[1].lower()
+                        if ext in EXCLUDE_EXTENSIONS:
+                            continue
+                    except Exception:
+                        pass
+
                     if cancel_event is not None and cancel_event.is_set():
                         break
                     fp = os.path.join(root, fn)
@@ -253,6 +359,13 @@ def enumerate_inputs_iter(
             if cancel_event is not None and cancel_event.is_set():
                 break
             try:
+                # skip excluded filenames/extensions for single-file inputs
+                bname = os.path.basename(p).lower()
+                if (
+                    bname in EXCLUDE_FILES
+                    or os.path.splitext(bname)[1].lower() in EXCLUDE_EXTENSIONS
+                ):
+                    continue
                 stat = os.stat(p)
                 item = {
                     "path": os.path.abspath(p),
@@ -290,7 +403,22 @@ def count_inputs(paths: List[str]) -> int:
     for p in paths:
         if os.path.isdir(p):
             for _root, _dirs, files in os.walk(p):
-                total += len(files)
+                try:
+                    _dirs[:] = [d for d in _dirs if d.lower() not in EXCLUDE_DIRS]
+                except Exception:
+                    pass
+                # count only non-excluded files
+                for fn in files:
+                    try:
+                        lfn = fn.lower()
+                        if lfn in EXCLUDE_FILES:
+                            continue
+                        ext = os.path.splitext(fn)[1].lower()
+                        if ext in EXCLUDE_EXTENSIONS:
+                            continue
+                    except Exception:
+                        pass
+                    total += 1
         elif os.path.isfile(p):
             total += 1
     return total
