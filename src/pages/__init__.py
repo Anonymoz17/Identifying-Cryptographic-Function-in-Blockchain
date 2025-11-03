@@ -2,8 +2,8 @@
 
 from .advisor import AdvisorPage
 from .analysis import AnalysisPage
+from .auditor import AuditorPage
 from .dashboard import DashboardPage
-from .detectors import DetectorsPage
 from .login import LoginPage
 from .register import RegisterPage
 from .setup import SetupPage
@@ -16,4 +16,5 @@ __all__ = [
     "LoginPage",
     "RegisterPage",
     "AdvisorPage",
+    "LandingPage",
 ]

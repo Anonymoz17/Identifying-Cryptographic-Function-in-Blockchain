@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CryptoScope — Static Landing (Single File)</title>
+  <meta name="description" content="CryptoScope identifies cryptographic functions in source, binaries, and repos with NIST-informed scoring." />
+  <style>
+  :root {
+    --bg: #0b0b0b;
+    --bg-soft: #121212;
+    --text: #ffffff;
+    --muted: rgba(255,255,255,.72);
+    --border: rgba(255,255,255,.12);
+    --accent1: #34d399;
+    --accent2: #22d3ee;
+    --card: rgba(255,255,255,.04);
+    --shadow: 0 10px 30px rgba(0,0,0,.35);
+  }
+  [data-theme="light"] {
+    --bg: #ffffff;
+    --bg-soft: #f8fafc;
+    --text: #0b1220;
+    --muted: rgba(2,6,23,.7);
+    --border: rgba(2,6,23,.12);
+    --accent1: #2563eb;
+    --accent2: #14b8a6;
+    --card: #ffffff;
+    --shadow: 0 10px 30px rgba(2,6,23,.08);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;color-scheme:dark;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji"}
+  [data-theme="light"] html,[data-theme="light"] body{color-scheme:light}
+  a{color:inherit;text-decoration:none}
+  .container{max-width:1120px;margin:0 auto;padding:0 20px}
+  .nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(10px);background:rgba(0,0,0,.5);border-bottom:1px solid var(--border)}
+  .nav-inner{display:flex;align-items:center;justify-content:space-between;padding:14px 0}
+  .brand{display:flex;gap:10px;align-items:center;font-weight:700;letter-spacing:.2px}
+  .brand-badge{width:32px;height:32px;border-radius:12px;background:linear-gradient(135deg,var(--accent1),var(--accent2))}
+  .nav-links{display:none;gap:22px;color:var(--muted);font-size:14px}
+  .nav-cta{display:none;gap:10px}
+  @media(min-width:900px){.nav-links{display:flex}.nav-cta{display:flex}}
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:10px 16px;border-radius:16px;font-weight:600;font-size:14px;border:1px solid var(--border);background:transparent;color:var(--text);transition:transform .15s ease,background .2s ease,opacity .2s ease,border-color .2s ease}
+  .btn:hover{transform:translateY(-1px);background:rgba(255,255,255,.06)}
+  .btn-primary{border:0;background:linear-gradient(90deg,var(--accent1),var(--accent2));color:#0b0b0b}
+  .btn-block{width:100%;justify-content:center}
+  .hero{position:relative;overflow:hidden}
+  .hero-bg{position:absolute;inset:0;z-index:-1;background:radial-gradient(ellipse at 20% -10%, rgba(52,211,153,.22) 0%, transparent 55%), radial-gradient(ellipse at 100% 120%, rgba(34,211,238,.18) 0%, transparent 55%)}
+  .hero-grid{display:grid;gap:40px;padding:72px 0;align-items:center}
+  @media(min-width:980px){.hero-grid{grid-template-columns:1.1fr .9fr;padding:96px 0}}
+  .badge{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:9999px;border:1px solid var(--border);background:rgba(255,255,255,.06);color:var(--muted);font-size:12px}
+  .title{font-weight:800;line-height:1.08;letter-spacing:-.02em;font-size:clamp(32px,6vw,56px);margin:14px 0 10px}
+  .lead{color:var(--muted);font-size:clamp(15px,2.4vw,18px);max-width:52ch}
+  .kv{position:relative;border-radius:22px;background:var(--card);border:1px solid var(--border);box-shadow:var(--shadow);overflow:hidden}
+  .kv-head{display:flex;align-items:center;justify-content:space-between;padding:16px;color:var(--muted);font-size:12px}
+  .kv-dots{display:flex;gap:6px}.dot{width:10px;height:10px;border-radius:9999px}.dot.red{background:#fb7185}.dot.amber{background:#f59e0b}.dot.green{background:#34d399}
+  .kv-pre{padding:0 16px 18px;font-size:12px;line-height:1.5;color:rgba(255,255,255,.82);overflow:auto}
+  .section{padding:68px 0}.section h2{font-size:clamp(24px,4.5vw,36px);margin:0}.section .sub{color:var(--muted);margin-top:10px}
+  .grid{display:grid;gap:18px}
+  @media(min-width:720px){.grid.cols-2{grid-template-columns:repeat(2,1fr)}}
+  @media(min-width:1000px){.grid.cols-3{grid-template-columns:repeat(3,1fr)}}
+  @media(min-width:1100px){.grid.cols-4{grid-template-columns:repeat(4,1fr)}}
+  .card{border-radius:20px;background:var(--card);border:1px solid var(--border);padding:18px;box-shadow:var(--shadow)}
+  .card h3{margin:8px 0 4px;font-size:16px}.card p{margin:0;color:var(--muted);font-size:14px}
+  .icon{display:grid;place-content:center;width:42px;height:42px;border-radius:12px;background:rgba(52,211,153,.14);border:1px solid rgba(52,211,153,.3)}
+  .pricing .price{font-size:36px;font-weight:800;margin-top:8px}
+  .pricing ul{list-style:none;padding:0;margin:10px 0 0;display:grid;gap:8px;font-size:14px;color:var(--muted)}
+  .pricing li{display:flex;gap:8px;align-items:center}
+  .check{width:20px;height:20px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,.06);display:grid;place-content:center}
+  .faq details{border-bottom:1px solid var(--border)}.faq summary{list-style:none;cursor:pointer;padding:16px 0;display:flex;align-items:center;justify-content:space-between;color:var(--text)}
+  .faq p{margin:0 0 18px;color:var(--muted);font-size:14px}.rotate{transition:transform .2s ease}details[open] .rotate{transform:rotate(90deg)}
+  .footer{border-top:1px solid var(--border);padding:26px 0 34px;color:var(--muted);font-size:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+  .badges{display:flex;gap:10px;flex-wrap:wrap}
+  .mt-2{margin-top:8px}.mt-4{margin-top:16px}.mt-6{margin-top:24px}.mt-10{margin-top:40px}
+  .center{text-align:center}.reveal{opacity:0;transform:translateY(12px);transition:opacity .6s ease,transform .6s ease}.reveal.visible{opacity:1;transform:none}
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="#"><div class="brand-badge"></div><span>CryptoScope</span></a>
+      <div class="nav-links">
+        <a href="#features">Features</a><a href="#how">Pipeline</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a>
+      </div>
+      <div class="nav-cta">
+        <button class="btn" id="theme-toggle" type="button">Toggle theme</button>
+        <a class="btn" href="#demo">Live Demo</a>
+        <a class="btn btn-primary" href="#get-started">Get Started</a>
+      </div>
+    </div>
+  </div>
+
+  <section class="hero">
+    <div class="hero-bg"></div>
+    <div class="container hero-grid">
+      <div class="reveal">
+        <span class="badge">Secure cryptography analysis for modern blockchain systems</span>
+        <h1 class="title">Detect &amp; Understand <span style="background:linear-gradient(90deg,var(--accent1),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent;">Cryptographic Functions</span> fast.</h1>
+        <p class="lead">CryptoScope scans binaries, source code, and repos to detect hashes, ciphers, and protocols — then ranks strength, performance, and adoption so you can remediate with confidence.</p>
+        <div class="mt-4">
+          <a class="btn btn-primary" href="#get-started">Download (Desktop)</a>
+          <a class="btn" href="#demo">Try Web Demo</a>
+          <a class="btn" href="#github">GitHub</a>
+        </div>
+        <div class="mt-6" style="color:var(--muted);font-size:14px;">✓ NIST-informed scoring &nbsp;&nbsp; ✓ Static + optional dynamic &nbsp;&nbsp; ✓ JSON/NDJSON exports</div>
+      </div>
+      <div class="reveal">
+        <div class="kv">
+          <div class="kv-head">
+            <div class="kv-dots"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span></div>
+            <span>analysis.ndjson</span>
+          </div>
+<pre class="kv-pre">{{
+  "file": "/build/wallet.exe",
+  "matches": [
+    {{"algo":"SHA-256","type":"hash","confidence":0.98,"line":214}},
+    {{"algo":"AES-256-GCM","type":"cipher","confidence":0.94,"line":377}},
+    {{"algo":"RIPEMD-160","type":"hash","confidence":0.72,"line":502}}
+  ],
+  "score": {{"security":0.88,"performance":0.76,"adoption":0.91}}
+}}</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features" class="section">
+    <div class="container center reveal">
+      <h2>Built for auditors &amp; secure teams</h2>
+      <p class="sub">Actionable detections, rich context, and exports that play nicely with your toolchain.</p>
+    </div>
+    <div class="container grid cols-3 mt-6">
+      <div class="card reveal"><div class="icon">🔎</div><h3>Multi-source scanning</h3><p>Analyze binaries, source, or entire GitHub repos with one click.</p></div>
+      <div class="card reveal"><div class="icon">⚙️</div><h3>Static + Dynamic</h3><p>Rules &amp; AST with optional Frida hooks for runtime hints.</p></div>
+      <div class="card reveal"><div class="icon">🚀</div><h3>Fast &amp; scalable</h3><p>Parallel scanning and caching for large workspaces and CI/CD.</p></div>
+      <div class="card reveal"><div class="icon">🛡️</div><h3>NIST-informed scoring</h3><p>Weighted metrics for strength, performance, adoption, and risk.</p></div>
+      <div class="card reveal"><div class="icon">🗂️</div><h3>NDJSON/JSON exports</h3><p>Stream-friendly logs for SIEMs, notebooks, and diffable audits.</p></div>
+      <div class="card reveal"><div class="icon">🧩</div><h3>Tiered roles</h3><p>Free, Premium, and Admin tiers map to your governance.</p></div>
+    </div>
+  </section>
+
+  <section id="how" class="section">
+    <div class="container center reveal">
+      <h2>Pipeline at a glance</h2>
+      <p class="sub">Designed for repeatable, diffable audits that align with compliance frameworks.</p>
+    </div>
+    <div class="container grid cols-4 mt-6">
+      <div class="card reveal"><strong>Ingest</strong><p class="mt-2">Drop files, point to a repo, or attach build artifacts.</p></div>
+      <div class="card reveal"><strong>Analyze</strong><p class="mt-2">Static rules + AST + optional dynamic hooks.</p></div>
+      <div class="card reveal"><strong>Score</strong><p class="mt-2">NIST-based weights &amp; adoption metrics.</p></div>
+      <div class="card reveal"><strong>Report</strong><p class="mt-2">Export JSON/NDJSON; diff audits over time.</p></div>
+    </div>
+  </section>
+
+  <section id="pricing" class="section pricing">
+    <div class="container center reveal">
+      <h2>Simple, transparent pricing</h2>
+      <p class="sub">Choose a plan that matches your workflow. Upgrade anytime.</p>
+    </div>
+    <div class="container grid cols-3 mt-6">
+      <div class="card reveal"><h3>Free</h3><div class="price">$0</div>
+        <ul><li><span class="check">✓</span> Single-file scans</li><li><span class="check">✓</span> Core ruleset</li><li><span class="check">✓</span> JSON export</li></ul>
+        <div class="mt-6"><a class="btn btn-block" href="#get-started">Start Free</a></div>
+      </div>
+      <div class="card reveal" style="border-color: rgba(52,211,153,.4); background: rgba(52,211,153,.08);">
+        <h3>Premium</h3><div class="price">$19/mo</div>
+        <ul><li><span class="check">✓</span> Multi-file &amp; repo scanning</li><li><span class="check">✓</span> NDJSON streaming</li><li><span class="check">✓</span> Diffable audit history</li><li><span class="check">✓</span> Optional dynamic hooks</li></ul>
+        <div class="mt-6"><a class="btn btn-primary btn-block" href="#get-started">Go Premium</a></div>
+      </div>
+      <div class="card reveal"><h3>Admin</h3><div class="price">Custom</div>
+        <ul><li><span class="check">✓</span> Role-based access</li><li><span class="check">✓</span> Policy overrides</li><li><span class="check">✓</span> On-prem / air-gapped</li><li><span class="check">✓</span> SAML/SSO</li></ul>
+        <div class="mt-6"><a class="btn btn-block" href="#get-started">Talk to Sales</a></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="footer container">
+    <div class="brand"><div class="brand-badge"></div> <span id="footer-year"></span></div>
+    <div class="badges"><a href="#privacy">Privacy</a><a href="#terms">Terms</a><a href="#security">Security</a></div>
+  </div>
+
+  <script>
+    // Smooth scroll for anchor links
+    document.querySelectorAll('a[href^="#"]').forEach(a => {
+      a.addEventListener('click', e => {
+        const targetId = a.getAttribute('href').slice(1);
+        const el = document.getElementById(targetId);
+        if (el) { e.preventDefault(); el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      });
+    });
+    // Reveal on scroll
+    const observer = new IntersectionObserver((entries)=>{
+      entries.forEach(entry=>{ if(entry.isIntersecting){ entry.target.classList.add('visible'); } });
+    }, { threshold: .12 });
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+    // Theme toggle
+    const root = document.documentElement;
+    const saved = localStorage.getItem('cs-theme');
+    if(saved){ root.setAttribute('data-theme', saved); }
+    const toggleBtn = document.getElementById('theme-toggle');
+    if(toggleBtn){
+      toggleBtn.addEventListener('click', ()=>{
+        const cur = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+        root.setAttribute('data-theme', cur);
+        localStorage.setItem('cs-theme', cur);
+        toggleBtn.innerText = cur === 'light' ? 'Switch to Dark' : 'Switch to Light';
+      });
+      toggleBtn.innerText = (root.getAttribute('data-theme') === 'light') ? 'Switch to Dark' : 'Switch to Light';
+    }
+    // Footer year
+    document.getElementById('footer-year').textContent = '© ' + new Date().getFullYear() + ' CryptoScope';
+  </script>
+</body>
+</html>

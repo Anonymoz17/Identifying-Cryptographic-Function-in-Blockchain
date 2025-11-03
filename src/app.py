@@ -8,11 +8,10 @@ from file_handler import FileHandler
 from pages import (
     AdvisorPage,
     AnalysisPage,
+    AuditorPage,
     DashboardPage,
-    DetectorsPage,
     LoginPage,
     RegisterPage,
-    SetupPage,
 )
 
 
@@ -41,20 +40,19 @@ class App(ctk.CTk):
             "login": LoginPage(self, self.switch_page),
             "register": RegisterPage(self, self.switch_page),
             "dashboard": DashboardPage(self, self.switch_page, self.file_handler),
-            "analysis": AnalysisPage(self, self.switch_page),
+            "landing": LandingPage(self, self.switch_page),  # ← NEW
             "advisor": AdvisorPage(
                 self, self.switch_page
             ),  # <-- fixed: real frame instance
-            "setup": SetupPage(self, self.switch_page),
-            "detectors": DetectorsPage(self, self.switch_page),
+            "auditor": AuditorPage(self, self.switch_page),
         }
 
         for p in self._pages.values():
             p.grid(row=0, column=0, sticky="nsew")
             p.grid_remove()
 
-        # --- Start on the new Setup page (two-step flow) ---
-        self._current_page_name = "setup"
+        # --- Start on Login (not dashboard) ---
+        self._current_page_name = "auditor"
         self.switch_page(self._current_page_name)
 
         # Debounced resize handling

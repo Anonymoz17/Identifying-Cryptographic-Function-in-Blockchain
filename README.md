@@ -40,6 +40,8 @@ pip install customtkinter supabase python-dotenv tkinterdnd2 python-magic
 Run
 
 python loginTest.py
+<<<<<<< Updated upstream
+=======
 
 Developer optional dependencies
 
@@ -52,3 +54,21 @@ pip install -r requirements-dev.txt
 ```
 
 If you need the native extras (tree-sitter, capstone, yara-python) install them after activating the venv as described in `docs/optional-deps.md`.
+
+
+🌐 CryptoScope Landing Page (React + Tailwind + Vite)
+
+A modern landing page for CryptoScope located at
+`src/web/landing/`
+
+**Requirements**
+- Node.js LTS (v20+)
+- Git
+
+**Run the site**
+
+# From project root
+npm run landing:install     # Install dependencies (first time only)
+npm run landing:dev         # Start the dev server
+ctrl + left click localhost:****
+>>>>>>> Stashed changes
