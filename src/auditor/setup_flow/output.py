@@ -24,6 +24,8 @@ import shutil
 import stat
 from pathlib import Path
 from typing import Optional
+from typing import Union
+import platform
 
 from .setupcontext import SetupContext
 from .setupmessages import Notifier
@@ -160,3 +162,48 @@ def copy_to_output(ctx: SetupContext, sha: str, src: Path, name: Optional[str] =
         return dest
     except Exception:
         return None
+
+
+def get_default_workdir(app_name: str = "CryptoScope", case_subdir: str = "cases") -> Path:
+    """Return a sensible OS-specific default workdir for the application.
+
+    On Windows this uses %LOCALAPPDATA%/<app_name>/<case_subdir>, on macOS
+    it uses ~/Library/Application Support/<app_name>/<case_subdir> and on
+    Linux it prefers $XDG_DATA_HOME/<app_name>/<case_subdir> or
+    ~/.local/share/<app_name>/<case_subdir>.
+
+    The directory is created (best-effort) and returned as a Path.
+    """
+    sys = platform.system().lower()
+    try:
+        if sys.startswith("win"):
+            local = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+            base = Path(local) / app_name
+        elif sys.startswith("darwin"):
+            base = Path.home() / "Library" / "Application Support" / app_name
+        else:
+            base = Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share")) / app_name
+        dest = base / case_subdir
+        _ensure_dir(dest)
+        return dest
+    except Exception:
+        # fallback to a local folder inside the cwd or home
+        try:
+            fallback = Path.cwd() / app_name / case_subdir
+            _ensure_dir(fallback)
+            return fallback
+        except Exception:
+            return Path.home()
+
+
+def is_within_default(path: Union[str, Path], app_name: str = "CryptoScope", case_subdir: str = "cases") -> bool:
+    """Return True if `path` is inside the default workdir for the app.
+
+    This is a best-effort check used by the UI to recommend the canonical path.
+    """
+    try:
+        p = Path(path).resolve()
+        d = get_default_workdir(app_name=app_name, case_subdir=case_subdir).resolve()
+        return p == d or d in p.parents
+    except Exception:
+        return False

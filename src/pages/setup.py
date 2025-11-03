@@ -10,6 +10,7 @@ from auditor.workspace import Workspace
 from auditor.setup_flow.setupcontext import SetupContext
 from auditor.setup_flow.runner import run_pipeline
 from auditor.setup_flow.setupmessages import Notifier, Message
+from auditor.setup_flow.output import get_default_workdir, is_within_default
 
 import customtkinter as ctk  # isort:skip
 
@@ -69,19 +70,41 @@ class SetupPage(ctk.CTkFrame):
 
         # Workdir is secondary and appears after scope
         ctk.CTkLabel(form, text="Workdir:").grid(row=1, column=0, sticky="w")
+        # Use a stacked cell: entry on top, small warning text beneath it
+        workdir_cell = ctk.CTkFrame(form, fg_color="transparent")
+        workdir_cell.grid(row=1, column=1, sticky="we")
         self.workdir_entry = ctk.CTkEntry(
-            form, placeholder_text="Select or enter a work directory"
+            workdir_cell, placeholder_text="Select or enter a work directory"
         )
         try:
-            default_workdir = str((Path.cwd() / "case_demo" / "cases").resolve())
+            # prefer the OS-appropriate default workdir
+            default_workdir = str(get_default_workdir())
         except Exception:
-            default_workdir = str(Path.home() / "CryptoScope" / "cases")
+            default_workdir = str((Path.cwd() / "case_demo" / "cases").resolve())
         self.workdir_entry.insert(0, default_workdir)
-        self.workdir_entry.grid(row=1, column=1, sticky="we", padx=(6, 0))
+        self.workdir_entry.pack(fill="x")
+
+        # small warning label shown when the selected workdir is outside the canonical path
+        self.workdir_warning = ctk.CTkLabel(
+            workdir_cell, text="", text_color="#d1b000", font=("Roboto", 10)
+        )
+        self.workdir_warning.pack(anchor="w", pady=(4, 0))
+
+        # Browse and revert buttons to the right (keep alignment with other rows)
         self.workdir_browse = ctk.CTkButton(
             form, text="Browse", width=90, command=self._browse_workdir
         )
         self.workdir_browse.grid(row=1, column=2, padx=(8, 0))
+        self.workdir_revert = ctk.CTkButton(
+            form, text="Revert", width=90, command=self._revert_workdir
+        )
+        self.workdir_revert.grid(row=1, column=3, padx=(8, 0))
+        # bind changes to validate and update the warning inline
+        try:
+            self.workdir_entry.bind("<FocusOut>", lambda e: self._check_workdir_canonical())
+            self.workdir_entry.bind("<KeyRelease>", lambda e: self._check_workdir_canonical())
+        except Exception:
+            pass
 
         # Case ID and Client come after workdir — compact vertical layout
         ctk.CTkLabel(form, text="Case ID / Client:").grid(
@@ -217,12 +240,12 @@ class SetupPage(ctk.CTkFrame):
         # smoother spinner characters
         self._spinner_chars = ("◐", "◓", "◑", "◒")
         self._spinner_index = 0
+        # Results buffer for throttled display
+        self._results_buffer = []
+        # console history cap (maximum number of lines to keep)
+        # set a sensible default to avoid unbounded memory growth during long runs
+        self._results_max = 5000
 
-    # Results buffer for throttled display
-    self._results_buffer = []
-    # console history cap (maximum number of lines to keep)
-    # set a sensible default to avoid unbounded memory growth during long runs
-    self._results_max = 5000
         self._enum_start_time = None
         self._preproc_start_time = None
 
@@ -339,6 +362,42 @@ class SetupPage(ctk.CTkFrame):
                 self._last_browse_dir = path
             except Exception:
                 pass
+
+    def _check_workdir_canonical(self):
+        """Check whether the current workdir is within the OS canonical path and
+        update the inline warning label. Logic for canonical path lives in
+        `auditor.setup_flow.output.get_default_workdir` / `is_within_default`.
+        """
+        try:
+            wd = self.workdir_entry.get().strip()
+            if not wd:
+                self.workdir_warning.configure(text="")
+                return
+            try:
+                ok = is_within_default(wd)
+            except Exception:
+                ok = False
+            if not ok:
+                default = str(get_default_workdir())
+                self.workdir_warning.configure(text=f"Recommendation: use the default workdir {default}")
+            else:
+                self.workdir_warning.configure(text="")
+        except Exception:
+            pass
+
+    def _revert_workdir(self):
+        """Revert the workdir entry to the canonical default path."""
+        try:
+            default = str(get_default_workdir())
+            self.workdir_entry.delete(0, "end")
+            self.workdir_entry.insert(0, default)
+            # validate and clear the warning
+            try:
+                self._check_workdir_canonical()
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     def _browse_policy(self):
         from tkinter import filedialog
