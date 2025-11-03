@@ -338,11 +338,16 @@ class SetupPage(ctk.CTkFrame):
                 self.workdir_warning.configure(text="")
                 return
             try:
-                ok = is_within_default(wd)
+                # use the active case_subdir from advanced options when available
+                try:
+                    cs = (getattr(self, 'adv_config', {}) or {}).get('case_subdir', 'cases')
+                except Exception:
+                    cs = 'cases'
+                ok = is_within_default(wd, case_subdir=cs)
             except Exception:
                 ok = False
             if not ok:
-                default = str(get_default_workdir())
+                default = str(get_default_workdir(case_subdir=cs))
                 self.workdir_warning.configure(text=f"Recommendation: use the default workdir {default}")
             else:
                 self.workdir_warning.configure(text="")
@@ -375,6 +380,16 @@ class SetupPage(ctk.CTkFrame):
                 try:
                     # simple validation and store
                     self.adv_config.update(values or {})
+                    # if the case_subdir changed, update the workdir entry to the canonical default
+                    try:
+                        cs = str((values or {}).get('case_subdir') or self.adv_config.get('case_subdir') or 'cases')
+                        from auditor.setup_flow.output import get_default_workdir
+
+                        new_wd = str(get_default_workdir(case_subdir=cs))
+                        # update the entry on the main UI thread
+                        self.after(0, lambda: (self.workdir_entry.delete(0, 'end'), self.workdir_entry.insert(0, new_wd), self._check_workdir_canonical()))
+                    except Exception:
+                        pass
                 except Exception:
                     pass
 
