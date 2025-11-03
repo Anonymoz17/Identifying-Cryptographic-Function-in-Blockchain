@@ -225,7 +225,10 @@ class SetupPage(ctk.CTkFrame):
         self._enum_start_time = None
         self._preproc_start_time = None
 
-        # Separate results box for Setup page (do not reuse Detectors' widget)
+        # Console toggle and Separate results box for Setup page (collapsible)
+        self._console_shown = True
+        self._console_toggle = ctk.CTkButton(content, text="Hide console messages", width=220, command=self._toggle_console)
+        self._console_toggle.pack(pady=(6, 0))
         self.setup_results_box = tk.Text(content, height=10, wrap="none")
         self.setup_results_box.pack(fill="both", padx=12, pady=(6, 12), expand=False)
 
@@ -233,6 +236,8 @@ class SetupPage(ctk.CTkFrame):
         self._cancel_event = None
         # simple processed-counter for UI progress estimation (increments per notifier message)
         self._processed_messages = 0
+        # whether a ProgressReporter was created for this run
+        self._has_progress_reporter = False
         # cache last folder used by browse dialogs to avoid slow initialdir
         try:
             self._last_browse_dir = str(Path.home())
@@ -448,9 +453,32 @@ class SetupPage(ctk.CTkFrame):
 
         notifier = Notifier(file_path=str(notifier_path) if notifier_path else None, ui_callback=ui_cb)
 
+        # prepare progress reporter persisted under case_dir/progress.json
+        try:
+            from auditor.setup_flow.progress import ProgressReporter
+
+            progress_path = (case_dir / "progress.json") if case_dir is not None else None
+
+            def _ui_progress_cb(pu):
+                try:
+                    # schedule compact progress update on main thread
+                    self.after(0, self._update_compact_progress, pu)
+                except Exception:
+                    pass
+
+            # use 0.5s throttle for preprocessing updates as requested
+            progress_reporter = ProgressReporter(ui_callback=_ui_progress_cb, file_path=progress_path, throttle_s=0.5)
+            # remember that we have a reporter so notifier heuristic doesn't drive the bar
+            try:
+                self._has_progress_reporter = True
+            except Exception:
+                pass
+        except Exception:
+            progress_reporter = None
+
         # run the pipeline (best-effort). run_pipeline returns result dict
         try:
-            result = run_pipeline(ctx, notifier=notifier, cancel_event=self._cancel_event)
+            result = run_pipeline(ctx, notifier=notifier, cancel_event=self._cancel_event, progress_reporter=progress_reporter, pre_count=True)
             cancelled = bool(self._cancel_event and self._cancel_event.is_set())
         except Exception as e:
             result = {"stats": {}}
@@ -506,9 +534,11 @@ class SetupPage(ctk.CTkFrame):
 
             # simple progress heuristic: increment processed count and map to 0..0.95
             try:
-                self._processed_messages += 1
-                frac = min(0.95, float(self._processed_messages) / 200.0)
-                self.progress.set(frac)
+                # only use notifier-driven heuristic when no ProgressReporter is present
+                if not getattr(self, "_has_progress_reporter", False):
+                    self._processed_messages += 1
+                    frac = min(0.95, float(self._processed_messages) / 200.0)
+                    self.progress.set(frac)
             except Exception:
                 pass
         except Exception:
@@ -520,6 +550,79 @@ class SetupPage(ctk.CTkFrame):
                 self._cancel_event.set()
             self.cancel_btn.configure(state="disabled")
             self._set_status("Cancellation requested — stopping")
+        except Exception:
+            pass
+
+    def _toggle_console(self):
+        try:
+            if self._console_shown:
+                try:
+                    self.setup_results_box.pack_forget()
+                except Exception:
+                    pass
+                self._console_toggle.configure(text="Show console messages")
+                self._console_shown = False
+            else:
+                try:
+                    self.setup_results_box.pack(fill="both", padx=12, pady=(6, 12), expand=False)
+                except Exception:
+                    pass
+                self._console_toggle.configure(text="Hide console messages")
+                self._console_shown = True
+        except Exception:
+            pass
+
+    def _update_compact_progress(self, pu):
+        try:
+            # phase label
+            try:
+                self.phase_label.configure(text=f"Phase: {pu.phase}")
+            except Exception:
+                pass
+            # status line and progress bar
+            try:
+                status = pu.status or ""
+                # format elapsed and eta into HH:MM:SS
+                def fmt_time(s):
+                    try:
+                        s = int(s or 0)
+                        h = s // 3600
+                        m = (s % 3600) // 60
+                        sec = s % 60
+                        return f"{h:02d}:{m:02d}:{sec:02d}"
+                    except Exception:
+                        return str(s)
+
+                elapsed_str = fmt_time(pu.elapsed_s)
+
+                if pu.phase == "scanning":
+                    # scanning phase: display scanning message and have progress go 0..100
+                    pct = int((pu.processed or 0)) if pu.total else 0
+                    self.progress_label.configure(text=f"Scanning ({pct}%)")
+                    # map 0..100 to 0..1.0
+                    self.progress.set(min(1.0, (pu.processed or 0) / 100.0))
+                    self.eta_label.configure(text=f"Elapsed: {elapsed_str}")
+                else:
+                    if pu.total:
+                        pct = f"{int((pu.percent or 0)*100)}%" if pu.percent is not None else ""
+                        # remove dash and status separator; show message after percentage when present
+                        status_text = f" {status}" if status else ""
+                        self.progress_label.configure(text=f"Processed {pu.processed}/{pu.total} ({pct}){status_text}")
+                        # progress bar follows the accurate percent
+                        self.progress.set(pu.percent or 0.0)
+                    else:
+                        self.progress_label.configure(text=f"Processed {pu.processed}{(' ' + status) if status else ''}")
+                        self.progress.set(min(0.95, float(pu.processed) / 200.0))
+
+                    # ETA and speed: format time and files/s
+                    try:
+                        eta_str = fmt_time(pu.eta_s) if pu.eta_s is not None else ""
+                        speed = f"{pu.speed:.1f} files/s" if pu.speed is not None else ""
+                        self.eta_label.configure(text=f"Elapsed: {elapsed_str}  {('ETA: ' + eta_str) if eta_str else ''}  Speed: {speed}")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         except Exception:
             pass
 

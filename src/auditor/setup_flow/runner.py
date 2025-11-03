@@ -11,6 +11,9 @@ from .persistence import NDJSONBufferedWriter, atomic_write_json
 from .manifest import ManifestWriter
 from .preproc import preprocess_items
 from .archives import extract_archive
+from .progress import ProgressReporter
+import os
+import time
 
 
 def run_pipeline(
@@ -19,6 +22,9 @@ def run_pipeline(
     cancel_event: Optional[threading.Event] = None,
     max_workers: int = 2,
     skip_duplicates: bool = True,
+    progress_reporter: Optional[ProgressReporter] = None,
+    pre_count: bool = True,
+    two_phase: bool = False,
 ):
     """Run enumerate -> hash/dedupe -> preproc pipeline for a SetupContext.
 
@@ -28,6 +34,71 @@ def run_pipeline(
     case_dir = ctx.case_dir or Path(ctx.workdir or ".")
     case_dir = Path(case_dir)
     case_dir.mkdir(parents=True, exist_ok=True)
+
+    # if requested, run a quick pre-count of files to give progress an exact total
+    # We present two visual phases to the UI: 'scanning' (simulated 0..100)
+    # and 'preprocessing' (accurate file counts). Scanning will advance
+    # gradually as directories are visited and jump to 100 when counting
+    # completes.
+    if progress_reporter and pre_count:
+        try:
+            # start a simulated scanning phase with a 0..100 scale that
+            # linearly progresses over a fixed duration (120s) for UX.
+            progress_reporter.start_phase("scanning", total=100)
+
+            animation_duration = 120.0
+            start_t = time.monotonic()
+            last_emit = start_t
+            scan_progress = 0
+
+            # count regular files under ctx.scope while allowing the
+            # scanning animation to advance independently. If the actual
+            # counting finishes before the animation, we cancel the
+            # animation and jump to 100 immediately.
+            count = 0
+            scope = getattr(ctx, "scope", None)
+            if scope is None:
+                scope = getattr(ctx, "workdir", None)
+            if scope is not None:
+                for root, dirs, files in os.walk(str(scope)):
+                    # apply simple excludes from config
+                    try:
+                        ex = set(getattr(ctx.config, "exclude_dirs", (".git", "node_modules", "__pycache__")))
+                        # modify dirs in-place to skip excluded directories
+                        dirs[:] = [d for d in dirs if d not in ex]
+                    except Exception:
+                        pass
+                    # update file count
+                    count += len(files)
+
+                    # update scanning animation based on elapsed time, but
+                    # limit to 99 so we can jump to 100 on completion.
+                    now = time.monotonic()
+                    elapsed = now - start_t
+                    target = int(min(99, (elapsed / animation_duration) * 100))
+                    if target > scan_progress and (now - last_emit) > 0.2:
+                        scan_progress = target
+                        last_emit = now
+                        try:
+                            progress_reporter.update_processed(scan_progress)
+                        except Exception:
+                            pass
+
+            # counting finished: cancel animation and jump to 100
+            try:
+                progress_reporter.update_processed(100)
+            except Exception:
+                pass
+
+            # now start preprocessing with the exact total
+            progress_reporter.start_phase("preprocessing", total=count)
+            # also write initial progress.json
+            progress_reporter._maybe_emit()
+        except Exception:
+            try:
+                progress_reporter.start_phase("preprocessing", total=None)
+            except Exception:
+                pass
 
     # Prepare dedupe writer
     dedupe_path = case_dir / "dedupe.ndjson"
@@ -78,12 +149,21 @@ def run_pipeline(
 
     # Run preproc streaming; pass ctx, notifier and manifest writer
     try:
+        # build progress callback for preproc that updates the reporter
+        def _preproc_progress_cb(processed, total):
+            try:
+                if progress_reporter is not None:
+                    # update processed count directly
+                    progress_reporter.update_processed(processed)
+            except Exception:
+                pass
+
         result = preprocess_items(
             hashed_iter,
             ctx,
             notifier=notifier,
             manifest_writer=manifest_writer,
-            progress_cb=None,
+            progress_cb=_preproc_progress_cb if progress_reporter else None,
             cancel_event=cancel_event,
             max_extract_depth=2,
             do_extract=bool(getattr(ctx.config, "extract_archives", True)),
@@ -106,6 +186,15 @@ def run_pipeline(
             pass
         try:
             manifest_writer.write_summary(case_dir / "inputs.manifest.summary.json", {"written_lines": hd.stats.get("processed", 0)})
+        except Exception:
+            pass
+
+        # finalize progress reporter
+        try:
+            if progress_reporter is not None:
+                progress_reporter.finish_phase()
+                # ensure final progress.json written
+                progress_reporter._maybe_emit()
         except Exception:
             pass
 
