@@ -16,6 +16,13 @@ class SetupConfig:
     archive_exts: tuple = (".zip", ".tar", ".gz", ".bz2")
     skip_symlinks: bool = True
     forbid_root: bool = True
+    # Fast-scan option: avoid expensive hashing/copying when enabled
+    fast_scan: bool = False
+    # Max extraction depth for nested archives
+    max_extract_depth: int = 2
+    # Optional post-processing toggles
+    build_ast: bool = False
+    build_disasm: bool = False
     # Whether to allow prebuilt binary libraries (e.g., .so/.dll/.a) to be
     # included for preprocessing. Default: False (skip such binaries).
     allow_binary_libs: bool = False
@@ -53,6 +60,10 @@ class SetupContext:
                 "allowed_exts": self.config.allowed_exts,
                 "max_file_size": self.config.max_file_size,
                 "extract_archives": self.config.extract_archives,
+                "fast_scan": self.config.fast_scan,
+                "max_extract_depth": self.config.max_extract_depth,
+                "build_ast": self.config.build_ast,
+                "build_disasm": self.config.build_disasm,
             },
             "stats": self.stats,
         }

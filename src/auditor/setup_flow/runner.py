@@ -165,13 +165,13 @@ def run_pipeline(
             manifest_writer=manifest_writer,
             progress_cb=_preproc_progress_cb if progress_reporter else None,
             cancel_event=cancel_event,
-            max_extract_depth=2,
+            max_extract_depth=getattr(ctx.config, "max_extract_depth", 2),
             do_extract=bool(getattr(ctx.config, "extract_archives", True)),
-            build_ast=False,
-            build_disasm=False,
+            build_ast=getattr(ctx.config, "build_ast", False),
+            build_disasm=getattr(ctx.config, "build_disasm", False),
             stream=True,
-            compute_sha=False,
-            copy_inputs=True,
+            compute_sha=not getattr(ctx.config, "fast_scan", False),
+            copy_inputs=not getattr(ctx.config, "fast_scan", False),
         )
     finally:
         # flush dedupe writer buffer

@@ -149,53 +149,17 @@ class SetupPage(ctk.CTkFrame):
             opts, text="Fast scan (no hashing)", variable=self.fast_scan_var
         ).grid(row=0, column=1, sticky="w", padx=(8, 0))
 
-        # Advanced options toggle
-        self._advanced_shown = False
-        self._advanced_btn = ctk.CTkButton(
-            form,
-            text="Show advanced options ▾",
-            width=200,
-            command=self._toggle_advanced,
-        )
+        # Advanced options are shown in a dedicated popup window
+        self.adv_config = {
+            "policy": "",
+            "extract_archives": True,
+            "fast_scan": False,
+            "max_extract_depth": 2,
+            "build_ast": False,
+            "build_disasm": False,
+        }
+        self._advanced_btn = ctk.CTkButton(form, text="Advanced options…", width=200, command=self._open_advanced)
         self._advanced_btn.grid(row=3, column=2, columnspan=2, sticky="w", padx=(8, 0))
-
-        # Advanced options frame (hidden by default)
-        self._advanced_frame = ctk.CTkFrame(content, fg_color="#111214")
-        # Policy baseline (advanced)
-        ctk.CTkLabel(self._advanced_frame, text="Policy (advanced):").grid(
-            row=0, column=0, sticky="w"
-        )
-        self.policy_entry = ctk.CTkEntry(
-            self._advanced_frame, placeholder_text="Optional policy baseline (JSON)"
-        )
-        self.policy_entry.grid(row=0, column=1, sticky="we", padx=(6, 0))
-        self.policy_browse = ctk.CTkButton(
-            self._advanced_frame, text="Browse", width=90, command=self._browse_policy
-        )
-        self.policy_browse.grid(row=0, column=2, padx=(8, 0))
-
-        # Max depth and optional caches (advanced)
-        ctk.CTkLabel(self._advanced_frame, text="Max extract depth:").grid(
-            row=1, column=0, sticky="w"
-        )
-        self.max_depth_entry = ctk.CTkEntry(self._advanced_frame, width=80)
-        self.max_depth_entry.insert(0, "2")
-        self.max_depth_entry.grid(row=1, column=1, sticky="w", padx=(6, 0))
-
-        self.ast_var = tk.BooleanVar(value=False)
-        self.disasm_var = tk.BooleanVar(value=False)
-        ctk.CTkCheckBox(
-            self._advanced_frame, text="Generate AST cache", variable=self.ast_var
-        ).grid(row=2, column=0, sticky="w", pady=(6, 0))
-        ctk.CTkCheckBox(
-            self._advanced_frame, text="Generate disasm cache", variable=self.disasm_var
-        ).grid(row=2, column=1, sticky="w", pady=(6, 0))
-
-        # ensure grid expands nicely
-        try:
-            self._advanced_frame.grid_columnconfigure(1, weight=1)
-        except Exception:
-            pass
 
         # Actions
         actions = ctk.CTkFrame(content, fg_color="transparent")
@@ -399,35 +363,22 @@ class SetupPage(ctk.CTkFrame):
         except Exception:
             pass
 
-    def _browse_policy(self):
-        from tkinter import filedialog
-
-        path = filedialog.askopenfilename(title="Select policy baseline (JSON)")
-        if path:
-            try:
-                self.policy_entry.delete(0, "end")
-                self.policy_entry.insert(0, path)
-            except Exception:
-                pass
-
     def _toggle_advanced(self):
+        # legacy toggle removed; advanced options are handled in a popup
+        return
+
+    def _open_advanced(self):
         try:
-            if self._advanced_shown:
-                # hide
+            from .advanced_options import AdvancedOptionsWindow
+
+            def _apply(values):
                 try:
-                    self._advanced_frame.pack_forget()
+                    # simple validation and store
+                    self.adv_config.update(values or {})
                 except Exception:
                     pass
-                self._advanced_btn.configure(text="Show advanced options ▾")
-                self._advanced_shown = False
-            else:
-                # show
-                try:
-                    self._advanced_frame.pack(fill="x", padx=12, pady=(6, 6))
-                except Exception:
-                    pass
-                self._advanced_btn.configure(text="Hide advanced options ▴")
-                self._advanced_shown = True
+
+            AdvancedOptionsWindow(self.master.winfo_toplevel(), initial=self.adv_config, on_apply=_apply)
         except Exception:
             pass
 
@@ -496,9 +447,19 @@ class SetupPage(ctk.CTkFrame):
         except Exception:
             ctx.case_dir = Path(wd)
 
-        # propagate extract archives option
+        # propagate advanced options into ctx.config
         try:
-            ctx.config.extract_archives = bool(self.extract_var.get())
+            adv = getattr(self, "adv_config", {}) or {}
+            ctx.config.extract_archives = bool(adv.get("extract_archives", True))
+            ctx.config.fast_scan = bool(adv.get("fast_scan", False))
+            ctx.config.max_extract_depth = int(adv.get("max_extract_depth", 2) or 2)
+            ctx.config.build_ast = bool(adv.get("build_ast", False))
+            ctx.config.build_disasm = bool(adv.get("build_disasm", False))
+            # policy is UI-only for now; if provided we can store it under ctx
+            try:
+                ctx.policy = adv.get("policy")
+            except Exception:
+                pass
         except Exception:
             pass
 
