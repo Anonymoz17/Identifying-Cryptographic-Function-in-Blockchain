@@ -218,10 +218,11 @@ class SetupPage(ctk.CTkFrame):
         self._spinner_chars = ("◐", "◓", "◑", "◒")
         self._spinner_index = 0
 
-        # Results buffer for throttled display
-        self._results_buffer = []
-        # keep only the last N lines in the results box to avoid unbounded growth
-        self._results_max = 200
+    # Results buffer for throttled display
+    self._results_buffer = []
+    # console history cap (maximum number of lines to keep)
+    # set a sensible default to avoid unbounded memory growth during long runs
+    self._results_max = 5000
         self._enum_start_time = None
         self._preproc_start_time = None
 
@@ -229,8 +230,18 @@ class SetupPage(ctk.CTkFrame):
         self._console_shown = True
         self._console_toggle = ctk.CTkButton(content, text="Hide console messages", width=220, command=self._toggle_console)
         self._console_toggle.pack(pady=(6, 0))
-        self.setup_results_box = tk.Text(content, height=10, wrap="none")
-        self.setup_results_box.pack(fill="both", padx=12, pady=(6, 12), expand=False)
+
+        # Create a console frame that contains a Text widget and a vertical scrollbar
+        self._console_frame = tk.Frame(content)
+        self._console_frame.pack(fill="both", padx=12, pady=(6, 12), expand=False)
+        # Text widget for messages
+        self.setup_results_box = tk.Text(self._console_frame, height=10, wrap="none")
+        self.setup_results_box.pack(side="left", fill="both", expand=True)
+        # Scrollbar linked to the text widget
+        self.setup_scrollbar = tk.Scrollbar(self._console_frame, orient="vertical", command=self.setup_results_box.yview)
+        self.setup_scrollbar.pack(side="right", fill="y")
+        # let the Text widget update the scrollbar; we will check yview at insert time
+        self.setup_results_box.configure(yscrollcommand=self.setup_scrollbar.set)
 
         # internal state
         self._cancel_event = None
@@ -517,18 +528,83 @@ class SetupPage(ctk.CTkFrame):
     def _handle_notifier_message(self, msg: Message):
         # Append a readable line to the results box and update a simple progress
         try:
-            text = f"[{msg.level}]"
+            # Format message with shortened path and structured indentation
+            def _short_path(p: str, max_segs: int = 3) -> str:
+                try:
+                    from pathlib import Path as _P
+
+                    pp = _P(p)
+                    parts = pp.parts
+                    if len(parts) <= max_segs:
+                        return pp.as_posix()
+                    else:
+                        tail = _P(*parts[-max_segs:]).as_posix()
+                        return f".../{tail}"
+                except Exception:
+                    return p
+
+            label = f"[{msg.level}]"
             if msg.path:
-                text = f"{text} {msg.path} - {msg.text}\n"
+                short = _short_path(msg.path)
+                # Align level to 6 chars for nicer columns; show short path and main message inline
+                lvl = f"{msg.level}".ljust(6)
+                # Keep output concise: single line per message (no multiline details)
+                text = f"[{lvl}] {short} {msg.text}\n"
             else:
-                text = f"{text} {msg.text}\n"
+                text = f"[{msg.level}] {msg.text}\n"
             try:
+                # determine if the view is currently at the bottom (so we should follow)
+                try:
+                    first, last = self.setup_results_box.yview()
+                    follow = float(last) >= 0.999
+                except Exception:
+                    follow = True
+
+                # insert main line
                 self.setup_results_box.insert("end", text)
-                # keep the buffer size bounded
-                lines = int(self.setup_results_box.index('end-1c').split('.')[0])
-                if lines > self._results_max:
-                    # delete top lines
-                    self.setup_results_box.delete('1.0', f'{lines - self._results_max}.0')
+                # Do not print details as separate lines to keep each file on one line.
+                # If details contain a short keyword we can append a compact hint (optional).
+                try:
+                    if isinstance(getattr(msg, "details", None), dict):
+                        # prefer to surface a small hint like 'sha256' or 'id' or 'reason'
+                        hint_keys = ("sha256", "id", "reason", "ext", "original", "time_s")
+                        hints = []
+                        for k in hint_keys:
+                            if k in (msg.details or {}):
+                                v = msg.details.get(k)
+                                hints.append(f"{k}={v}")
+                        if hints:
+                            hint_line = " (" + ", ".join(hints[:3]) + ")\n"
+                            # append hint to the same line: remove trailing newline and add hint
+                            try:
+                                # get current end index, replace last inserted newline with hint
+                                self.setup_results_box.delete("end-2c", "end-1c")
+                                self.setup_results_box.insert("end", hint_line)
+                            except Exception:
+                                # fallback: just append as new small line
+                                try:
+                                    self.setup_results_box.insert("end", hint_line)
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
+
+                # auto-scroll only when the user is at the bottom
+                try:
+                    if follow:
+                        self.setup_results_box.see("end")
+                except Exception:
+                    pass
+
+                # enforce history cap: delete oldest lines if we exceed self._results_max
+                try:
+                    lines = int(self.setup_results_box.index('end-1c').split('.')[0])
+                    if lines > self._results_max:
+                        # delete top lines to keep only the most recent self._results_max
+                        delete_to = lines - self._results_max
+                        self.setup_results_box.delete('1.0', f'{delete_to}.0')
+                except Exception:
+                    pass
             except Exception:
                 pass
 
@@ -553,18 +629,40 @@ class SetupPage(ctk.CTkFrame):
         except Exception:
             pass
 
+    def _on_console_user_action(self, event=None):
+        # Called when the user interacts with the console (scroll/drag)
+        try:
+            self._console_follow = False
+        except Exception:
+            pass
+
+    def _on_text_scroll(self, first, last):
+        # yscrollcommand handler: updates scrollbar and track whether view is at bottom
+        try:
+            try:
+                self.setup_scrollbar.set(first, last)
+            except Exception:
+                pass
+            try:
+                if float(last) >= 0.999:
+                    self._console_follow = True
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def _toggle_console(self):
         try:
             if self._console_shown:
                 try:
-                    self.setup_results_box.pack_forget()
+                    self._console_frame.pack_forget()
                 except Exception:
                     pass
                 self._console_toggle.configure(text="Show console messages")
                 self._console_shown = False
             else:
                 try:
-                    self.setup_results_box.pack(fill="both", padx=12, pady=(6, 12), expand=False)
+                    self._console_frame.pack(fill="both", padx=12, pady=(6, 12), expand=False)
                 except Exception:
                     pass
                 self._console_toggle.configure(text="Hide console messages")
