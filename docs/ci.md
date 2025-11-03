@@ -38,3 +38,20 @@ Notes
   Capstone to exercise the optional code path but the main test jobs do
   not require it. This keeps CI fast while still validating both code
   paths.
+
+Mock Ghidra exports in CI / local tests
+
+- The repository includes a mock Ghidra export under `tools/ghidra/mock_exports/example_functions.json` and a helper script `tools/consume_ghidra_mock.py` that copies the mock into a case workspace under `artifacts/ghidra_exports/<sha>/`.
+- The integration tests use this mock so CI does not require a local Ghidra installation. If you want to run the full Ghidra headless exporter locally, follow `tools/ghidra/README.md`.
+
+Running the mock-based integration test locally (PowerShell):
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt
+# Copy mock exports into your case and run detectors (example case path below)
+python .\tools\consume_ghidra_mock.py --case .\tools\case_demo\CASE-001
+$env:PYTHONPATH='.'; python .\tools\run_detectors_local.py --case .\tools\case_demo\CASE-001
+pytest -q tests/test_integration_ghidra.py -q
+```

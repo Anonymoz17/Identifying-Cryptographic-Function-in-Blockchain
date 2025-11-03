@@ -1,0 +1,26 @@
+name: YARA Integration Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  yara-integration:
+    runs-on: ubuntu-latest
+    name: Run YARA integration tests (optional deps)
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install yara-python
+      - name: Run YARA integration tests
+        run: |
+          pytest -q tests/test_yara_adapter_integration.py

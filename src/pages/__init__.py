@@ -1,20 +1,20 @@
 """Pages package (moved from top-level `pages/`)."""
 
 from .advisor import AdvisorPage
+from .analysis import AnalysisPage
 from .auditor import AuditorPage
 from .dashboard import DashboardPage
-from .landing import LandingPage
 from .login import LoginPage
 from .register import RegisterPage
-from .reports import ReportsPage
+from .setup import SetupPage
 
 __all__ = [
     "AnalysisPage",
-    "AuditorPage",
     "DashboardPage",
+    "SetupPage",
+    "DetectorsPage",
     "LoginPage",
     "RegisterPage",
-    "ReportsPage",
     "AdvisorPage",
     "LandingPage",
 ]

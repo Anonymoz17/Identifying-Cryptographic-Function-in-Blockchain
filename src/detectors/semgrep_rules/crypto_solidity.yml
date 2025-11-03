@@ -1,0 +1,14 @@
+rules:
+  - id: sol-keccak-usage
+    patterns:
+      - pattern: keccak256(...)
+    message: "Use of keccak256 detected"
+    languages: [solidity]
+    severity: INFO
+
+  - id: sol-ecrecover-usage
+    patterns:
+      - pattern: ecrecover(...)
+    message: "Use of ecrecover detected"
+    languages: [solidity]
+    severity: INFO
