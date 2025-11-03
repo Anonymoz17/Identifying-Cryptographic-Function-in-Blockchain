@@ -34,10 +34,20 @@ class SetupPage(ctk.CTkFrame):
         content.grid(row=0, column=0, sticky="nsew")
         content.grid_columnconfigure(0, weight=1)
 
+        # Header with a right-aligned accounts/profiles control
+        header_fr = ctk.CTkFrame(content, fg_color="transparent")
+        header_fr.pack(fill="x", pady=(12, 6))
         header = ctk.CTkLabel(
-            content, text="Setup — Inputs & Preprocessing", font=("Roboto", 28)
+            header_fr, text="Setup — Inputs & Preprocessing", font=("Roboto", 28)
         )
-        header.pack(pady=(12, 6))
+        header.pack(side="left")
+        try:
+            from .accounts import AccountsMenu
+
+            acct = AccountsMenu(header_fr, on_profile_change=self._on_profile_change)
+            acct.pack(side="right")
+        except Exception:
+            pass
 
         # Brief pipeline summary and details link (keeps UI discoverable)
         self.pipeline_label = ctk.CTkLabel(
@@ -394,6 +404,15 @@ class SetupPage(ctk.CTkFrame):
                     pass
 
             AdvancedOptionsWindow(self.master.winfo_toplevel(), initial=self.adv_config, on_apply=_apply)
+        except Exception:
+            pass
+
+    def _on_profile_change(self, profile_name: str):
+        # Placeholder: when the AccountsMenu selection changes we could load
+        # a global profile in the future. For now we simply record it.
+        try:
+            self._active_profile = profile_name
+            # future: load and apply profile modules.setup into adv_config
         except Exception:
             pass
 

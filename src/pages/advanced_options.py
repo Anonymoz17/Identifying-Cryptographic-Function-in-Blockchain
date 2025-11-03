@@ -41,7 +41,6 @@ class AdvancedOptionsWindow(ctk.CTkToplevel):
 
         if tab is not None:
             tab.pack(fill="both", expand=True)
-            tab.add("General")
             tab.add("Extraction")
             tab.add("Hashing")
             tab.add("Preproc")
@@ -49,105 +48,9 @@ class AdvancedOptionsWindow(ctk.CTkToplevel):
             tab.add("Performance")
             tab.add("Diagnostics")
 
-            # General tab (placeholders -> now interactive)
-            g = tab.tab("General")
-            ctk.CTkLabel(g, text="General settings").pack(anchor="w", pady=(6, 2))
-            ctk.CTkLabel(g, text="Profile name:").pack(anchor="w")
-            self._profile_name = ctk.CTkEntry(g, width=420)
-            # prefill profile name if provided
-            try:
-                self._profile_name.insert(0, str(self.values.get('profile_name', '')))
-            except Exception:
-                pass
-            self._profile_name.pack(anchor="w", pady=(2, 8))
-
-            # Policy baseline path (file)
-            ctk.CTkLabel(g, text="Policy baseline (JSON, optional):").pack(anchor="w")
-            pol_fr = ctk.CTkFrame(g, fg_color="transparent")
-            pol_fr.pack(anchor="w", fill="x")
-            self._policy_entry = ctk.CTkEntry(pol_fr, width=320)
-            try:
-                # prefill policy if present in initial values
-                self._policy_entry.insert(0, str(self.values.get('policy', '')))
-            except Exception:
-                pass
-            self._policy_entry.pack(side="left", pady=(2, 8))
-            def _browse_policy_local():
-                try:
-                    from tkinter import filedialog
-                    # prefer JSON files but allow all files as fallback
-                    p = filedialog.askopenfilename(title="Select policy baseline (JSON)", filetypes=[("JSON files", "*.json"), ("All files", "*")])
-                    if p:
-                        try:
-                            self._policy_entry.delete(0, 'end')
-                            self._policy_entry.insert(0, p)
-                        except Exception:
-                            pass
-                        # run validation immediately after selecting a file
-                        try:
-                            from auditor.setup_flow.advanced_settings import validate_policy_path
-                            ok, msg = validate_policy_path(p)
-                            try:
-                                self._policy_warn.configure(text=msg if not ok else '')
-                            except Exception:
-                                pass
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-            self._policy_browse = ctk.CTkButton(pol_fr, text="Browse", width=90, command=_browse_policy_local)
-            self._policy_browse.pack(side="left", padx=(8, 0))
-            self._policy_warn = ctk.CTkLabel(g, text="", text_color="#d1b000", font=("Roboto", 10))
-            self._policy_warn.pack(anchor="w", pady=(0, 8))
-            # Live validation of the policy entry using the shared helper
-            try:
-                def _on_policy_change(event=None):
-                    try:
-                        from auditor.setup_flow.advanced_settings import validate_policy_path
-
-                        ok, msg = validate_policy_path(self._policy_entry.get().strip())
-                        try:
-                            self._policy_warn.configure(text=msg if not ok else '')
-                        except Exception:
-                            pass
-                    except Exception:
-                        pass
-
-                self._policy_entry.bind('<KeyRelease>', _on_policy_change)
-            except Exception:
-                pass
-            # Case subdir
-            ctk.CTkLabel(g, text="Case subdir (used in default workdir):").pack(anchor="w")
-            self._case_subdir = ctk.CTkEntry(g, width=200)
-            self._case_subdir.insert(0, str(self.values.get("case_subdir", "cases")))
-            self._case_subdir.pack(anchor="w", pady=(2, 6))
-
-            # Live preview of the canonical default workdir
-            from auditor.setup_flow import advanced_settings as ui_settings
-
-            preview_text = ui_settings.default_workdir_preview(self._case_subdir.get())
-            self._workdir_preview = ctk.CTkLabel(g, text=f"Default workdir: {preview_text}", text_color="#aab", font=("Roboto", 10))
-            self._workdir_preview.pack(anchor="w", pady=(0, 8))
-
-            # Save-as-default
-            self._save_default_var = tk.BooleanVar(value=bool(self.values.get("save_as_default", False)))
-            ctk.CTkCheckBox(g, text="Save this profile as default", variable=self._save_default_var).pack(anchor="w", pady=(6, 2))
-
-            # Bind updates to case_subdir to update preview
-            try:
-                def _on_case_subdir_change(event=None):
-                    try:
-                        cs = self._case_subdir.get().strip() or "cases"
-                        prev = ui_settings.default_workdir_preview(cs)
-                        try:
-                            self._workdir_preview.configure(text=f"Default workdir: {prev}")
-                        except Exception:
-                            pass
-                    except Exception:
-                        pass
-                self._case_subdir.bind("<KeyRelease>", _on_case_subdir_change)
-            except Exception:
-                pass
+            # (General tab removed) — profiles and policy editing moved to
+            # the global Accounts area (top-right). Advanced options now
+            # contains only module-specific placeholders.
 
             # Extraction tab
             e = tab.tab("Extraction")
@@ -215,69 +118,16 @@ class AdvancedOptionsWindow(ctk.CTkToplevel):
         self.bind('<Escape>', lambda e: self._on_cancel())
 
     def _on_revert(self):
-        # placeholder: reset UI values to defaults
+        # placeholder: reset advanced options to defaults
         try:
-            # attempt to load the named profile, or the 'default' profile
-            try:
-                from auditor.setup_flow.advanced_settings import load_profile
-
-                name = self._profile_name.get().strip() if hasattr(self, '_profile_name') else ''
-                profile = None
-                if name:
-                    profile = load_profile(name=name)
-                if profile is None:
-                    profile = load_profile(name='default')
-                if profile:
-                    # merge into values and update UI fields
-                    self.values.update(profile or {})
-                    try:
-                        self._profile_name.delete(0, 'end')
-                        self._profile_name.insert(0, profile.get('profile_name', name or ''))
-                    except Exception:
-                        pass
-                    try:
-                        self._policy_entry.delete(0, 'end')
-                        self._policy_entry.insert(0, profile.get('policy', ''))
-                    except Exception:
-                        pass
-                    try:
-                        self._case_subdir.delete(0, 'end')
-                        self._case_subdir.insert(0, profile.get('case_subdir', 'cases'))
-                    except Exception:
-                        pass
-                else:
-                    # no profile found; clear to sensible defaults
-                    self.values.clear()
-                    try:
-                        self._profile_name.delete(0, 'end')
-                    except Exception:
-                        pass
-                    try:
-                        self._policy_entry.delete(0, 'end')
-                    except Exception:
-                        pass
-                    try:
-                        self._case_subdir.delete(0, 'end')
-                        self._case_subdir.insert(0, 'cases')
-                    except Exception:
-                        pass
-            except Exception:
-                # fallback: clear
-                self.values.clear()
+            self.values.clear()
         except Exception:
             pass
 
     def _on_import(self):
-        # placeholder: import JSON profile
+        # placeholder: import a JSON settings file into advanced values
         try:
-            # default to profiles dir for convenience
-            try:
-                from auditor.setup_flow import advanced_settings as ui_settings
-
-                initdir = str(ui_settings.profiles_dir())
-            except Exception:
-                initdir = None
-            p = filedialog.askopenfilename(title="Import profile (JSON)", initialdir=initdir)
+            p = filedialog.askopenfilename(title="Import advanced settings (JSON)", filetypes=[("JSON files", "*.json"), ("All files", "*")])
             if p:
                 try:
                     import json
@@ -285,34 +135,7 @@ class AdvancedOptionsWindow(ctk.CTkToplevel):
                     with open(p, 'r', encoding='utf-8') as fh:
                         data = json.load(fh)
                     if isinstance(data, dict):
-                        self.values.update(data or {})
-                        # reflect into UI
-                        try:
-                            self._profile_name.delete(0, 'end')
-                            self._profile_name.insert(0, data.get('profile_name', ''))
-                        except Exception:
-                            pass
-                        try:
-                            self._policy_entry.delete(0, 'end')
-                            self._policy_entry.insert(0, data.get('policy', ''))
-                        except Exception:
-                            pass
-                        try:
-                            self._case_subdir.delete(0, 'end')
-                            self._case_subdir.insert(0, data.get('case_subdir', 'cases'))
-                        except Exception:
-                            pass
-                        # validate referenced policy path
-                        try:
-                            from auditor.setup_flow.advanced_settings import validate_policy_path
-
-                            ok, msg = validate_policy_path(data.get('policy', ''))
-                            try:
-                                self._policy_warn.configure(text=msg if not ok else '')
-                            except Exception:
-                                pass
-                        except Exception:
-                            pass
+                        self.values.update(data)
                 except Exception:
                     pass
         except Exception:
@@ -321,18 +144,7 @@ class AdvancedOptionsWindow(ctk.CTkToplevel):
     def _on_export(self):
         # placeholder: export current values to JSON file
         try:
-            # default to profiles dir and suggest filename
-            try:
-                from auditor.setup_flow import advanced_settings as ui_settings
-
-                initdir = str(ui_settings.profiles_dir())
-            except Exception:
-                initdir = None
-            try:
-                suggested = (self._profile_name.get().strip() or 'profile') + '.json'
-            except Exception:
-                suggested = 'profile.json'
-            p = filedialog.asksaveasfilename(title="Export profile (JSON)", defaultextension='.json', initialdir=initdir, initialfile=suggested)
+            p = filedialog.asksaveasfilename(title="Export profile (JSON)", defaultextension='.json')
             if p:
                 try:
                     import json
@@ -349,46 +161,7 @@ class AdvancedOptionsWindow(ctk.CTkToplevel):
             # collect a minimal set of values and call back
             out = dict(self.values or {})
             try:
-                out['profile_name'] = self._profile_name.get() if hasattr(self, '_profile_name') else ''
-                out['policy'] = self._policy_entry.get().strip() if hasattr(self, '_policy_entry') else ''
-                out['case_subdir'] = self._case_subdir.get() if hasattr(self, '_case_subdir') else 'cases'
-                out['save_as_default'] = bool(self._save_default_var.get()) if hasattr(self, '_save_default_var') else False
-            except Exception:
-                pass
-            # Validate policy baseline existence/readability when provided (use helper)
-            try:
-                from auditor.setup_flow.advanced_settings import validate_policy_path
-
-                pol = out.get('policy')
-                ok, msg = validate_policy_path(pol or '')
-                if not ok:
-                    try:
-                        self._policy_warn.configure(text=msg)
-                    except Exception:
-                        pass
-                    try:
-                        self._policy_entry.focus_set()
-                    except Exception:
-                        pass
-                    return
-                else:
-                    try:
-                        self._policy_warn.configure(text='')
-                    except Exception:
-                        pass
-            except Exception:
-                # non-fatal: proceed if helper import/validation errors
-                pass
-            try:
-                # if user asked to save as default, persist via setup_flow.ui_settings
-                if out.get('save_as_default'):
-                    try:
-                        from auditor.setup_flow.advanced_settings import save_profile
-
-                        prof_name = out.get('profile_name') or 'default'
-                        save_profile(out, name=prof_name)
-                    except Exception:
-                        pass
+                # apply values (placeholder). Persistence is handled in Accounts.
                 self.on_apply(out)
             except Exception:
                 pass
