@@ -10,11 +10,18 @@ CryptoScope Advisor Page
 
 import customtkinter as ctk
 
-from core.kb import list_algorithms
-from core.recommender import compare, top_n
-from roles import is_premium
-from ui.card import Card
-from ui.grid import grid_evenly
+from ui.theme import (
+    BG,
+    BORDER,
+    CARD_BG,
+    HEADING_FONT,
+    MUTED,
+    OUTLINE_BR,
+    OUTLINE_H,
+    PRIMARY,
+    PRIMARY_H,
+    TEXT,
+)
 
 
 class AdvisorPage(ctk.CTkFrame):
