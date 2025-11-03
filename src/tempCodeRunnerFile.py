@@ -12,9 +12,7 @@ from pages import (
     DashboardPage,
     LoginPage,
     RegisterPage,
-    LandingPage
 )
-from pages import SetupPage, DetectorsPage
 
 
 class App(ctk.CTk):
@@ -43,9 +41,9 @@ class App(ctk.CTk):
             "register": RegisterPage(self, self.switch_page),
             "dashboard": DashboardPage(self, self.switch_page, self.file_handler),
             "landing": LandingPage(self, self.switch_page),  # ← NEW
-            "setup": SetupPage(self, self.switch_page),
-            "detectors": DetectorsPage(self, self.switch_page),
-            "advisor": AdvisorPage(self, self.switch_page),  # <-- may be placeholder if imports fail
+            "advisor": AdvisorPage(
+                self, self.switch_page
+            ),  # <-- fixed: real frame instance
             "auditor": AuditorPage(self, self.switch_page),
         }
 
@@ -54,7 +52,7 @@ class App(ctk.CTk):
             p.grid_remove()
 
         # --- Start on Login (not dashboard) ---
-        self._current_page_name = "setup"
+        self._current_page_name = "auditor"
         self.switch_page(self._current_page_name)
 
         # Debounced resize handling
