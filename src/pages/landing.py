@@ -124,8 +124,8 @@ class LandingPage(ctk.CTkFrame):
             "Audit compliance of blockchain projects with cryptographic standards.",
             "Open Auditor",
             lambda: self.switch_page("setup"),
-            1,
             0,
+            1,
         )
 
         # === FOOTER ===
