@@ -6,8 +6,6 @@ import customtkinter as ctk
 
 from file_handler import FileHandler
 from pages import (
-    AdvisorPage,
-    AnalysisPage,
     AuditorPage,
     DashboardPage,
     LoginPage,
@@ -45,7 +43,6 @@ class App(ctk.CTk):
             "landing": LandingPage(self, self.switch_page),  # ← NEW
             "setup": SetupPage(self, self.switch_page),
             "detectors": DetectorsPage(self, self.switch_page),
-            "advisor": AdvisorPage(self, self.switch_page),  # <-- may be placeholder if imports fail
             "auditor": AuditorPage(self, self.switch_page),
         }
 
@@ -54,7 +51,7 @@ class App(ctk.CTk):
             p.grid_remove()
 
         # --- Start on Login (not dashboard) ---
-        self._current_page_name = "setup"
+        self._current_page_name = "login"
         self.switch_page(self._current_page_name)
 
         # Debounced resize handling
