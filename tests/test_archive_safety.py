@@ -3,7 +3,7 @@ import tarfile
 import zipfile
 from pathlib import Path
 
-from src.auditor.preproc import extract_artifacts
+from src.auditor.setup_flow.preproc import extract_artifacts
 
 
 def _make_zip_with_unsafe(tmp_path: Path):

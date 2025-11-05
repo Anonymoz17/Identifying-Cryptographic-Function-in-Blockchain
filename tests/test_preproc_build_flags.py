@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from src.auditor.preproc import preprocess_items
+from src.auditor.setup_flow.preproc import preprocess_items
 
 
 def test_preproc_build_flags_calls(tmp_path: Path, monkeypatch):
@@ -31,8 +31,12 @@ def test_preproc_build_flags_calls(tmp_path: Path, monkeypatch):
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps({"sha": shas[0], "disasm": []}))
 
-    monkeypatch.setattr("src.auditor.preproc.build_ast_cache", fake_build_ast)
-    monkeypatch.setattr("src.auditor.preproc.build_disasm_cache", fake_build_disasm)
+    monkeypatch.setattr(
+        "src.auditor.setup_flow.preproc.build_ast_cache", fake_build_ast
+    )
+    monkeypatch.setattr(
+        "src.auditor.setup_flow.preproc.build_disasm_cache", fake_build_disasm
+    )
 
     _ = preprocess_items(
         [item], str(tmp_path), do_extract=False, build_ast=True, build_disasm=True

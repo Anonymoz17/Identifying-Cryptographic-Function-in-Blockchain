@@ -62,7 +62,7 @@ def test_pe_base_extraction_and_mapping(tmp_path: Path, monkeypatch):
 
     (preproc_dir / "input.bin").write_bytes(bytes(content))
 
-    from src.auditor.preproc import build_disasm_cache
+    from src.auditor.setup_flow.preproc import build_disasm_cache
 
     build_disasm_cache([sha], str(tmp_path))
 
@@ -145,7 +145,7 @@ def test_macho_base_extraction_and_mapping(tmp_path: Path, monkeypatch):
 
     (preproc_dir / "input.bin").write_bytes(content)
 
-    from src.auditor.preproc import build_disasm_cache
+    from src.auditor.setup_flow.preproc import build_disasm_cache
 
     build_disasm_cache([sha], str(tmp_path))
 

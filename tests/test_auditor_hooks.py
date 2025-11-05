@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from src.auditor.preproc import build_ast_cache, build_disasm_cache
+from src.auditor.setup_flow.preproc import build_ast_cache, build_disasm_cache
 
 
 def test_build_ast_and_disasm_create_files(tmp_path: Path):

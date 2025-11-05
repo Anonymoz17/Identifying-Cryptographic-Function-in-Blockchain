@@ -76,7 +76,7 @@ def test_build_ast_cache_with_fake_tree_sitter(tmp_path, monkeypatch):
     monkeypatch.setitem(importlib.sys.modules, "tree_sitter", fake_mod)
 
     # call build_ast_cache
-    from src.auditor.preproc import build_ast_cache
+    from src.auditor.setup_flow.preproc import build_ast_cache
 
     build_ast_cache([sha], str(tmp_path))
 

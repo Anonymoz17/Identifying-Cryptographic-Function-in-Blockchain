@@ -16,7 +16,7 @@ def _load_first_ndjson(path: pathlib.Path):
 
 def test_manifest_and_index_against_schemas(tmp_path, monkeypatch):
     jsonschema = pytest.importorskip("jsonschema")
-    from src.auditor.preproc import preprocess_items
+    from src.auditor.setup_flow.preproc import preprocess_items
 
     # prepare a small case
     d = tmp_path / "case"
