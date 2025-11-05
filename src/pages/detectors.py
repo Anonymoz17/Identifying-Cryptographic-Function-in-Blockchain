@@ -4,7 +4,7 @@ import threading
 import tkinter as tk
 from pathlib import Path
 
-from auditor.workspace import Workspace
+# `Workspace` top-level helper removed; resolve case_dir via master.current_scan_meta and Path
 from detectors.adapter import SimpleSemgrepAdapter, YaraAdapter
 from detectors.disasm_adapter import DisasmJsonAdapter
 from detectors.ghidra_adapter import GhidraAdapter
@@ -136,14 +136,11 @@ class DetectorsPage(ctk.CTkFrame):
         try:
             p = Path(wd)
             if p.exists() and p.name == case_id:
-                # `wd` already points to the full case root; construct Workspace with parent as base
-                ws = Workspace(p.parent, case_id)
+                case_dir = p
             else:
-                ws = Workspace(p, case_id)
+                case_dir = p / case_id
         except Exception:
-            ws = Workspace(Path(wd), case_id)
-
-        case_dir = ws.root
+            case_dir = Path(wd) / case_id
         if not case_dir.exists():
             self.status_label.configure(
                 text="Case workdir does not exist — return to Setup"
@@ -179,13 +176,11 @@ class DetectorsPage(ctk.CTkFrame):
         try:
             p = Path(wd)
             if p.exists() and p.name == case_id:
-                ws = Workspace(p.parent, case_id)
+                case_dir = p
             else:
-                ws = Workspace(p, case_id)
+                case_dir = p / case_id
         except Exception:
-            ws = Workspace(Path(wd), case_id)
-        # don't create dirs here; just inspect
-        case_dir = ws.root
+            case_dir = Path(wd) / case_id
         preproc_dir = case_dir / "preproc"
         count = 0
         if preproc_dir.exists() and preproc_dir.is_dir():
@@ -278,13 +273,16 @@ class DetectorsPage(ctk.CTkFrame):
         try:
             p = Path(wd)
             if p.exists() and p.name == case_id:
-                ws = Workspace(p.parent, case_id)
+                case_dir = p
             else:
-                ws = Workspace(p, case_id)
+                case_dir = p / case_id
         except Exception:
-            ws = Workspace(Path(wd), case_id)
-        ws.ensure()
-        case_dir = ws.root
+            case_dir = Path(wd) / case_id
+        # ensure directories exist before running detectors
+        try:
+            case_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
 
         # Gather preproc input.bin files (preproc/<sha>/input.bin)
         # Require preprocessed files: look under <case_root>/preproc/<sha>/input.bin

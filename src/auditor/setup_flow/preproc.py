@@ -262,6 +262,3 @@ def preprocess_items(
     }
 
     return {"index": index_entries, "manifest_entries": manifest_entries, "stats": stats}
-
-
-

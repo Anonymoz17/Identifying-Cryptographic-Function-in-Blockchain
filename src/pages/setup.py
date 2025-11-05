@@ -5,8 +5,7 @@ import tkinter as tk
 from functools import partial
 from pathlib import Path
 
-from auditor.auditlog import AuditLog
-from auditor.workspace import Workspace
+# Removed AuditLog/Workspace usage (migrated away from top-level auditor.*)
 from auditor.setup_flow.setupcontext import SetupContext
 from auditor.setup_flow.runner import run_pipeline
 from auditor.setup_flow.setupmessages import Notifier, Message
@@ -424,9 +423,16 @@ class SetupPage(ctk.CTkFrame):
         wd = self.workdir_entry.get().strip() or str(Path.cwd() / "case_demo")
         case_id = self.case_entry.get().strip() or "CASE-000"
         try:
-            ws = Workspace(Path(wd), case_id)
-            ws.ensure()
-            webbrowser.open(ws.root.as_uri())
+            # Derive the case root from workdir + case_id. If the workdir already
+            # points to the case root (its name matches case_id) use it directly.
+            p = Path(wd)
+            if p.exists() and p.name == case_id:
+                case_dir = p
+            else:
+                case_dir = p / case_id
+            # ensure folder exists so explorer can open it
+            case_dir.mkdir(parents=True, exist_ok=True)
+            webbrowser.open(case_dir.as_uri())
         except Exception:
             try:
                 self._set_status(f"Could not open folder: {wd}", error=True)
