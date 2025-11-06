@@ -75,11 +75,18 @@ class SetupPage(ctk.CTkFrame):
                      font=HEADING_FONT, text_color=TEXT).pack(side="left")
 
         ctk.CTkButton(
-            header, text="← Back to Landing", width=160,
-            fg_color="transparent", border_color=OUTLINE_BR,
-            hover_color=OUTLINE_H, text_color=TEXT, border_width=1,
-            corner_radius=8, command=lambda: self.switch_page("landing")
+            header,
+            text="← Back to Landing",
+            width=160,
+            fg_color="transparent",
+            border_color=OUTLINE_BR,
+            hover_color=OUTLINE_H,
+            text_color=TEXT,
+            border_width=1,
+            corner_radius=8,
+            command=lambda: (self._on_cancel(), self._reset_progress_ui(), self.switch_page("landing")),
         ).pack(side="right")
+
 
         # Optional hint under header
         ctk.CTkLabel(
@@ -675,3 +682,36 @@ class SetupPage(ctk.CTkFrame):
     def on_resize(self, w, h):
         # Form is centered by the 3x3 grid trick; nothing else needed here.
         pass
+
+    # ------------------------- Clear progress UI -------------------------------
+
+    def _reset_progress_ui(self):
+    # hide progress block
+        try:
+            if self.progress_frame.winfo_ismapped():
+                self.progress_frame.pack_forget()
+        except Exception:
+            pass
+        # reset values/text
+        try:
+            self.progress.set(0.0)
+            self.status_label.configure(text="")
+            self.phase_label.configure(text="")
+            self.eta_label.configure(text="")
+        except Exception:
+            pass
+        # reset console state
+        try:
+            self.setup_results_box.delete("1.0", "end")
+        except Exception:
+            pass
+        self._processed_messages = 0
+        # ensure console is hidden and toggle text is correct
+        try:
+            if self._console_shown:
+                self.console_card.pack_forget()
+                self.console_toggle_btn.configure(text="Show console")
+                self._console_shown = False
+        except Exception:
+            pass
+
