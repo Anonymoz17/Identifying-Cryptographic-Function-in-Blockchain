@@ -13,6 +13,7 @@ from . import heuristics_manager
 from . import scoring
 from . import hints_generator
 from . import results_packager
+from . import cache
 
 import os
 import json
@@ -114,14 +115,18 @@ class StaticRunner:
             )
             os.makedirs(analysis_dir, exist_ok=True)
 
-            # Quick cache check: if static_results.json exists and not forced, return cached
+            # Quick cache decision using cache helpers. This will evaluate
+            # presence of `static_results.json`, `.cache_meta.json`, profile and
+            # tool-version compatibility, and TTL. `cache.should_use_cache`
+            # returns (bool, reason).
             static_results_path = os.path.join(analysis_dir, "static_results.json")
             hints_path = os.path.join(analysis_dir, "hints.json")
-            if os.path.isfile(static_results_path) and not ctx.force:
+            use_cache, reason = cache.should_use_cache(analysis_dir, ctx)
+            if use_cache:
                 result.cached = True
                 result.hints_path = hints_path if os.path.isfile(hints_path) else None
                 result.static_results_path = static_results_path
-                result.summary = {"note": "reused cached static results"}
+                result.summary = {"note": f"reused cached static results ({reason})"}
                 return result
 
             # 1) generate lightweight static preproc artifacts (profile-aware)
@@ -170,16 +175,9 @@ class StaticRunner:
             }
             static_results_path = results_packager.package_results(preproc.file_hash, scored, analysis_dir, meta=meta)
 
-            # 7) write cache metadata
-            cache_meta = {
-                "file_hash": preproc.file_hash,
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-                "profile": ctx.profile,
-                "tool_versions": ctx.tool_versions.__dict__ if hasattr(ctx.tool_versions, "__dict__") else {},
-                "ghidra_export": ghidra_export_path,
-            }
-            with open(os.path.join(analysis_dir, ".cache_meta.json"), "w", encoding="utf-8") as fh:
-                json.dump(cache_meta, fh, indent=2)
+            # 7) cache metadata is written by results_packager.package_results
+            # which already persisted a `.cache_meta.json` next to the
+            # `static_results.json`. Keep runner logic minimal here.
 
             # populate result
             result.hints_path = hints_path

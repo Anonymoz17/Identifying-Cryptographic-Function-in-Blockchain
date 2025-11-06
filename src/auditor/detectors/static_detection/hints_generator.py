@@ -16,13 +16,39 @@ from . import validator
 def _redact_hint(h: Dict) -> Dict:
     h2 = dict(h)
     # Remove fields considered sensitive for public exposure
-    for k in ("address_or_range", "evidence_snippet", "call_graph_neighbors", "raw_bytes", "evidence"):
-        if k in h2:
-            h2.pop(k, None)
+    sensitive_keys = (
+        "address_or_range",
+        "evidence_snippet",
+        "call_graph_neighbors",
+        "raw_bytes",
+        "evidence",
+        "prototype",
+        "parameters",
+        "disasm",
+        "function_hash",
+        "address",
+        "addr",
+    )
+    for k in sensitive_keys:
+        h2.pop(k, None)
+
+    # If evidence exists as a nested dict, remove sensitive subkeys there too
+    ev = h2.get("evidence") or h.get("evidence")
+    if isinstance(ev, dict):
+        ev_copy = dict(ev)
+        for k in ("prototype", "parameters", "disasm", "function_hash", "raw_bytes", "snippet"):
+            ev_copy.pop(k, None)
+        # Replace with a minimal safe evidence summary if any keys remain
+        if ev_copy:
+            h2["evidence"] = {k: ev_copy[k] for k in ev_copy if k not in ("raw_bytes", "disasm", "prototype", "parameters", "function_hash", "snippet")}
+        else:
+            h2.pop("evidence", None)
+
     # Also avoid exposing large blobs or internal-only keys
     for k in list(h2.keys()):
         if k.startswith("_internal_"):
             h2.pop(k, None)
+
     return h2
 
 
