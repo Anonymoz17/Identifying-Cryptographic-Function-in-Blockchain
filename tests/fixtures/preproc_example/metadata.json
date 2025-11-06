@@ -1,0 +1,6 @@
+{
+  "format": "elf",
+  "arch": "x86_64",
+  "size": 24,
+  "notes": "fixture without file_hash to exercise compute-path"
+}
