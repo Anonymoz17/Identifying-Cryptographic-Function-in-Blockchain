@@ -135,7 +135,21 @@ class StaticRunner:
 
             # 2) ensure ghidra export (stub or real implementation)
             ghidra_out = os.path.join(analysis_dir, "ghidra-export")
-            ghidra_export_path = ghidra_adapter.ensure_ghidra_export(preproc.input_path, ghidra_out, preproc.file_hash, options={})
+            # Resolve Ghidra automatically (ctx.ghidra_options -> persisted -> env -> PATH)
+            resolved = ghidra_adapter.resolve_ghidra(getattr(ctx, "ghidra_options", {}) or {})
+            gh_opts = dict(getattr(ctx, "ghidra_options", {}) or {})
+            if resolved:
+                gh_opts.setdefault("install_dir", os.path.dirname(os.path.dirname(resolved)))
+                # annotate tool_versions if available
+                try:
+                    ver = ghidra_adapter.verify_ghidra(resolved)
+                    if ver:
+                        ctx.tool_versions.ghidra = ver
+                except Exception:
+                    pass
+            # propagate top-level runner force into ghidra adapter
+            gh_opts.setdefault("force", bool(getattr(ctx, "force", False)))
+            ghidra_export_path = ghidra_adapter.ensure_ghidra_export(preproc.input_path, ghidra_out, preproc.file_hash, options=gh_opts)
             ghidra_export = ghidra_adapter.read_ghidra_functions(ghidra_export_path)
 
             # 3) run heuristics

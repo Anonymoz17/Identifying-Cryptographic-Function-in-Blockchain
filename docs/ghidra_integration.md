@@ -1,19 +1,18 @@
-Ghidra integration test — local run guide
-======================================
+# Ghidra integration test — local run guide
 
 This repository includes a gated integration test that will run a real
 Ghidra headless export using `analyzeHeadless`. The test is intentionally
 skipped unless you provide the required environment variables.
 
-Prerequisites
--------------
+## Prerequisites
+
 - A local Ghidra installation (tested with Ghidra 10.x+). Note the install
   directory path (the folder that contains `support/analyzeHeadless`).
 - A small binary that Ghidra can import (ELF/PE/MACH-O). This can be any
   small compiled executable you have available.
 
-Environment variables
----------------------
+## Environment variables
+
 Set the following environment variables (PowerShell example):
 
 ```powershell
@@ -21,8 +20,8 @@ $env:GHIDRA_INSTALL_DIR = 'C:\path\to\ghidra'
 $env:GHIDRA_SAMPLE_BIN = 'C:\path\to\sample.exe'
 ```
 
-Running the integration test
-----------------------------
+## Running the integration test
+
 From the repository root run (PowerShell):
 
 ```powershell
@@ -33,8 +32,8 @@ pytest -q tests/test_ghidra_integration.py
 pytest -q -k ghidra_integration
 ```
 
-Notes
------
+## Notes
+
 - The test will invoke `analyzeHeadless` and may be slow (tens of seconds to minutes
   depending on the binary and system). A longer timeout is used by default.
 - The test will write exporter outputs into a temporary `out_dir` created by pytest.

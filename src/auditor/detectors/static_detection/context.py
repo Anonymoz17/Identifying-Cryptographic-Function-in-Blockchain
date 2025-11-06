@@ -25,6 +25,12 @@ class RunContext:
     # If True and multiple preproc/<hash>/ candidates exist under a case
     # root, automatically select the most-recent one (by input.bin mtime).
     auto_select_latest: bool = False
+    # Optional dictionary of Ghidra-related options. Typical keys:
+    # - install_dir: explicit path to Ghidra install (overrides GHIDRA_INSTALL_DIR)
+    # - script_path: path to a custom exporter script to use instead of the bundled one
+    # - extra_args: dict of extra args forwarded to analyzeHeadless
+    # - timeout: seconds to wait for headless run
+    ghidra_options: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

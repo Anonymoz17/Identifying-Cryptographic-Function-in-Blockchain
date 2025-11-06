@@ -11,6 +11,8 @@ import shutil
 import subprocess
 import json
 from datetime import datetime, timezone
+import sys
+from . import config as _config
 
 
 DEFAULT_TIMEOUT = 600
@@ -51,21 +53,111 @@ def find_analyze_headless(options: Dict = None) -> Optional[str]:
     return None
 
 
-def build_headless_cmd(analyze_path: str, project_dir: str, script_path: str, input_path: str, out_dir: str, extra_args: Dict = None) -> List[str]:
+def resolve_ghidra(options: Dict = None) -> Optional[str]:
+    """Resolve an analyzeHeadless executable path using precedence:
+    1) options.get('install_dir')
+    2) persisted config value
+    3) GHIDRA_INSTALL_DIR env var
+    4) PATH (shutil.which)
+
+    Returns absolute path to analyzeHeadless or None.
+    """
+    opts = options or {}
+    # 1) explicit install_dir in options (higher precedence)
+    install_dir = opts.get("install_dir") or opts.get("ghidra_install_dir")
+    if install_dir:
+        p = os.path.join(install_dir, "support", "analyzeHeadless")
+        if os.name == "nt":
+            # allow analyzeHeadless.exe or bat
+            for name in ("analyzeHeadless.exe", "analyzeHeadless.bat", "analyzeHeadless"):
+                cand = os.path.join(install_dir, "support", name)
+                if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                    return os.path.abspath(cand)
+        if os.path.isfile(p) and os.access(p, os.X_OK):
+            return os.path.abspath(p)
+
+    # 2) persisted config
+    try:
+        persisted = _config.get_ghidra_install_dir()
+        if persisted:
+            for name in ("analyzeHeadless", "analyzeHeadless.exe", "analyzeHeadless.bat"):
+                cand = os.path.join(persisted, "support", name)
+                if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                    return os.path.abspath(cand)
+    except Exception:
+        pass
+
+    # 3) environment
+    env_install = os.environ.get("GHIDRA_INSTALL_DIR")
+    if env_install:
+        for name in ("analyzeHeadless", "analyzeHeadless.exe", "analyzeHeadless.bat"):
+            cand = os.path.join(env_install, "support", name)
+            if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                return os.path.abspath(cand)
+
+    # 4) PATH lookup
+    which = shutil.which("analyzeHeadless") or shutil.which("analyzeHeadless.bat") or shutil.which("analyzeHeadless.exe")
+    if which:
+        return os.path.abspath(which)
+
+    return None
+
+
+def verify_ghidra(analyze_path: str, timeout: int = 5) -> Optional[str]:
+    """Run a short verification against analyzeHeadless to obtain a version
+    or confirm executable works. Returns a short string describing the
+    binary on success, or None on failure.
+    """
+    if not analyze_path or not os.path.isfile(analyze_path):
+        return None
+    try:
+        # try `-version` first; fallback to `-help` if -version not supported
+        for flag in ("-version", "-help"):
+            try:
+                proc = subprocess.run([analyze_path, flag], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=timeout)
+                out = (proc.stdout or b"").decode("utf-8", errors="replace")
+                if out:
+                    first = out.splitlines()[0] if out.splitlines() else out
+                    return str(first).strip()
+            except subprocess.TimeoutExpired:
+                return None
+    except Exception:
+        return None
+    return None
+
+
+def build_headless_cmd(analyze_path: str, project_dir: str, script_path: str, input_path: str, out_dir: str, export_path: Optional[str] = None, extra_args: Dict = None) -> List[str]:
     """Compose a conservative analyzeHeadless command.
 
-    The exact command varies by Ghidra version. Keep this simple and testable.
+    We construct a minimal, widely compatible invocation. The exporter script
+    will be invoked via `-postScript <script>` and the exporter output path
+    is passed as the script's final argument.
     """
     args = [analyze_path]
     # project_dir is used as the headless project location (we reuse out_dir)
-    args.extend([project_dir, "-import", input_path])
+    args.append(os.path.abspath(project_dir))
+    # import the input file
+    args.extend(["-import", os.path.abspath(input_path)])
+
+    # supply the script via -scriptPath / -postScript when provided
     if script_path:
-        args.extend(["-postScript", os.path.basename(script_path), "-scriptPath", os.path.dirname(script_path)])
-    if extra_args:
-        for k, v in (extra_args.items() if isinstance(extra_args, dict) else []):
+        script_dir = os.path.dirname(os.path.abspath(script_path)) or "."
+        script_name = os.path.basename(script_path)
+        args.extend(["-scriptPath", script_dir, "-postScript", script_name])
+        # pass the exporter target path as the script argument
+        if export_path:
+            args.append(os.path.abspath(export_path))
+
+    # Allow callers to pass extra key/value style args (best-effort)
+    if extra_args and isinstance(extra_args, dict):
+        for k, v in extra_args.items():
+            # include bare flags (value None) or key+value pairs
             args.append(str(k))
             if v is not None:
                 args.append(str(v))
+
+    # Some headless runs benefit from -overwrite to avoid project conflicts
+    args.append("-overwrite")
     return args
 
 
@@ -133,7 +225,9 @@ def ensure_ghidra_export(input_path: str, out_dir: str, file_hash: str, options:
         except Exception:
             # if writing fails, fall back to empty and rely on provided script_path
             script_path = ""
-    cmd = build_headless_cmd(analyze, out_dir, script_path, input_path, out_dir, extra_args=opts.get("extra_args"))
+    # compute expected export path (file_hash-functions.json)
+    export_path = os.path.join(out_dir, f"{file_hash}-functions.json")
+    cmd = build_headless_cmd(analyze, out_dir, script_path, input_path, out_dir, export_path=export_path, extra_args=opts.get("extra_args"))
     timeout = int(opts.get("timeout", DEFAULT_TIMEOUT))
 
     try:
@@ -182,7 +276,10 @@ def read_ghidra_functions(export_path: str) -> List[dict]:
                 "address": f.get("address"),
                 "size": f.get("size"),
                 "prototype": f.get("prototype"),
+                "parameters": f.get("parameters"),
+                "calling_convention": f.get("calling_convention"),
                 "disasm": f.get("disasm"),
+                "function_hash": f.get("function_hash"),
             })
         return out
     except Exception:
