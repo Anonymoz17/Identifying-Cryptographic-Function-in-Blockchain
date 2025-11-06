@@ -1,0 +1,11 @@
+{
+  "file_hash": "c7f69e9856d9e4ecaa6ea79078c7de54dd3af58c1c65465042f9b48291307e46",
+  "generated_at": "2025-11-06T11:28:12.153925Z",
+  "profile": "quick",
+  "tool_versions": {
+    "ghidra": null,
+    "frida": null,
+    "other": {}
+  },
+  "ghidra_export": "C:\\!Everything Programming\\Github Projects\\FYP\\Identifying-Cryptographic-Function-in-Blockchain\\case_root\\analysis\\static\\c7f69e9856d9e4ecaa6ea79078c7de54dd3af58c1c65465042f9b48291307e46\\ghidra-export\\c7f69e9856d9e4ecaa6ea79078c7de54dd3af58c1c65465042f9b48291307e46-functions.json"
+}

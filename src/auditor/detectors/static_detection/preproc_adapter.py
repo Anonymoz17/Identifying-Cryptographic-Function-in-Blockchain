@@ -1,8 +1,28 @@
 """Preproc adapter: deterministic loading and validation of preproc artifacts.
 
-This module provides a minimal `load_preproc` function that will be used by
-the runner and unit tests. The real implementation should perform schema
-checks and return a structured object.
+This module provides `load_preproc`, a small, robust loader used by the
+static detection runner and tests. Responsibilities:
+
+- Locate and canonicalize the preproc `input.bin` and `metadata.json` paths.
+- Compute and return the SHA256 `file_hash` of the input binary (this is the
+    pipeline's primary identifier).
+- Optionally validate `metadata.json` against a schema when the metadata
+    contains a `schema_version` field. Schema validation is performed via the
+    thin `validator` wrapper; if `jsonschema` is not installed a helpful
+    RuntimeError is raised when validation is requested.
+
+Return: a `Preproc` dataclass with fields: file_hash, input_path,
+metadata_path, metadata (parsed dict), and size (bytes).
+
+Errors raised:
+- FileNotFoundError: when required artifacts are missing.
+- ValueError: when metadata is malformed or contains conflicting hashes.
+- RuntimeError: when schema validation is requested but `jsonschema` is
+    unavailable.
+
+The loader is conservative and defensive: it ensures the `input.bin` file
+resides under the declared preproc directory and will surface clear
+exceptions for common misconfigurations.
 """
 from typing import Dict, Any
 import os
@@ -43,7 +63,7 @@ def _sha256_of_file(path: str) -> str:
 def load_preproc(preproc_dir: str) -> Preproc:
     """Load and validate preproc artifacts from `preproc_dir`.
 
-    Returns a dict with:
+    Returns a `Preproc` dataclass with fields:
       - file_hash: computed SHA256 of input.bin
       - input_path: absolute path to input.bin
       - metadata_path: absolute path to metadata.json
@@ -51,8 +71,9 @@ def load_preproc(preproc_dir: str) -> Preproc:
       - size: size in bytes of input.bin
 
     Raises FileNotFoundError if required artifacts are missing. Raises
-    ValueError if metadata contains a conflicting `file_hash` value.
+    ValueError if metadata is malformed or contains a conflicting `file_hash` value.
     """
+
     # Normalize and canonicalize paths
     preproc_dir = os.path.abspath(preproc_dir)
     input_path = os.path.abspath(os.path.join(preproc_dir, "input.bin"))
