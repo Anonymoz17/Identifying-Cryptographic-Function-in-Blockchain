@@ -2,5 +2,7 @@
   "format": "elf",
   "arch": "x86_64",
   "size": 24,
-  "notes": "fixture without file_hash to exercise compute-path"
+  "schema_version": "1.0",
+  "file_hash": "31c78f9e6a2c149a948c6372ddc49ee9c55d0e345615082ef67c2249f3e027e8",
+  "notes": "fixture now includes schema_version and file_hash"
 }
