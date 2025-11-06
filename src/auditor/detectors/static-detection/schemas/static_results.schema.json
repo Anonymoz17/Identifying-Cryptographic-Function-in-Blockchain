@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "static_results",
+  "type": "object",
+  "required": ["file_hash", "schema_version", "timestamp", "findings"],
+  "properties": {
+    "file_hash": {"type": "string"},
+    "schema_version": {"type": "string"},
+    "timestamp": {"type": "string"},
+    "findings": {"type": "array", "items": {"type": "object"}},
+    "hints_path": {"type": "string"}
+  }
+}
