@@ -16,7 +16,7 @@ from . import results_packager
 
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class StaticRunner:
@@ -126,7 +126,7 @@ class StaticRunner:
 
             # 1) generate lightweight static preproc artifacts (profile-aware)
             preproc_out = os.path.join(analysis_dir, "preproc")
-            static_artifacts = static_preproc.generate_static_preproc(preproc_dir=ctx.preproc_dir, out_dir=preproc_out, profile=ctx.profile)
+            static_artifacts = static_preproc.generate_static_preproc(preproc_dir=preproc_dir_to_use, out_dir=preproc_out, profile=ctx.profile)
 
             # 2) ensure ghidra export (stub or real implementation)
             ghidra_out = os.path.join(analysis_dir, "ghidra-export")
@@ -152,19 +152,19 @@ class StaticRunner:
             except Exception:
                 pass
 
-            findings = heuristics_manager.run_heuristics(ghidra_export, preproc.metadata, heuristics)
+            findings = heuristics_manager.run_heuristics(ghidra_export, preproc.metadata, heuristics, static_artifacts=static_artifacts)
 
             # 4) scoring aggregation
             scored = scoring.aggregate_scores(findings)
 
             # 5) hints generation (full and public redacted)
             hints_dir = analysis_dir
-            hints_path = hints_generator.generate_hints(scored, hints_dir, redact=False)
-            hints_public_path = hints_generator.generate_hints(scored, hints_dir, redact=True)
+            hints_path = hints_generator.generate_hints(scored, hints_dir, redact=False, file_hash=preproc.file_hash)
+            hints_public_path = hints_generator.generate_hints(scored, hints_dir, redact=True, file_hash=preproc.file_hash)
 
             # 6) package results
             meta = {
-                "generated_at": datetime.utcnow().isoformat() + "Z",
+                "generated_at": datetime.now(timezone.utc).isoformat(),
                 "profile": ctx.profile,
                 "tool_versions": ctx.tool_versions.__dict__ if hasattr(ctx.tool_versions, "__dict__") else {},
             }
@@ -173,7 +173,7 @@ class StaticRunner:
             # 7) write cache metadata
             cache_meta = {
                 "file_hash": preproc.file_hash,
-                "generated_at": datetime.utcnow().isoformat() + "Z",
+                "generated_at": datetime.now(timezone.utc).isoformat(),
                 "profile": ctx.profile,
                 "tool_versions": ctx.tool_versions.__dict__ if hasattr(ctx.tool_versions, "__dict__") else {},
                 "ghidra_export": ghidra_export_path,

@@ -1,4 +1,4 @@
-```markdown
+````markdown
 # Analysis storage, layout, and conventions
 
 Last updated: 2025-11-06
@@ -27,15 +27,15 @@ Use an `analysis_base` (configurable) and store artifacts under:
   - input.bin
   - metadata.json
 - analysis/static/<file_hash>/
-  - preproc/               # derived static preproc artifacts (strings, sections)
-  - ghidra-export/         # cached Ghidra export (raw JSON) — optional
-  - hints.json             # full hints for dynamic harness (internal)
-  - hints_public.json      # redacted hints safe for public UI
-  - static_results.json    # packaged static-detection output
-  - .cache_meta.json       # small provenance + status file
+  - preproc/ # derived static preproc artifacts (strings, sections)
+  - ghidra-export/ # cached Ghidra export (raw JSON) — optional
+  - hints.json # full hints for dynamic harness (internal)
+  - hints_public.json # redacted hints safe for public UI
+  - static_results.json # packaged static-detection output
+  - .cache_meta.json # small provenance + status file
 - analysis/dynamic/<file_hash>/
   - dynamic_results.json
-  - traces/                # sanitized traces, restricted access
+  - traces/ # sanitized traces, restricted access
   - .cache_meta.json
 - analysis/merged/<file_hash>/
   - final_report.json
@@ -66,12 +66,13 @@ Minimum recommended fields:
   "generated_at": "2025-11-06T12:34:56Z",
   "profile": "quick",
   "generator_version": "static-detect/0.1.0",
-  "tool_versions": {"ghidra": "10.4.2", "frida": null},
+  "tool_versions": { "ghidra": "10.4.2", "frida": null },
   "status": "success", // success | failed | partial
   "ghidra_export": "ghidra-export/<file_hash>-functions.json",
   "notes": "optional short note"
 }
 ```
+````
 
 Use `.cache_meta.json` to decide whether cached artifacts can be reused
 when a run is requested. Reuse rules (recommended):
@@ -217,4 +218,7 @@ These helpers are low-risk and unlock safe, concurrent runs.
 ---
 
 Document author: pipeline design (adapted for the current repo layout).
+
+```
+
 ```

@@ -1,21 +1,22 @@
-"""Run and manage heuristics (skeleton).
+"""Run and manage heuristics.
 
-The real manager will run heuristics in parallel, collect Findngs, and
-attach provenance. The stub provides a simple sequential runner.
+This manager calls heuristics sequentially (sufficient for the quick-profile)
+and passes both the ghidra export and lightweight static preproc artifacts to
+each heuristic callable.
 """
-from typing import List, Dict, Callable
+from typing import List, Dict, Callable, Any
 
 
-def run_heuristics(ghidra_export: Dict, metadata: Dict, heuristics: List[Callable]) -> List[Dict]:
-    """Run provided heuristics and return list of findings.
+def run_heuristics(ghidra_export: Dict, metadata: Dict, heuristics: List[Callable], static_artifacts: Dict[str, Any] = None) -> List[Dict]:
+    """Run provided heuristics and return a flattened list of findings.
 
-    Each heuristic is expected to be a callable(ghidra_export, metadata) -> List[Finding]
-    For the stub we call each heuristic sequentially and flatten results.
+    Each heuristic is expected to be a callable with signature:
+        heuristic(ghidra_export, metadata, static_artifacts) -> List[Finding]
     """
     findings = []
     for h in heuristics:
         try:
-            res = h(ghidra_export, metadata)
+            res = h(ghidra_export, metadata, static_artifacts)
             if res:
                 findings.extend(res)
         except Exception:

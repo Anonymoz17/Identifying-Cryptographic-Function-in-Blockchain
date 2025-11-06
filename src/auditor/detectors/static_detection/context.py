@@ -1,7 +1,7 @@
 """Typed dataclasses for static detection run context and results.
 """
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional, Any
 
 
@@ -21,7 +21,7 @@ class RunContext:
     force: bool = False
     requested_by: Optional[str] = None
     tool_versions: ToolVersions = field(default_factory=ToolVersions)
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     # If True and multiple preproc/<hash>/ candidates exist under a case
     # root, automatically select the most-recent one (by input.bin mtime).
     auto_select_latest: bool = False
