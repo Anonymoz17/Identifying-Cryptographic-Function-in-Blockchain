@@ -61,6 +61,12 @@ class SetupPage(ctk.CTkFrame):
         content = ctk.CTkFrame(self, fg_color="transparent")
         content.grid(row=0, column=0, sticky="nsew")
 
+        # ... after you've packed everything inside `content`, add:
+        bottom_spacer = ctk.CTkFrame(content, height=16, fg_color="transparent")
+        bottom_spacer.pack(fill="x", side="bottom")
+        bottom_spacer.pack_propagate(False)
+
+
         # ===== Header =========================================================
         header = ctk.CTkFrame(content, fg_color="transparent")
         header.pack(fill="x", padx=22, pady=(16, 6))
@@ -282,6 +288,7 @@ class SetupPage(ctk.CTkFrame):
             self._last_browse_dir = str(Path.home())
         except Exception:
             self._last_browse_dir = "."
+
 
     # ------------------------- UI helpers ------------------------------------
     def _set_status(self, text: str, error: bool = False):
