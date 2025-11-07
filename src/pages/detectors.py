@@ -30,6 +30,7 @@ class DetectorsPage(ctk.CTkFrame):
         # Standalone mode state
         self._standalone_mode = False
         self._loaded_case_workdir = None
+        self._available_hashes = {}  # Maps display name to full hash
 
         # Main content frame
         content = ctk.CTkFrame(self, fg_color="transparent")
@@ -138,9 +139,30 @@ class DetectorsPage(ctk.CTkFrame):
         config_frame.grid(row=0, column=0, sticky="ew", padx=15, pady=15)
         config_frame.grid_columnconfigure(1, weight=1)
 
+        # File hash selection (for multiple binaries)
+        ctk.CTkLabel(config_frame, text="Target Binary:", font=("Roboto", 13)).grid(
+            row=0, column=0, sticky="w", padx=10, pady=8
+        )
+        self.file_hash_var = tk.StringVar(value="auto")
+        self.file_hash_menu = ctk.CTkOptionMenu(
+            config_frame,
+            values=["auto"],
+            variable=self.file_hash_var,
+            width=400
+        )
+        self.file_hash_menu.grid(row=0, column=1, sticky="w", padx=10)
+
+        file_hash_hint = ctk.CTkLabel(
+            config_frame,
+            text="Select which binary to analyze (auto-detect if only one)",
+            font=("Roboto", 10),
+            text_color="#777"
+        )
+        file_hash_hint.grid(row=0, column=2, sticky="w", padx=15)
+
         # Profile selection
         ctk.CTkLabel(config_frame, text="Analysis Profile:", font=("Roboto", 13)).grid(
-            row=0, column=0, sticky="w", padx=10, pady=8
+            row=1, column=0, sticky="w", padx=10, pady=8
         )
         self.profile_var = tk.StringVar(value="quick")
         profile_menu = ctk.CTkOptionMenu(
@@ -149,7 +171,7 @@ class DetectorsPage(ctk.CTkFrame):
             variable=self.profile_var,
             width=200
         )
-        profile_menu.grid(row=0, column=1, sticky="w", padx=10)
+        profile_menu.grid(row=1, column=1, sticky="w", padx=10)
 
         profile_hint = ctk.CTkLabel(
             config_frame,
@@ -157,7 +179,7 @@ class DetectorsPage(ctk.CTkFrame):
             font=("Roboto", 10),
             text_color="#777"
         )
-        profile_hint.grid(row=0, column=2, sticky="w", padx=15)
+        profile_hint.grid(row=1, column=2, sticky="w", padx=15)
 
         # Force re-analysis option
         self.force_var = tk.BooleanVar(value=False)
@@ -167,7 +189,7 @@ class DetectorsPage(ctk.CTkFrame):
             variable=self.force_var,
             font=("Roboto", 12)
         )
-        force_check.grid(row=1, column=1, sticky="w", padx=10, pady=5)
+        force_check.grid(row=2, column=1, sticky="w", padx=10, pady=5)
 
         # Action buttons
         action_frame = ctk.CTkFrame(parent)
@@ -500,12 +522,22 @@ class DetectorsPage(ctk.CTkFrame):
             # Create runner
             runner = StaticRunner()
 
+            # Get selected file hash
+            selected_hash_display = self.file_hash_var.get()
+            if selected_hash_display == "auto":
+                file_hash = ""  # Auto-detect
+            else:
+                # Get full hash from mapping
+                file_hash = self._available_hashes.get(selected_hash_display, "")
+                if file_hash:
+                    self.after(0, self._log_console, f"Analyzing binary: {file_hash[:32]}...")
+
             # Build context
             profile = self.profile_var.get()
             force = self.force_var.get()
             
             ctx = RunContext(
-                file_hash="",  # Auto-detect from preproc
+                file_hash=file_hash,  # Use selected or auto-detect
                 preproc_dir=self._case_workdir,
                 analysis_base=self._case_workdir,
                 profile=profile,
@@ -715,6 +747,51 @@ class DetectorsPage(ctk.CTkFrame):
         except Exception:
             pass
 
+    def _refresh_file_hashes(self):
+        """Scan workdir and populate file hash dropdown."""
+        try:
+            workdir = self._case_workdir or self._loaded_case_workdir
+            if not workdir:
+                return
+
+            workdir_path = Path(workdir)
+            preproc_dir = workdir_path / "preproc"
+            
+            if not preproc_dir.exists():
+                return
+
+            # Find all file hash directories
+            hashes = []
+            for item in preproc_dir.iterdir():
+                if item.is_dir():
+                    # Check if it has expected structure
+                    if (item / "input.bin").exists() or (item / "metadata.json").exists():
+                        hashes.append(item.name)
+
+            # Update dropdown
+            if not hashes:
+                self.file_hash_menu.configure(values=["auto"])
+                self.file_hash_var.set("auto")
+            elif len(hashes) == 1:
+                # Single hash - show it but keep auto as default
+                display_value = f"{hashes[0][:16]}... (only)"
+                self.file_hash_menu.configure(values=["auto", display_value])
+                self.file_hash_var.set("auto")
+                self._available_hashes = {display_value: hashes[0]}
+            else:
+                # Multiple hashes - user must select
+                display_values = [f"{h[:16]}..." for h in hashes]
+                all_values = ["auto"] + display_values
+                self.file_hash_menu.configure(values=all_values)
+                self.file_hash_var.set("auto")
+                # Store mapping from display to full hash
+                self._available_hashes = {f"{h[:16]}...": h for h in hashes}
+                
+                self._log_console(f"Found {len(hashes)} preprocessed binaries - please select one")
+                
+        except Exception as e:
+            self._log_console(f"Error refreshing file hashes: {e}")
+
     def _browse_case_workdir(self):
         """Browse for case workdir."""
         try:
@@ -848,6 +925,9 @@ class DetectorsPage(ctk.CTkFrame):
             else:
                 self.dynamic_frame.pack(fill="both", expand=True, pady=(0, 10))
 
+            # Refresh file hash dropdown
+            self._refresh_file_hashes()
+
             self._set_status(f"✅ Loaded case: {workdir}")
             self._log_console(f"Standalone mode: Loaded case from {workdir}")
             self._log_console(f"Found {len(self._available_cases)} preprocessed file(s)")
@@ -904,6 +984,9 @@ class DetectorsPage(ctk.CTkFrame):
                 
                 # Hide load case UI, show analysis UI
                 self.load_case_frame.pack_forget()
+                
+                # Refresh file hash dropdown
+                self._refresh_file_hashes()
                 
                 self._set_status(f"Ready to analyze: {workdir}")
                 self._log_console(f"Loaded scan workspace: {workdir}")
