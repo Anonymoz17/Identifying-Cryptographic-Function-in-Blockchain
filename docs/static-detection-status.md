@@ -8,6 +8,7 @@
 ## Executive Summary
 
 The static detection system is **fully implemented** and architecturally sound. The codebase includes:
+
 - Complete StaticRunner implementation with Ghidra integration
 - Batch processing capability for 200+ binaries
 - Comprehensive caching system
@@ -23,9 +24,11 @@ The static detection system is **fully implemented** and architecturally sound. 
 ### ✅ Core Components (All Implemented)
 
 #### 1. StaticRunner (`src/auditor/detectors/static_detection/runner.py`)
+
 **Status:** ✅ Complete
 
 **Capabilities:**
+
 - Single-binary analysis workflow
 - Auto-detection of file_hash when only one binary exists
 - Explicit file_hash requirement for multi-binary cases
@@ -35,6 +38,7 @@ The static detection system is **fully implemented** and architecturally sound. 
 - Tool version tracking
 
 **Key Logic:**
+
 ```python
 def run(self, ctx: RunContext) -> RunResult:
     # 1. Resolve preproc directory
@@ -52,9 +56,11 @@ def run(self, ctx: RunContext) -> RunResult:
 **Error Handling:** ✅ Comprehensive try/catch with error result generation
 
 #### 2. Batch Processing (`src/pages/detectors.py`)
+
 **Status:** ✅ Complete
 
 **Workflow:**
+
 ```python
 # UI Layer Orchestration
 _scan_all_cases():
@@ -80,13 +86,16 @@ _display_batch_results():
 ```
 
 **Separation of Concerns:** ✅ Perfect
+
 - UI: Orchestration, progress, aggregation
 - Backend (StaticRunner): Single-binary analysis only
 
 #### 3. Ghidra Integration (`src/auditor/detectors/static_detection/ghidra_adapter.py`)
+
 **Status:** ✅ Code Complete, ⚠️ Ghidra Not Installed
 
 **Features:**
+
 - Auto-resolution from multiple sources:
   1. `ctx.ghidra_options.install_dir`
   2. Persisted configuration
@@ -99,6 +108,7 @@ _display_batch_results():
 - Force re-run support
 
 **Current Status:**
+
 ```
 Ghidra Resolution Chain:
 1. GHIDRA_INSTALL_DIR env var → Not Set
@@ -109,19 +119,23 @@ Result: System will skip Ghidra analysis or use mock exports
 ```
 
 #### 4. Heuristics Framework
+
 **Status:** ✅ Complete
 
 **Implemented Heuristics:**
-- `signature_heuristic` - Function name pattern matching (e.g., aes_, sha256_, keccak)
+
+- `signature_heuristic` - Function name pattern matching (e.g., aes*, sha256*, keccak)
 - `instruction_patterns_heuristic` - Assembly instruction sequence detection
 - `constants_heuristic` - High-entropy constant detection
 
 **Extensible:** ✅ Easy to add new heuristics by implementing the interface
 
 #### 5. Caching System (`src/auditor/detectors/static_detection/cache.py`)
+
 **Status:** ✅ Complete
 
 **Features:**
+
 - TTL-based validation (default 30 days)
 - Profile compatibility checking
 - Tool version compatibility
@@ -129,19 +143,22 @@ Result: System will skip Ghidra analysis or use mock exports
 - Force re-run override
 
 **Cache Metadata:** `.cache_meta.json` with:
+
 ```json
 {
   "file_hash": "<sha256>",
   "generated_at": "2025-11-07T...",
   "profile": "quick",
-  "tool_versions": {"python": "3.11", "ghidra": "10.4"}
+  "tool_versions": { "python": "3.11", "ghidra": "10.4" }
 }
 ```
 
 #### 6. Results Packaging
+
 **Status:** ✅ Complete
 
 **Output Structure:**
+
 ```
 analysis/static/<file_hash>/
   ├── static_results.json      # Complete findings
@@ -153,6 +170,7 @@ analysis/static/<file_hash>/
 ```
 
 **Schema Compliance:** ✅ All outputs include:
+
 - `file_hash`
 - `schema_version`
 - `timestamp`
@@ -185,6 +203,7 @@ analysis/static/<file_hash>/
 ### Existing Tests (All Passing)
 
 Additional test files already in place:
+
 - `test_ghidra_adapter.py` - Ghidra adapter unit tests
 - `test_ghidra_integration.py` - Integration tests with mocks
 - `test_heuristics_with_ghidra.py` - Heuristics with Ghidra data
@@ -205,6 +224,7 @@ Additional test files already in place:
 **Ghidra Status:** ⚠️ Not Installed
 
 The system attempts to find Ghidra through multiple paths:
+
 1. `GHIDRA_INSTALL_DIR` environment variable
 2. `analyzeHeadless` command on PATH
 3. Manual configuration via UI
@@ -217,16 +237,19 @@ The system attempts to find Ghidra through multiple paths:
 Even without Ghidra installed, the system can:
 
 1. **Process Preprocessed Binaries** ✅
+
    - Load and validate preproc artifacts
    - Extract metadata
    - Perform basic analysis
 
 2. **Run Regex/Pattern Detectors** ✅
+
    - YARA rules (if installed)
    - Regex patterns
    - Tree-sitter AST analysis (for source)
 
 3. **Batch Processing** ✅
+
    - UI can still scan cases
    - Progress tracking works
    - Results aggregation functions
@@ -238,6 +261,7 @@ Even without Ghidra installed, the system can:
 ### What Requires Ghidra
 
 **Deep Binary Analysis:**
+
 - Function recovery from stripped binaries
 - Control flow analysis
 - Call graph construction
@@ -245,6 +269,7 @@ Even without Ghidra installed, the system can:
 - Advanced instruction pattern matching
 
 **This is the PRIMARY VALUE of static detection** - without Ghidra, the system is limited to:
+
 - Surface-level pattern matching
 - Metadata analysis
 - Pre-existing symbol information
@@ -254,6 +279,7 @@ Even without Ghidra installed, the system can:
 To enable full functionality:
 
 **Option 1: Install Ghidra**
+
 ```powershell
 # Download from https://ghidra-sre.org/
 # Extract to C:\ghidra_10.4\ (or similar)
@@ -267,11 +293,13 @@ python -c "from auditor.detectors.static_detection.ghidra_adapter import resolve
 ```
 
 **Option 2: Add analyzeHeadless to PATH**
+
 ```powershell
 $env:PATH += ";C:\ghidra_10.4\support"
 ```
 
 **Option 3: Configure via UI**
+
 - Go to Static Detection page
 - Set "Ghidra Install Directory" field
 - System will persist this configuration
@@ -368,12 +396,14 @@ User: Reviews aggregated findings
 ### Caching Benefits
 
 **First Run (200 binaries, no cache):**
+
 - Time: ~5-10 minutes (depends on binary complexity)
 - Ghidra: Runs for each binary (~2-3 sec each)
 - Heuristics: Run for each
 - Output: 200 × static_results.json created
 
 **Second Run (200 binaries, all cached):**
+
 - Time: ~5-10 seconds
 - Cache checks: 200 × fast file exists + metadata read
 - Ghidra: Skipped entirely
@@ -381,6 +411,7 @@ User: Reviews aggregated findings
 - Output: Reuses existing results
 
 **Incremental Run (200 binaries, 50 new):**
+
 - Time: ~1-2 minutes
 - Cached: 150 binaries skipped (instant)
 - Analyzed: 50 binaries processed
@@ -389,6 +420,7 @@ User: Reviews aggregated findings
 ### Memory Usage
 
 **Batch Results Storage:**
+
 ```python
 _batch_results = {}  # file_hash → RunResult
 # For 200 binaries:
@@ -397,6 +429,7 @@ _batch_results = {}  # file_hash → RunResult
 ```
 
 **UI Aggregation:**
+
 ```python
 # When displaying batch results:
 for file_hash, result in _batch_results.items():
@@ -454,13 +487,14 @@ for hash_dir in os.listdir(preproc_dir):
 1. **Standard Output Locations** ✅
    - `analysis/static/<file_hash>/static_results.json`
    - `analysis/static/<file_hash>/hints.json`
-   
 2. **Schema Compliance** ✅
+
    - All outputs include required fields
    - Versioned schemas
    - Backward compatible
 
 3. **Next Stage Ready** ✅
+
    - Dynamic detector can read hints.json
    - Merger can read static_results.json
    - All paths are canonical and documented
@@ -475,16 +509,19 @@ for hash_dir in os.listdir(preproc_dir):
 ## Known Issues & Limitations
 
 ### 1. Ghidra Not Installed ⚠️
+
 **Impact:** High  
 **Workaround:** Use mock exports for testing  
 **Resolution:** Install Ghidra 10.4.x
 
 ### 2. Binary-Only Analysis
+
 **Impact:** Medium  
 **Note:** Source code analysis uses different detectors (Tree-sitter, Semgrep)  
 **Status:** Working as designed
 
 ### 3. Large Binary Performance
+
 **Impact:** Low-Medium  
 **Note:** Very large binaries (>100 MB) may take longer in Ghidra  
 **Mitigation:** Caching + profile selection (quick vs thorough)
@@ -496,12 +533,14 @@ for hash_dir in os.listdir(preproc_dir):
 ### Immediate Actions
 
 1. **Install Ghidra** (High Priority)
+
    ```powershell
    # Download Ghidra 10.4 from official site
    # Extract and set GHIDRA_INSTALL_DIR
    ```
 
 2. **Run Full Test Suite** (After Ghidra install)
+
    ```bash
    python -m pytest tests/test_static_detection_workflow.py -v
    python -m pytest tests/test_ghidra_*.py -v
@@ -517,17 +556,20 @@ for hash_dir in os.listdir(preproc_dir):
 ### Future Enhancements
 
 1. **Parallel Processing** (Optional)
+
    - Current: Sequential processing
    - Enhancement: Process N binaries in parallel
    - Benefit: 3-5x speedup on multi-core systems
    - Risk: Higher memory usage
 
 2. **Progress Persistence** (Optional)
+
    - Current: Progress lost on crash
    - Enhancement: Save progress to disk
    - Benefit: Resume after interruption
 
 3. **Report Generation** (Nice-to-have)
+
    - Current: JSON outputs only
    - Enhancement: HTML/PDF reports
    - Benefit: Better shareability

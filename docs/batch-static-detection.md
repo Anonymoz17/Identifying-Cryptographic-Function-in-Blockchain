@@ -7,18 +7,22 @@ The static detection system processes **all preprocessed binaries** in a case wi
 ## Architecture
 
 ### UI Layer (detectors.py)
+
 **Responsibility:** Orchestration, progress tracking, results aggregation
 
 **Key Components:**
+
 - `_scan_all_cases()`: Scans `preproc/` directory to find all file_hashes
 - `_batch_analysis_thread()`: Loops through each file_hash sequentially
 - `_update_batch_progress()`: Updates UI with current/total counts
 - `_display_batch_results()`: Shows aggregated findings from all binaries
 
 ### Backend Layer (StaticRunner)
+
 **Responsibility:** Single-binary analysis logic
 
 **Key Design:**
+
 - Processes ONE file_hash at a time
 - Takes `RunContext(file_hash=...)` parameter
 - No batch handling logic - stays focused on single-binary analysis
@@ -54,6 +58,7 @@ case_workdir/
 ## Batch Processing Flow
 
 ### 1. Initialization
+
 ```python
 # UI scans preproc/ directory
 _scan_all_cases()
@@ -63,6 +68,7 @@ _scan_all_cases()
 ```
 
 ### 2. Analysis Loop
+
 ```python
 # UI starts batch thread
 _batch_analysis_thread()
@@ -75,6 +81,7 @@ _batch_analysis_thread()
 ```
 
 ### 3. Completion
+
 ```python
 # After all binaries processed
 _on_batch_complete()
@@ -87,13 +94,17 @@ _on_batch_complete()
 ## UI Features
 
 ### Case Summary Panel
+
 Shows before starting analysis:
+
 - Total preprocessed binaries found
 - Previously analyzed (cached) count
 - Ready for analysis count
 
 ### Progress Tracking
+
 Updates during analysis:
+
 - Progress bar (0-100%)
 - Current/total counter (e.g., "Processing 50/200")
 - Current file_hash being processed
@@ -102,11 +113,13 @@ Updates during analysis:
 ### Results Display
 
 #### Summary Tab
+
 - Total binaries analyzed
 - Success/error/cached breakdown
 - Per-binary status list with finding counts
 
 #### Findings Tab
+
 - Aggregated findings from all binaries
 - Sorted by confidence score
 - Shows source file_hash for each finding
@@ -134,6 +147,7 @@ All results are automatically saved to **standard locations** defined by the pip
 **Via UI**: Click "📁 Open Results" button to open the `analysis/static/` folder in file explorer
 
 **Programmatically**:
+
 ```python
 from pathlib import Path
 import json
@@ -153,12 +167,14 @@ for file_hash_dir in (case_workdir / "analysis" / "static").iterdir():
 ## Error Handling
 
 ### Graceful Degradation
+
 - If one binary fails, continue with next binary
-- Store error in `batch_results[hash] = {"error": "..."}` 
+- Store error in `batch_results[hash] = {"error": "..."}`
 - Show error count in final summary
 - Don't block entire batch on single failure
 
 ### Cancellation Support
+
 - User can cancel at any time
 - Currently processing binary completes
 - Remaining binaries are skipped
@@ -167,12 +183,14 @@ for file_hash_dir in (case_workdir / "analysis" / "static").iterdir():
 ## Separation of Concerns
 
 ### ✅ Correct
+
 - UI handles **orchestration** (loop through hashes)
 - UI handles **progress tracking** (X/Y updates)
 - UI handles **aggregation** (combine all static_results.json)
 - Backend handles **single-binary analysis** (one file_hash → one result)
 
 ### ❌ Incorrect
+
 - Backend should NOT loop through multiple binaries
 - Backend should NOT handle batch progress
 - UI should NOT contain analysis logic
@@ -190,16 +208,19 @@ No need to run Setup before Detection if case already exists.
 ## Performance Considerations
 
 ### Caching
+
 - Automatically detects existing `static_results.json` files
 - Skips re-analysis if cached result exists
 - User can force re-analysis with "Force Re-run" option
 
 ### Progress
+
 - Updates UI every binary (not every second)
 - Logs per-binary status for monitoring
 - Shows percentage complete
 
 ### Results Storage
+
 - All results saved to standard pipeline locations
 - No intermediate copies or manual exports needed
 - Downstream tools read directly from `analysis/` directory
@@ -207,6 +228,7 @@ No need to run Setup before Detection if case already exists.
 ## Testing with Large Cases
 
 Example: Case with 200+ binaries
+
 - Scan time: ~1 second
 - Analysis time: Varies by binary complexity
 - Progress updates: Every binary

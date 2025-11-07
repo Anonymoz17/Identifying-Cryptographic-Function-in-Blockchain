@@ -2,7 +2,8 @@
 
 **Goal:** Zero or minimal effort Ghidra setup for users
 
-**Current Situation:**  
+**Current Situation:**
+
 - Ghidra exists on your Desktop: `C:\Users\luizt\Desktop\ghidra_11.4.2_PUBLIC_20250826`
 - Static detection system ready but can't find Ghidra
 - Users shouldn't need to manually configure paths
@@ -17,8 +18,8 @@
    - Searches common locations automatically
    - Detects existing installations
    - Configures with minimal/zero user input
-   
 2. **Automated Download** (Existing: `install-ghidra.ps1`) ✅ EXISTS
+
    - Downloads if not found locally
    - Verifies checksum
    - Installs to standard location
@@ -37,19 +38,21 @@
 **Location:** `installation/setup-ghidra.ps1`
 
 **Features:**
+
 - **Auto-detection** from multiple common locations:
   - `Desktop\ghidra*` ← Your case!
   - `Downloads\ghidra*`
   - `%LOCALAPPDATA%\Ghidra\ghidra_*`
   - `Program Files\ghidra*`
   - `C:\ghidra*`, `D:\ghidra*`
-  
 - **Verification** of each found installation:
+
   - Checks for `analyzeHeadless.bat`
   - Extracts version from `application.properties` or folder name
   - Validates structure
 
 - **Smart Configuration**:
+
   - Tries Python helper (`set_ghidra_config.py`) first
   - Falls back to PowerShell JSON write
   - Atomic writes to `%APPDATA%\cryptoscope\config.json`
@@ -82,6 +85,7 @@
 **Already works well - no changes needed**
 
 Features:
+
 - Downloads from official Ghidra site
 - SHA256 verification
 - Per-user installation
@@ -99,6 +103,7 @@ Features:
 ```
 
 Should:
+
 1. Try `setup-ghidra.ps1` FIRST (auto-detect)
 2. If found → configure and done
 3. If not found → offer to download
@@ -106,6 +111,7 @@ Should:
 5. Repeat for other components (Frida, etc.)
 
 **Changes Needed:**
+
 - Add special case for Ghidra (runs setup first)
 - Show user-friendly progress messages
 - Handle both interactive and automated modes
@@ -254,7 +260,7 @@ The `DetectorsPage` can call setup programmatically:
 def _setup_ghidra_if_needed(self):
     """Check if Ghidra is configured, offer to set up if not."""
     from auditor.detectors.static_detection import ghidra_adapter
-    
+
     if not ghidra_adapter.resolve_ghidra({}):
         # Ghidra not found
         response = messagebox.askyesno(
@@ -262,14 +268,14 @@ def _setup_ghidra_if_needed(self):
             "Ghidra is not configured. Would you like to set it up now?\n\n"
             "This will search for existing Ghidra installations on your system."
         )
-        
+
         if response:
             # Run setup script
             subprocess.run([
                 "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
                 "-File", "installation/setup-ghidra.ps1", "-AutoDetect"
             ])
-            
+
             # Re-check
             if ghidra_adapter.resolve_ghidra({}):
                 messagebox.showinfo("Success", "Ghidra configured successfully!")
@@ -285,7 +291,7 @@ Add to app startup (`src/app.py`):
 def check_dependencies_on_startup():
     """Check critical dependencies on first run."""
     from auditor.detectors.static_detection import ghidra_adapter
-    
+
     # Check Ghidra
     if not ghidra_adapter.resolve_ghidra({}):
         print("⚠️  Ghidra not configured")
@@ -308,6 +314,7 @@ cd "C:\!Everything Programming\Github Projects\FYP\Identifying-Cryptographic-Fun
 ```
 
 Expected result:
+
 - Finds your Desktop Ghidra
 - Configures automatically
 - ~2 seconds total
@@ -317,7 +324,7 @@ Expected result:
 
 **Add to README.md:**
 
-```markdown
+````markdown
 ## Quick Setup
 
 ### 1. Install Dependencies
@@ -327,8 +334,10 @@ One command to set up everything:
 ```powershell
 .\installation\install-all.ps1
 ```
+````
 
 This will:
+
 - ✓ Auto-detect existing Ghidra installations
 - ✓ Offer to download if not found
 - ✓ Configure automatically
@@ -343,6 +352,7 @@ python tools\verify_static_detection.py
 ```
 
 Should show:
+
 ```
 ✓ PASS: GHIDRA - Found at C:\path\to\ghidra
 ```
@@ -354,7 +364,8 @@ python src\app.py
 ```
 
 Static detection will now use Ghidra for deep binary analysis!
-```
+
+````
 
 ---
 
@@ -371,7 +382,7 @@ python tools\verify_static_detection.py
 
 # Should show:
 # ✓ PASS: GHIDRA
-```
+````
 
 ### Test 2: Fresh Install Simulation
 
@@ -430,16 +441,19 @@ python src\app.py
 ## Future Enhancements
 
 ### Phase 2: In-App Setup
+
 - Add "Setup Ghidra" button to Static Detection page
 - Show status indicator (✓ Configured / ✗ Not Found)
 - One-click setup from UI
 
 ### Phase 3: Update Detection
+
 - Check for newer Ghidra versions
 - Offer to download updates
 - Migrate configuration automatically
 
 ### Phase 4: Other Dependencies
+
 - Create `setup-frida.ps1` with same pattern
 - Add to `install-all.ps1`
 - Unified dependency management
@@ -451,11 +465,13 @@ python src\app.py
 ### What's Ready NOW ✅
 
 1. **Smart Setup Script** (`setup-ghidra.ps1`)
+
    - Auto-detects your Desktop Ghidra
    - Configures with one command
    - Zero user effort with `-AutoDetect`
 
 2. **Existing Installer** (`install-ghidra.ps1`)
+
    - Downloads if needed
    - Secure (checksum verification)
    - Tested and working
@@ -472,6 +488,7 @@ cd "C:\!Everything Programming\Github Projects\FYP\Identifying-Cryptographic-Fun
 ```
 
 This will:
+
 - Find your `Desktop\ghidra_11.4.2_PUBLIC_20250826`
 - Configure it automatically
 - Take ~2 seconds
@@ -480,14 +497,18 @@ This will:
 ### For End Users 📚
 
 **Add to your README:**
-```markdown
+
+````markdown
 ## Setup (One Command)
 
 ```powershell
 .\installation\install-all.ps1
 ```
+````
 
 Auto-detects and configures all dependencies. That's it!
+
 ```
 
 **User effort: ONE command, ZERO configuration!** 🚀
+```
