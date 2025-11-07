@@ -49,3 +49,33 @@ def set_ghidra_install_dir(install_dir: str, path: Optional[Path] = None) -> Non
     gh["install_dir"] = install_dir
     cfg["ghidra"] = gh
     save_config(cfg, path)
+
+
+def get_ghidra_run_policy(path: Optional[Path] = None) -> str:
+    """Get the Ghidra execution policy: 'auto' (default), 'always', or 'never'.
+    
+    - 'auto': Use intelligent filtering (skip source code, run on binaries)
+    - 'always': Force Ghidra on all files (slow but comprehensive)
+    - 'never': Skip Ghidra entirely (fast but may miss binary-only patterns)
+    """
+    cfg = load_config(path)
+    gh = cfg.get("ghidra", {}) if isinstance(cfg, dict) else {}
+    return gh.get("run_policy", "auto")
+
+
+def set_ghidra_run_policy(policy: str, path: Optional[Path] = None) -> None:
+    """Set the Ghidra execution policy.
+    
+    Args:
+        policy: One of 'auto', 'always', or 'never'
+    """
+    if policy not in ("auto", "always", "never"):
+        raise ValueError(f"Invalid policy: {policy}. Must be 'auto', 'always', or 'never'")
+    
+    cfg = load_config(path)
+    if not isinstance(cfg, dict):
+        cfg = {}
+    gh = cfg.get("ghidra") if isinstance(cfg.get("ghidra"), dict) else {}
+    gh["run_policy"] = policy
+    cfg["ghidra"] = gh
+    save_config(cfg, path)

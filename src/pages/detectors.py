@@ -63,11 +63,11 @@ class DetectorsPage(ctk.CTkFrame):
         self.load_case_frame.pack_forget()
 
         # ========== Mode Toggle ==========
-        mode_frame = ctk.CTkFrame(content)
-        mode_frame.pack(fill="x", pady=(0, 20))
-
+        self.mode_frame = ctk.CTkFrame(content)
+        # Don't pack yet - will be shown when case is loaded or from setup page
+        
         mode_label = ctk.CTkLabel(
-            mode_frame,
+            self.mode_frame,
             text="Analysis Mode:",
             font=("Roboto", 16, "bold")
         )
@@ -76,7 +76,7 @@ class DetectorsPage(ctk.CTkFrame):
         # Segmented button for mode selection
         self.mode_var = tk.StringVar(value="static")
         self.mode_toggle = ctk.CTkSegmentedButton(
-            mode_frame,
+            self.mode_frame,
             values=["Static Analysis", "Dynamic Analysis"],
             command=self._on_mode_change,
             variable=self.mode_var,
@@ -94,7 +94,7 @@ class DetectorsPage(ctk.CTkFrame):
 
         # Mode description
         self.mode_description = ctk.CTkLabel(
-            mode_frame,
+            self.mode_frame,
             text="🆓 Free • Analyzes binaries for crypto patterns using Ghidra",
             font=("Roboto", 12),
             text_color="#88b"
@@ -103,13 +103,13 @@ class DetectorsPage(ctk.CTkFrame):
 
         # ========== Static Analysis Section ==========
         self.static_frame = ctk.CTkFrame(content)
-        self.static_frame.pack(fill="both", expand=True, pady=(0, 10))
+        # Don't pack yet - will be shown when case is loaded or from setup page
         self._build_static_ui(self.static_frame)
 
         # ========== Dynamic Analysis Section (Stub) ==========
         self.dynamic_frame = ctk.CTkFrame(content)
         self._build_dynamic_ui(self.dynamic_frame)
-        self.dynamic_frame.pack_forget()  # Hidden by default
+        # Hidden by default
 
         # ========== Status Bar ==========
         status_frame = ctk.CTkFrame(content, height=30)
@@ -147,20 +147,20 @@ class DetectorsPage(ctk.CTkFrame):
         config_frame.grid(row=0, column=0, sticky="ew", padx=15, pady=15)
         config_frame.grid_columnconfigure(1, weight=1)
 
-        # Case summary section
-        summary_container = ctk.CTkFrame(config_frame, fg_color="transparent")
-        summary_container.grid(row=0, column=0, columnspan=3, sticky="ew", padx=10, pady=(10, 15))
-        summary_container.grid_columnconfigure(0, weight=1)
+        # Case summary section (store reference for visibility control)
+        self.summary_container = ctk.CTkFrame(config_frame, fg_color="transparent")
+        self.summary_container.grid(row=0, column=0, columnspan=3, sticky="ew", padx=10, pady=(10, 15))
+        self.summary_container.grid_columnconfigure(0, weight=1)
 
         summary_title = ctk.CTkLabel(
-            summary_container,
+            self.summary_container,
             text="📊 Case Summary",
             font=("Roboto", 14, "bold")
         )
         summary_title.pack(anchor="w")
 
         self.case_summary_label = ctk.CTkLabel(
-            summary_container,
+            self.summary_container,
             text="Scanning for preprocessed binaries...",
             font=("Roboto", 11),
             text_color="#999",
@@ -172,36 +172,30 @@ class DetectorsPage(ctk.CTkFrame):
         separator = ctk.CTkFrame(config_frame, height=2, fg_color="#333")
         separator.grid(row=1, column=0, columnspan=3, sticky="ew", padx=10, pady=10)
 
-        # Profile selection
-        ctk.CTkLabel(config_frame, text="Analysis Profile:", font=("Roboto", 13)).grid(
-            row=2, column=0, sticky="w", padx=10, pady=8
-        )
-        self.profile_var = tk.StringVar(value="quick")
-        profile_menu = ctk.CTkOptionMenu(
-            config_frame,
-            values=["quick", "full"],
-            variable=self.profile_var,
-            width=200
-        )
-        profile_menu.grid(row=2, column=1, sticky="w", padx=10)
-
-        profile_hint = ctk.CTkLabel(
-            config_frame,
-            text="Quick: Fast entropy & pattern analysis • Full: Deep Ghidra disassembly",
-            font=("Roboto", 10),
-            text_color="#777"
-        )
-        profile_hint.grid(row=2, column=2, sticky="w", padx=15)
+        # Options row
+        options_row = ctk.CTkFrame(config_frame, fg_color="transparent")
+        options_row.grid(row=2, column=0, columnspan=3, sticky="w", padx=10, pady=10)
 
         # Force re-analysis option
         self.force_var = tk.BooleanVar(value=False)
         force_check = ctk.CTkCheckBox(
-            config_frame,
+            options_row,
             text="Force re-analysis (ignore cache)",
             variable=self.force_var,
             font=("Roboto", 12)
         )
-        force_check.grid(row=3, column=1, sticky="w", padx=10, pady=5)
+        force_check.pack(side="left", padx=(0, 20))
+
+        # Advanced options button (stub for now)
+        self.advanced_static_btn = ctk.CTkButton(
+            options_row,
+            text="⚙️ Advanced Options...",
+            command=self._open_static_advanced_options,
+            width=180,
+            height=32,
+            font=("Roboto", 12)
+        )
+        self.advanced_static_btn.pack(side="left")
 
         # Action buttons
         action_frame = ctk.CTkFrame(parent)
@@ -464,6 +458,25 @@ class DetectorsPage(ctk.CTkFrame):
         )
         self.load_case_status.pack(side="left", padx=15)
 
+    def _open_static_advanced_options(self):
+        """Open advanced options dialog for static analysis (stub)."""
+        # TODO: Implement full advanced options dialog with tabs for:
+        # - Ghidra timeout settings
+        # - Policy configuration
+        # - Cache options
+        # - Export settings
+        # For now, show a placeholder message
+        from tkinter import messagebox
+        messagebox.showinfo(
+            "Advanced Options",
+            "Advanced options configuration coming soon!\n\n"
+            "This will include:\n"
+            "• Ghidra timeout and policy settings\n"
+            "• Cache and export options\n"
+            "• Performance tuning\n"
+            "• Diagnostic controls"
+        )
+
     def _on_mode_change(self, selected_label: str):
         """Handle mode toggle between static and dynamic."""
         mode = self._mode_map.get(selected_label, "static")
@@ -476,6 +489,14 @@ class DetectorsPage(ctk.CTkFrame):
                 text="🆓 Free • Analyzes binaries for crypto patterns using Ghidra",
                 text_color="#88b"
             )
+            
+            # Hide case summary in standalone mode if no case is loaded
+            if self._standalone_mode and not self._loaded_case_workdir:
+                self.summary_container.grid_remove()
+            else:
+                # Show it if coming from setup page
+                self.summary_container.grid()
+            
         else:  # dynamic
             self.static_frame.pack_forget()
             self.dynamic_frame.pack(fill="both", expand=True, pady=(0, 10))
@@ -868,7 +889,9 @@ class DetectorsPage(ctk.CTkFrame):
             self.findings_text.delete("1.0", "end")
             self.findings_text.insert("1.0", "\n".join(output_lines))
 
-            self._log_console("Batch results displayed successfully")
+            # Only log success if analysis wasn't cancelled
+            if not self._cancel_event or not self._cancel_event.is_set():
+                self._log_console("Batch results displayed successfully")
 
         except Exception as e:
             self._log_console(f"Error displaying batch results: {e}")
@@ -1095,10 +1118,14 @@ class DetectorsPage(ctk.CTkFrame):
             self._case_workdir = str(workdir_path)
             self._standalone_mode = True
 
-            # Hide load case UI, show analysis UI
+            # Hide load case UI
             self.load_case_frame.pack_forget()
-            self.mode_toggle.pack(side="left", padx=10)
-            self.mode_description.pack(side="left", padx=15)
+            
+            # Show mode toggle and analysis UI
+            self.mode_frame.pack(fill="x", pady=(0, 20))
+
+            # Show summary container now that case is loaded
+            self.summary_container.grid()
 
             # Show the appropriate analysis frame
             if self._current_mode == "static":
@@ -1163,8 +1190,15 @@ class DetectorsPage(ctk.CTkFrame):
                 self._loaded_case_workdir = workdir
                 self._case_workdir = workdir
                 
-                # Hide load case UI, show analysis UI
+                # Hide load case UI
                 self.load_case_frame.pack_forget()
+                
+                # Show mode toggle and analysis UI
+                self.mode_frame.pack(fill="x", pady=(0, 20))
+                self.static_frame.pack(fill="both", expand=True, pady=(0, 10))
+                
+                # Make sure summary container is visible
+                self.summary_container.grid()
                 
                 # Scan all cases and update summary
                 self._scan_all_cases()
@@ -1172,14 +1206,18 @@ class DetectorsPage(ctk.CTkFrame):
                 self._set_status(f"Ready to analyze: {workdir}")
                 self._log_console(f"Loaded scan workspace: {workdir}")
             else:
-                # Standalone mode - show load case UI
+                # Standalone mode - show load case UI only
                 self._standalone_mode = True
                 self._loaded_case_workdir = None
                 self._case_workdir = None
                 
-                # Hide mode toggle and analysis frames, show load case UI
+                # Hide analysis UI completely
+                self.mode_frame.pack_forget()
                 self.static_frame.pack_forget()
                 self.dynamic_frame.pack_forget()
+                self.summary_container.grid_remove()
+                
+                # Show only load case UI
                 self.load_case_frame.pack(fill="x", pady=(0, 20))
                 
                 self._set_status("ℹ️ Standalone mode: Load a case to begin analysis")

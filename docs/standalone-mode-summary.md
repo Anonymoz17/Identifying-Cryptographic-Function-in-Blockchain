@@ -21,11 +21,13 @@ Both Setup and Detectors pages now support **standalone mode**, allowing them to
 **Key Features:**
 
 1. **Automatic Mode Detection**
+
    - Checks for `master.current_scan_meta` in `on_enter()`
    - If present → **Workflow Mode** (from Setup)
    - If absent → **Standalone Mode** (direct launch)
 
 2. **Load Case UI**
+
    - Workdir input field with browse button
    - Available cases list (scans `preproc/` directory)
    - Refresh button to rescan for cases
@@ -33,6 +35,7 @@ Both Setup and Detectors pages now support **standalone mode**, allowing them to
    - Status indicators (📦 binary, 📋 metadata)
 
 3. **Case Validation**
+
    - Checks for `preproc/` directory existence
    - Validates case structure (input.bin, metadata.json)
    - Shows clear error messages for invalid cases
@@ -43,12 +46,14 @@ Both Setup and Detectors pages now support **standalone mode**, allowing them to
    - Analysis proceeds identically
 
 **State Management:**
+
 - `_standalone_mode`: Boolean flag for mode tracking
 - `_loaded_case_workdir`: Stores manually selected workdir
 - `_case_workdir`: Used by analysis (combines both sources)
 - `_available_cases`: List of discovered cases
 
 **Code Changes:**
+
 - Added `_build_load_case_ui()` method
 - Added `_browse_case_workdir()` helper
 - Added `_refresh_case_list()` scanner
@@ -64,6 +69,7 @@ Both Setup and Detectors pages now support **standalone mode**, allowing them to
 **Status**: Not yet implemented (placeholder mentioned)
 
 **Planned Features:**
+
 1. Save case functionality
 2. Load existing case for re-preprocessing
 3. Rollback capability (mentioned but deferred)
@@ -127,12 +133,14 @@ Detectors Page (with metadata)
 ## Benefits
 
 ### For Users
+
 - **Flexibility**: Analyze existing cases without re-preprocessing
 - **Efficiency**: Skip Setup when working with known cases
 - **Development**: Easier testing and debugging of analysis
 - **Batch Work**: Load multiple cases for comparison
 
 ### For Developers
+
 - **Modularity**: Pages are self-contained units
 - **Testability**: Each page can be tested independently
 - **Reusability**: Components can be launched from different contexts
@@ -145,17 +153,20 @@ Detectors Page (with metadata)
 ### Standalone Mode Testing
 
 **Test 1: Direct Launch Detection**
+
 1. Launch Detectors page without going through Setup
 2. Verify Load Case UI appears
 3. Verify status shows "Standalone mode"
 
 **Test 2: Case Discovery**
+
 1. Enter valid workdir path
 2. Click Refresh Cases
 3. Verify all cases in `preproc/` are listed
 4. Verify status indicators are correct
 
 **Test 3: Case Loading**
+
 1. Enter/browse to case workdir
 2. Click Load Case
 3. Verify validation passes
@@ -163,6 +174,7 @@ Detectors Page (with metadata)
 5. Verify workdir is set correctly
 
 **Test 4: Analysis Execution**
+
 1. Load case in standalone mode
 2. Select profile (quick/full)
 3. Run static analysis
@@ -170,6 +182,7 @@ Detectors Page (with metadata)
 5. Verify export works
 
 **Test 5: Error Handling**
+
 1. Test with invalid workdir
 2. Test with empty preproc directory
 3. Test with incomplete case structure
@@ -178,6 +191,7 @@ Detectors Page (with metadata)
 ### Workflow Mode Testing
 
 **Test 6: Normal Flow**
+
 1. Go through Setup page
 2. Navigate to Detectors
 3. Verify Load Case UI is hidden
@@ -185,6 +199,7 @@ Detectors Page (with metadata)
 5. Verify workdir loaded from metadata
 
 **Test 7: Mode Persistence**
+
 1. Load case in standalone mode
 2. Navigate away and back
 3. Verify case remains loaded
@@ -197,6 +212,7 @@ Detectors Page (with metadata)
 ### File Structure Changes
 
 **Modified Files:**
+
 - `src/pages/detectors.py` (+580 lines)
   - Load Case UI components
   - Case scanning logic
@@ -204,6 +220,7 @@ Detectors Page (with metadata)
   - Workdir management updates
 
 **Updated Documentation:**
+
 - `docs/detectors-page.md`
   - Standalone mode section
   - Data flow diagrams (both modes)
@@ -211,6 +228,7 @@ Detectors Page (with metadata)
   - Testing checklist updates
 
 **New Documentation:**
+
 - `docs/standalone-mode-summary.md` (this file)
 
 ### Code Metrics
@@ -223,11 +241,13 @@ Detectors Page (with metadata)
 ### Architecture Impact
 
 **Before:**
+
 ```
 Setup → Detectors (tightly coupled)
 ```
 
 **After:**
+
 ```
 Setup → Detectors (workflow mode)
          ↓
@@ -239,12 +259,14 @@ Landing → Detectors (standalone mode)
 ## Future Enhancements
 
 ### Short-term
+
 1. **Click-to-Select**: Click case in list to auto-fill workdir
 2. **Recent Cases**: Remember last N loaded cases
 3. **Case Metadata**: Show more info (file count, size, date)
 4. **Quick Load**: Double-click case to load immediately
 
 ### Long-term
+
 1. **Setup Standalone**: Implement load case in Setup page
 2. **Rollback**: Save/restore case states
 3. **Case Manager**: Dedicated UI for case management
@@ -256,11 +278,12 @@ Landing → Detectors (standalone mode)
 
 1. **Manual Workdir Entry**: Must type or browse to workdir
    - Future: Click-to-select from list
-   
 2. **No Case Preview**: Can't preview case contents before loading
+
    - Future: Show file hash, metadata in tooltip
 
 3. **Single Case Load**: Only one case active at a time
+
    - Future: Multi-case workspace
 
 4. **No Auto-Refresh**: Must manually click Refresh
@@ -314,12 +337,14 @@ def load_case(case_meta):
 ## Documentation
 
 **Main Documentation**: `docs/detectors-page.md`
+
 - Complete architecture
 - Data flow diagrams (both modes)
 - UI component breakdown
 - Testing checklist
 
 **This Summary**: `docs/standalone-mode-summary.md`
+
 - High-level overview
 - Implementation summary
 - Testing scenarios
@@ -332,6 +357,7 @@ def load_case(case_meta):
 ✅ **Detectors page is now fully standalone-capable**
 
 The implementation provides:
+
 - Flexible launch options (workflow or standalone)
 - Clear mode detection and UI adaptation
 - Robust case validation and loading
@@ -344,6 +370,7 @@ The page maintains backward compatibility while adding powerful new functionalit
 ---
 
 **Next Steps:**
+
 1. Test standalone mode thoroughly
 2. Implement Setup page standalone mode (future)
 3. Build landing page with launch options (future)

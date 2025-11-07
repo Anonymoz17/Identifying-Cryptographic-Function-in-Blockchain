@@ -33,9 +33,22 @@ class StaticRunner:
     def run(self, ctx: RunContext) -> RunResult:
         """Run a static detection flow for the given RunContext.
 
-        Currently a stub that raises NotImplementedError. The final
-        implementation will ensure caching, call ghidra_adapter,
-        heuristics_manager, scoring, and packaging.
+        Orchestrates the complete static analysis pipeline:
+        1. Resolves and validates preprocessed input
+        2. Checks cache for previous results
+        3. Generates static preprocessing artifacts
+        4. Conditionally runs Ghidra binary analysis
+        5. Executes heuristic detectors
+        6. Scores and aggregates findings
+        7. Generates hints and packages results
+        
+        Returns:
+            RunResult with paths to generated artifacts and summary
+            
+        Raises:
+            FileNotFoundError: If preprocessed input is not found
+            ValueError: If input validation fails
+            RuntimeError: If critical pipeline step fails
         """
         # Prepare result container
         result = RunResult(file_hash="", cached=False, summary={}, errors=None)
@@ -135,22 +148,56 @@ class StaticRunner:
 
             # 2) ensure ghidra export (stub or real implementation)
             ghidra_out = os.path.join(analysis_dir, "ghidra-export")
-            # Resolve Ghidra automatically (ctx.ghidra_options -> persisted -> env -> PATH)
-            resolved = ghidra_adapter.resolve_ghidra(getattr(ctx, "ghidra_options", {}) or {})
-            gh_opts = dict(getattr(ctx, "ghidra_options", {}) or {})
-            if resolved:
-                gh_opts.setdefault("install_dir", os.path.dirname(os.path.dirname(resolved)))
-                # annotate tool_versions if available
+            
+            # Check if Ghidra should run based on policy and file type/size
+            from . import ghidra_policy, config
+            
+            # Get the configured policy: 'auto' (default), 'always', or 'never'
+            policy = config.get_ghidra_run_policy()
+            
+            if policy == "never":
+                should_run = False
+                reason = "User policy: never run Ghidra"
+            elif policy == "always":
+                should_run = True
+                reason = "User policy: always run Ghidra"
+            else:  # policy == "auto"
+                should_run, reason = ghidra_policy.should_run_ghidra(preproc.metadata)
+            
+            ghidra_policy.log_ghidra_decision(preproc.file_hash, should_run, reason)
+            
+            ghidra_export_path = None
+            ghidra_export = []
+            
+            if should_run:
+                # Resolve Ghidra automatically (ctx.ghidra_options -> persisted -> env -> PATH)
+                resolved = ghidra_adapter.resolve_ghidra(getattr(ctx, "ghidra_options", {}) or {})
+                gh_opts = dict(getattr(ctx, "ghidra_options", {}) or {})
+                if resolved:
+                    gh_opts.setdefault("install_dir", os.path.dirname(os.path.dirname(resolved)))
+                    # annotate tool_versions if available
+                    try:
+                        ver = ghidra_adapter.verify_ghidra(resolved)
+                        if ver:
+                            ctx.tool_versions.ghidra = ver
+                    except Exception:
+                        pass
+                # propagate top-level runner force into ghidra adapter
+                gh_opts.setdefault("force", bool(getattr(ctx, "force", False)))
+                ghidra_export_path = ghidra_adapter.ensure_ghidra_export(preproc.input_path, ghidra_out, preproc.file_hash, options=gh_opts)
+                ghidra_export = ghidra_adapter.read_ghidra_functions(ghidra_export_path)
+            else:
+                # Create empty ghidra-export directory for consistency
+                os.makedirs(ghidra_out, exist_ok=True)
+                # Write a skip marker file explaining why Ghidra was skipped
+                skip_marker = os.path.join(ghidra_out, "SKIPPED.txt")
                 try:
-                    ver = ghidra_adapter.verify_ghidra(resolved)
-                    if ver:
-                        ctx.tool_versions.ghidra = ver
+                    with open(skip_marker, "w", encoding="utf-8") as f:
+                        f.write(f"Ghidra analysis skipped\n")
+                        f.write(f"Reason: {reason}\n")
+                        f.write(f"File hash: {preproc.file_hash}\n")
                 except Exception:
                     pass
-            # propagate top-level runner force into ghidra adapter
-            gh_opts.setdefault("force", bool(getattr(ctx, "force", False)))
-            ghidra_export_path = ghidra_adapter.ensure_ghidra_export(preproc.input_path, ghidra_out, preproc.file_hash, options=gh_opts)
-            ghidra_export = ghidra_adapter.read_ghidra_functions(ghidra_export_path)
 
             # 3) run heuristics
             # collect heuristic callables from heuristics package
@@ -200,14 +247,68 @@ class StaticRunner:
             result.cached = False
             return result
 
-        except Exception as exc:  # pragma: no cover - surface as error in run result
+        except FileNotFoundError as exc:
+            # Input file or preprocessed data not found
+            error_msg = str(exc)
+            result.errors = [f"File not found: {error_msg}"]
+            result.summary = {"error_type": "file_not_found", "message": error_msg}
+            return result
+            
+        except ValueError as exc:
+            # Input validation or data format error
+            error_msg = str(exc)
+            result.errors = [f"Validation error: {error_msg}"]
+            result.summary = {"error_type": "validation_error", "message": error_msg}
+            return result
+            
+        except TimeoutError as exc:
+            # Ghidra or other subprocess timeout
+            error_msg = str(exc)
+            result.errors = [f"Timeout: {error_msg}"]
+            result.summary = {
+                "error_type": "timeout",
+                "message": error_msg,
+                "hint": "Consider setting policy='never' if analyzing source code only"
+            }
+            return result
+            
+        except PermissionError as exc:
+            # File permission issues
+            error_msg = str(exc)
+            result.errors = [f"Permission denied: {error_msg}"]
+            result.summary = {"error_type": "permission_error", "message": error_msg}
+            return result
+            
+        except Exception as exc:
+            # Catch-all for unexpected errors
+            import traceback
+            error_msg = str(exc)
+            error_trace = traceback.format_exc()
+            
+            # Log full traceback for debugging
+            try:
+                import logging
+                logging.error(f"Static detection pipeline error: {error_trace}")
+            except:
+                pass
+            
             # attempt to write a minimal static_results.json indicating failure
             try:
-                err_meta = {"error": str(exc), "file_hash": getattr(result, "file_hash", None)}
+                err_meta = {
+                    "error": error_msg,
+                    "error_type": type(exc).__name__,
+                    "file_hash": getattr(result, "file_hash", None)
+                }
                 out_dir = os.path.abspath(os.path.join(ctx.analysis_base, "analysis", "static", getattr(result, "file_hash", "unknown")))
                 os.makedirs(out_dir, exist_ok=True)
                 results_packager.package_results(getattr(result, "file_hash", ""), [], out_dir, meta=err_meta)
             except Exception:
                 pass
-            result.errors = [str(exc)]
+                
+            result.errors = [error_msg]
+            result.summary = {
+                "error_type": type(exc).__name__,
+                "message": error_msg,
+                "hint": "Run setup check: python -m src.auditor.detectors.static_detection.setup"
+            }
             return result

@@ -179,6 +179,10 @@ def run_headless_export(cmd: List[str], timeout: int = DEFAULT_TIMEOUT) -> Tuple
     """Run the headless command and return (exitcode, stdout, stderr).
 
     Unit tests should patch this function to avoid invoking a real Ghidra.
+    
+    Raises:
+        TimeoutError: If Ghidra execution exceeds timeout
+        RuntimeError: If Ghidra command fails to execute
     """
     try:
         # On Windows with .bat files, invoke via cmd.exe to avoid shell=True issues
@@ -192,7 +196,21 @@ def run_headless_export(cmd: List[str], timeout: int = DEFAULT_TIMEOUT) -> Tuple
         stderr = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
         return proc.returncode, stdout, stderr
     except subprocess.TimeoutExpired as ex:
-        raise TimeoutError(str(ex))
+        timeout_msg = (
+            f"Ghidra analysis timed out after {timeout} seconds. "
+            "This usually means the binary is too complex or large. "
+            "Consider: 1) Using policy='never' for source-only projects, "
+            "2) Increasing timeout in ghidra_options, or "
+            "3) Analyzing smaller files."
+        )
+        raise TimeoutError(timeout_msg) from ex
+    except FileNotFoundError as ex:
+        raise RuntimeError(
+            f"Ghidra executable not found: {cmd[0]}. "
+            "Please run: python -m src.auditor.detectors.static_detection.setup wizard"
+        ) from ex
+    except Exception as ex:
+        raise RuntimeError(f"Failed to execute Ghidra: {ex}") from ex
 
 
 def _write_ghidra_meta(out_dir: str, ghidra_path: Optional[str]):
