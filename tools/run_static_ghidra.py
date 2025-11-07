@@ -52,10 +52,12 @@ def main():
             print("Failed to copy sample to tmp preproc:", e)
             return 2
 
-    # write a minimal metadata.json
-    metadata = {"schema_version": "1.0", "file_hash": ""}
-    with open(tmp_preproc / "metadata.json", "w", encoding="utf-8") as fh:
-        json.dump(metadata, fh)
+    # write a minimal metadata.json only if one doesn't already exist
+    meta_path = tmp_preproc / "metadata.json"
+    if not meta_path.exists():
+        metadata = {"schema_version": "1.0", "file_hash": ""}
+        with open(meta_path, "w", encoding="utf-8") as fh:
+            json.dump(metadata, fh)
 
     # Build RunContext
     ctx = RunContext(

@@ -103,9 +103,13 @@ def generate_static_preproc(preproc_dir: str, out_dir: str, profile: str = "quic
     # entropy_map.json: sliding-window entropy
     window = 64 if profile == "full" else 256
     entmap = []
-    for off in range(0, max(1, len(data) - window + 1), window):
-        chunk = data[off : off + window]
-        entmap.append({"offset": off, "entropy": _entropy(chunk)})
+    # Walk the file in fixed-size windows and include the final partial window
+    if len(data) == 0:
+        entmap = []
+    else:
+        for off in range(0, len(data), window):
+            chunk = data[off : off + window]
+            entmap.append({"offset": off, "entropy": _entropy(chunk)})
     artifacts["entropy_map.json"] = {"generated": True, "profile": profile, "entropy_map": entmap}
 
     # write artifacts

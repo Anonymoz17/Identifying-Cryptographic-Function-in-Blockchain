@@ -25,3 +25,12 @@ Next steps
 1. Implement and test `preproc_adapter.load_preproc`.
 2. Implement `static_preproc.generate_static_preproc` quick path.
 3. Add unit tests for heuristics and schema validation.
+
+Notes
+-----
+
+- The pipeline uses a `file_hash` (64-character lowercase SHA256) as the canonical
+	identifier for a run. `metadata.json` should include `file_hash` or `sha256` in
+	lowercase hex; the loader enforces this and will raise on mismatches.
+- `metadata.json` is read with `utf-8-sig` to tolerate accidental BOMs produced
+	by some editors, but the file contents must otherwise be valid JSON.

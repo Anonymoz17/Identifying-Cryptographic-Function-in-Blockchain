@@ -31,16 +31,19 @@ def _redact_hint(h: Dict) -> Dict:
     )
     for k in sensitive_keys:
         h2.pop(k, None)
-
-    # If evidence exists as a nested dict, remove sensitive subkeys there too
+    # If evidence exists as a nested dict, create a minimal allowed subset
     ev = h2.get("evidence") or h.get("evidence")
     if isinstance(ev, dict):
-        ev_copy = dict(ev)
-        for k in ("prototype", "parameters", "disasm", "function_hash", "raw_bytes", "snippet"):
-            ev_copy.pop(k, None)
-        # Replace with a minimal safe evidence summary if any keys remain
-        if ev_copy:
-            h2["evidence"] = {k: ev_copy[k] for k in ev_copy if k not in ("raw_bytes", "disasm", "prototype", "parameters", "function_hash", "snippet")}
+        # Whitelist only small, safe fields that are non-sensitive
+        allowed_ev = {}
+        for k in ("reason_tags", "snippet", "summary", "source"):
+            if k in ev:
+                # only include simple scalar or list types
+                v = ev.get(k)
+                if isinstance(v, (str, int, float, list, type(None))):
+                    allowed_ev[k] = v
+        if allowed_ev:
+            h2["evidence"] = allowed_ev
         else:
             h2.pop("evidence", None)
 
@@ -109,8 +112,9 @@ def generate_hints(findings: List[Dict], out_dir: str, redact: bool = False, fil
         "hints": hints,
     }
 
-    # Try to validate against schema if available
+    # Try to validate against schema if available. Load schema safely.
     schema_path = os.path.join(os.path.dirname(__file__), "schemas", "hints.schema.json")
+    schema = None
     if os.path.isfile(schema_path):
         try:
             with open(schema_path, "r", encoding="utf-8") as sfh:
@@ -118,8 +122,13 @@ def generate_hints(findings: List[Dict], out_dir: str, redact: bool = False, fil
             try:
                 validator.validate_schema(payload, schema)
             except RuntimeError:
-                # jsonschema missing — proceed but annotate payload meta by writing a companion file
+                # jsonschema missing — annotate payload meta and attempt a quick validation
                 payload.setdefault("meta", {})["schema_validation"] = "skipped: jsonschema not installed"
+                try:
+                    # best-effort lightweight validation
+                    validator.quick_validate(payload, "hints")
+                except Exception:
+                    payload.setdefault("meta", {})["schema_quick_validation"] = "failed"
         except Exception:
             # If schema is malformed or unavailable, proceed but annotate
             payload.setdefault("meta", {})["schema_validation"] = "skipped: schema load error"
@@ -142,11 +151,15 @@ def generate_hints(findings: List[Dict], out_dir: str, redact: bool = False, fil
         }
 
         # Try to validate public payload using same schema if available
-        if os.path.isfile(schema_path):
+        if schema is not None:
             try:
                 validator.validate_schema(pub_payload, schema)
             except RuntimeError:
                 pub_payload.setdefault("meta", {})["schema_validation"] = "skipped: jsonschema not installed"
+                try:
+                    validator.quick_validate(pub_payload, "hints")
+                except Exception:
+                    pub_payload.setdefault("meta", {})["schema_quick_validation"] = "failed"
             except Exception:
                 pub_payload.setdefault("meta", {})["schema_validation"] = "skipped: public schema validation error"
 

@@ -18,7 +18,7 @@ def package_results(file_hash: str, findings: Any, out_dir: str, meta: Dict = No
 
     payload = {
         "file_hash": file_hash,
-        "schema_version": "0.0.1",
+        "schema_version": "1.0",
     "timestamp": datetime.now(timezone.utc).isoformat(),
         "findings": findings,
         "meta": meta or {},

@@ -1,1 +1,0 @@
-{"file_hash": "", "schema_version": "0.0.1", "findings": [], "meta": {"error": "multiple preproc cases found under C:\\!Everything Programming\\Github Projects\\FYP\\Identifying-Cryptographic-Function-in-Blockchain\\case_multi\\preproc; please specify file_hash in RunContext.file_hash. Found: ['hash1', 'hash2']", "file_hash": ""}}

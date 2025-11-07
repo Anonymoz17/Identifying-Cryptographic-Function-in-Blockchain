@@ -84,7 +84,9 @@ def load_preproc(preproc_dir: str) -> Preproc:
     if not os.path.isfile(metadata_path):
         raise FileNotFoundError(f"preproc metadata not found: {metadata_path}")
 
-    with open(metadata_path, "r", encoding="utf-8") as fh:
+    # Read metadata using utf-8-sig to tolerate accidental BOM while enforcing
+    # that the declared file_hash, if present, must be lowercase hex.
+    with open(metadata_path, "r", encoding="utf-8-sig") as fh:
         try:
             metadata = json.load(fh)
         except Exception as exc:  # pragma: no cover - defensive
@@ -144,10 +146,19 @@ def load_preproc(preproc_dir: str) -> Preproc:
 
     # If metadata contains a hash, ensure it matches computed
     meta_hash = metadata.get("file_hash") or metadata.get("sha256")
-    if meta_hash and meta_hash != computed_hash:
-        raise ValueError(
-            f"preproc metadata file_hash mismatch: metadata={meta_hash} computed={computed_hash}"
-        )
+    if meta_hash:
+        import re
+
+        # enforce canonical lowercase hex 64-char SHA256
+        if not re.fullmatch(r"^[a-f0-9]{64}$", meta_hash):
+            if re.fullmatch(r"^[A-Fa-f0-9]{64}$", meta_hash):
+                raise ValueError("preproc metadata file_hash must be lowercase hex (64 chars)")
+            raise ValueError("preproc metadata file_hash must be a 64-character hex string")
+
+        if meta_hash != computed_hash:
+            raise ValueError(
+                f"preproc metadata file_hash mismatch: metadata={meta_hash} computed={computed_hash}"
+            )
 
     file_hash = computed_hash
 

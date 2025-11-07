@@ -46,3 +46,30 @@ def test_hints_redaction_strips_sensitive_fields(tmp_path):
     if ev:
         for k in ("prototype", "parameters", "disasm", "function_hash", "snippet"):
             assert k not in ev
+
+
+def test_schema_load_failure_handling(tmp_path, monkeypatch):
+    # simulate validate_schema raising RuntimeError (jsonschema missing)
+    out_dir = tmp_path / "out2"
+    out_dir.mkdir()
+
+    # Monkeypatch the validator.validate_schema to raise as if jsonschema missing
+    import src.auditor.detectors.static_detection.validator as validator
+
+    def _raise(*a, **k):
+        raise RuntimeError("jsonschema package is required for validation")
+
+    monkeypatch.setattr(validator, "validate_schema", _raise)
+
+    findings = []
+    # Generate hints; code should annotate meta indicating skipped validation
+    from src.auditor.detectors.static_detection.hints_generator import generate_hints
+
+    generate_hints(findings, str(out_dir), redact=False, file_hash=("b" * 64))
+    hints_path = out_dir / "hints.json"
+    assert hints_path.exists()
+    payload = json.loads(hints_path.read_text(encoding="utf-8"))
+    meta = payload.get("meta") or {}
+    # When jsonschema is not available, generator should annotate meta
+    assert "schema_validation" in meta
+    assert "skipped" in str(meta.get("schema_validation")).lower()

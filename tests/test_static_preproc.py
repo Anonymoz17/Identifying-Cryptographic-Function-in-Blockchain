@@ -31,3 +31,26 @@ def test_generate_static_preproc_creates_artifacts(tmp_path):
             data = json.load(fh)
         assert data.get("generated") is True
         assert data.get("profile") == "quick"
+
+
+def test_entropy_map_includes_tail(tmp_path):
+    # create an input.bin of 300 bytes (not multiple of 256 window)
+    data = bytes([i % 256 for i in range(300)])
+    pre = tmp_path / "pre"
+    out = tmp_path / "out"
+    pre.mkdir()
+    (pre / "input.bin").write_bytes(data)
+    # import module using same loader to match test env
+    mod = _load_module()
+    mod.generate_static_preproc(str(pre), str(out), profile="quick")
+    ent_path = out / "entropy_map.json"
+    assert ent_path.exists()
+    import json
+
+    payload = json.loads(ent_path.read_text(encoding="utf-8"))
+    entmap = payload.get("entropy_map")
+    # window is 256 for quick profile: expect two entries (offset 0 and 256)
+    offsets = [e["offset"] for e in entmap]
+    assert offsets[0] == 0
+    assert offsets[-1] == 256
+    assert len(entmap) >= 2
