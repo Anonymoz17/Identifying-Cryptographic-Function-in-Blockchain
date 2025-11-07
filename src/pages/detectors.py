@@ -128,6 +128,14 @@ class DetectorsPage(ctk.CTkFrame):
         self._cancel_event = None
         self._current_mode = "static"
         self._case_workdir: Optional[str] = None
+        
+        # Batch processing state
+        self._all_file_hashes = []  # List of all hashes to process
+        self._batch_results = {}  # Dict mapping file_hash -> result
+        self._current_batch_index = 0
+        self._total_binaries = 0
+        self._cached_binaries = 0
+        self._ready_binaries = 0
 
     def _build_static_ui(self, parent: ctk.CTkFrame):
         """Build the static analysis UI components."""
@@ -139,30 +147,34 @@ class DetectorsPage(ctk.CTkFrame):
         config_frame.grid(row=0, column=0, sticky="ew", padx=15, pady=15)
         config_frame.grid_columnconfigure(1, weight=1)
 
-        # File hash selection (for multiple binaries)
-        ctk.CTkLabel(config_frame, text="Target Binary:", font=("Roboto", 13)).grid(
-            row=0, column=0, sticky="w", padx=10, pady=8
-        )
-        self.file_hash_var = tk.StringVar(value="auto")
-        self.file_hash_menu = ctk.CTkOptionMenu(
-            config_frame,
-            values=["auto"],
-            variable=self.file_hash_var,
-            width=400
-        )
-        self.file_hash_menu.grid(row=0, column=1, sticky="w", padx=10)
+        # Case summary section
+        summary_container = ctk.CTkFrame(config_frame, fg_color="transparent")
+        summary_container.grid(row=0, column=0, columnspan=3, sticky="ew", padx=10, pady=(10, 15))
+        summary_container.grid_columnconfigure(0, weight=1)
 
-        file_hash_hint = ctk.CTkLabel(
-            config_frame,
-            text="Select which binary to analyze (auto-detect if only one)",
-            font=("Roboto", 10),
-            text_color="#777"
+        summary_title = ctk.CTkLabel(
+            summary_container,
+            text="📊 Case Summary",
+            font=("Roboto", 14, "bold")
         )
-        file_hash_hint.grid(row=0, column=2, sticky="w", padx=15)
+        summary_title.pack(anchor="w")
+
+        self.case_summary_label = ctk.CTkLabel(
+            summary_container,
+            text="Scanning for preprocessed binaries...",
+            font=("Roboto", 11),
+            text_color="#999",
+            justify="left"
+        )
+        self.case_summary_label.pack(anchor="w", pady=(5, 0))
+
+        # Separator
+        separator = ctk.CTkFrame(config_frame, height=2, fg_color="#333")
+        separator.grid(row=1, column=0, columnspan=3, sticky="ew", padx=10, pady=10)
 
         # Profile selection
         ctk.CTkLabel(config_frame, text="Analysis Profile:", font=("Roboto", 13)).grid(
-            row=1, column=0, sticky="w", padx=10, pady=8
+            row=2, column=0, sticky="w", padx=10, pady=8
         )
         self.profile_var = tk.StringVar(value="quick")
         profile_menu = ctk.CTkOptionMenu(
@@ -171,7 +183,7 @@ class DetectorsPage(ctk.CTkFrame):
             variable=self.profile_var,
             width=200
         )
-        profile_menu.grid(row=1, column=1, sticky="w", padx=10)
+        profile_menu.grid(row=2, column=1, sticky="w", padx=10)
 
         profile_hint = ctk.CTkLabel(
             config_frame,
@@ -179,7 +191,7 @@ class DetectorsPage(ctk.CTkFrame):
             font=("Roboto", 10),
             text_color="#777"
         )
-        profile_hint.grid(row=1, column=2, sticky="w", padx=15)
+        profile_hint.grid(row=2, column=2, sticky="w", padx=15)
 
         # Force re-analysis option
         self.force_var = tk.BooleanVar(value=False)
@@ -189,7 +201,7 @@ class DetectorsPage(ctk.CTkFrame):
             variable=self.force_var,
             font=("Roboto", 12)
         )
-        force_check.grid(row=2, column=1, sticky="w", padx=10, pady=5)
+        force_check.grid(row=3, column=1, sticky="w", padx=10, pady=5)
 
         # Action buttons
         action_frame = ctk.CTkFrame(parent)
@@ -197,9 +209,9 @@ class DetectorsPage(ctk.CTkFrame):
 
         self.run_static_btn = ctk.CTkButton(
             action_frame,
-            text="▶ Run Static Analysis",
+            text="▶ Analyze All Binaries",
             command=self._run_static_analysis,
-            width=200,
+            width=220,
             height=40,
             font=("Roboto", 14, "bold"),
             fg_color="#2a7e3f",
@@ -219,15 +231,15 @@ class DetectorsPage(ctk.CTkFrame):
         )
         self.cancel_static_btn.pack(side="left", padx=10)
 
-        self.export_results_btn = ctk.CTkButton(
+        self.open_results_btn = ctk.CTkButton(
             action_frame,
-            text="📄 Export Results",
-            command=self._export_results,
+            text="� Open Results",
+            command=self._open_results_folder,
             width=160,
             height=40,
             state="disabled"
         )
-        self.export_results_btn.pack(side="left", padx=10)
+        self.open_results_btn.pack(side="left", padx=10)
 
         # Progress section
         progress_frame = ctk.CTkFrame(action_frame, fg_color="transparent")
@@ -498,7 +510,7 @@ class DetectorsPage(ctk.CTkFrame):
         self._analysis_running = True
         self.run_static_btn.configure(state="disabled")
         self.cancel_static_btn.configure(state="normal")
-        self.export_results_btn.configure(state="disabled")
+        self.open_results_btn.configure(state="disabled")
         self.progress_bar.set(0)
         self._clear_results()
         self._log_console("Starting static analysis...")
@@ -506,61 +518,86 @@ class DetectorsPage(ctk.CTkFrame):
 
         # Run in background thread
         self._cancel_event = threading.Event()
-        t = threading.Thread(target=self._static_analysis_thread, daemon=True)
+        t = threading.Thread(target=self._batch_analysis_thread, daemon=True)
         t.start()
 
-    def _static_analysis_thread(self):
-        """Background thread for static analysis."""
+    def _batch_analysis_thread(self):
+        """Background thread for batch static analysis of all binaries."""
         try:
             from auditor.detectors.static_detection.runner import StaticRunner
             from auditor.detectors.static_detection.context import RunContext, ToolVersions
 
-            # Update progress
-            self.after(0, self.progress_bar.set, 0.1)
-            self.after(0, self._log_console, "Initializing static detection runner...")
-
-            # Create runner
-            runner = StaticRunner()
-
-            # Get selected file hash
-            selected_hash_display = self.file_hash_var.get()
-            if selected_hash_display == "auto":
-                file_hash = ""  # Auto-detect
-            else:
-                # Get full hash from mapping
-                file_hash = self._available_hashes.get(selected_hash_display, "")
-                if file_hash:
-                    self.after(0, self._log_console, f"Analyzing binary: {file_hash[:32]}...")
-
-            # Build context
+            # Initialize batch results
+            self._batch_results = {}
+            self._current_batch_index = 0
+            
             profile = self.profile_var.get()
             force = self.force_var.get()
             
-            ctx = RunContext(
-                file_hash=file_hash,  # Use selected or auto-detect
-                preproc_dir=self._case_workdir,
-                analysis_base=self._case_workdir,
-                profile=profile,
-                force=force,
-                tool_versions=ToolVersions()
-            )
+            total_files = len(self._all_file_hashes)
+            
+            self.after(0, self._log_console, f"Starting batch analysis of {total_files} binaries...")
+            self.after(0, self._log_console, f"Profile: {profile}, Force: {force}")
 
-            self.after(0, self.progress_bar.set, 0.2)
-            self.after(0, self._log_console, f"Running {profile} profile analysis...")
+            # Create runner once (reuse for all files)
+            runner = StaticRunner()
 
-            # Run analysis
-            result = runner.run(ctx)
+            # Process each file hash
+            for index, file_hash in enumerate(self._all_file_hashes, 1):
+                # Check for cancellation
+                if self._cancel_event and self._cancel_event.is_set():
+                    self.after(0, self._on_batch_cancelled, index - 1, total_files)
+                    return
 
-            # Check for cancellation
-            if self._cancel_event and self._cancel_event.is_set():
-                self.after(0, self._on_analysis_cancelled)
-                return
+                self._current_batch_index = index
+                
+                # Update progress
+                progress = (index - 0.5) / total_files
+                self.after(0, self.progress_bar.set, progress)
+                self.after(0, self._update_batch_progress, index, total_files, file_hash)
+                
+                try:
+                    # Build context for this specific file
+                    ctx = RunContext(
+                        file_hash=file_hash,
+                        preproc_dir=self._case_workdir,
+                        analysis_base=self._case_workdir,
+                        profile=profile,
+                        force=force,
+                        tool_versions=ToolVersions()
+                    )
 
-            # Process results
-            self.after(0, self._on_analysis_complete, result)
+                    # Run analysis for this file
+                    result = runner.run(ctx)
+                    
+                    # Store result
+                    self._batch_results[file_hash] = result
+                    
+                    # Log completion
+                    status = "✓ Cached" if result.cached else "✓ Analyzed"
+                    self.after(0, self._log_console, f"{status} [{index}/{total_files}] {file_hash[:16]}...")
+                    
+                except Exception as e:
+                    # Log error but continue with next file
+                    self._batch_results[file_hash] = {"error": str(e)}
+                    self.after(0, self._log_console, f"✗ Error [{index}/{total_files}] {file_hash[:16]}...: {e}")
+
+            # All files processed
+            self.after(0, self.progress_bar.set, 1.0)
+            self.after(0, self._on_batch_complete, total_files)
 
         except Exception as e:
             self.after(0, self._on_analysis_error, str(e))
+
+    def _update_batch_progress(self, current: int, total: int, file_hash: str):
+        """Update progress label with batch status."""
+        try:
+            percent = int((current / total) * 100)
+            self.progress_label.configure(
+                text=f"Processing {current}/{total} ({percent}%) - {file_hash[:16]}..."
+            )
+        except Exception:
+            pass
 
     def _cancel_analysis(self):
         """Cancel ongoing analysis."""
@@ -574,7 +611,7 @@ class DetectorsPage(ctk.CTkFrame):
             self._analysis_running = False
             self.run_static_btn.configure(state="normal")
             self.cancel_static_btn.configure(state="disabled")
-            self.export_results_btn.configure(state="normal")
+            self.open_results_btn.configure(state="normal")
             self.progress_bar.set(1.0)
 
             if result.errors:
@@ -606,6 +643,54 @@ class DetectorsPage(ctk.CTkFrame):
         self.progress_bar.set(0)
         self._set_status(f"❌ Error: {error_msg}", error=True)
         self._log_console(f"Error: {error_msg}")
+
+    def _on_batch_complete(self, total_files: int):
+        """Handle successful batch analysis completion."""
+        try:
+            self._analysis_running = False
+            self.run_static_btn.configure(state="normal")
+            self.cancel_static_btn.configure(state="disabled")
+            self.open_results_btn.configure(state="normal")
+            self.progress_bar.set(1.0)
+            self.progress_label.configure(text=f"Completed {total_files}/{total_files}")
+
+            # Count successes and errors
+            successes = sum(1 for r in self._batch_results.values() if not isinstance(r, dict) or "error" not in r)
+            errors = total_files - successes
+            cached = sum(1 for r in self._batch_results.values() if hasattr(r, 'cached') and r.cached)
+
+            if errors > 0:
+                self._set_status(f"⚠️ Batch completed: {successes} successful, {errors} errors", error=True)
+                self._log_console(f"Batch analysis completed with {errors} error(s)")
+            else:
+                self._set_status(f"✅ Batch completed: {successes} binaries analyzed ({cached} cached)", error=False)
+                self._log_console(f"Batch analysis completed successfully!")
+
+            # Display aggregated results
+            self._display_batch_results()
+
+        except Exception as e:
+            self._set_status(f"❌ Error displaying results: {e}", error=True)
+            self._log_console(f"Error in batch completion: {e}")
+
+    def _on_batch_cancelled(self, processed: int, total: int):
+        """Handle batch analysis cancellation."""
+        try:
+            self._analysis_running = False
+            self.run_static_btn.configure(state="normal")
+            self.cancel_static_btn.configure(state="disabled")
+            self.progress_bar.set(0)
+            self.progress_label.configure(text="")
+
+            self._set_status(f"⚠️ Cancelled after processing {processed}/{total} binaries", error=True)
+            self._log_console(f"Batch analysis cancelled by user")
+
+            # Display partial results if any
+            if self._batch_results:
+                self._display_batch_results()
+
+        except Exception as e:
+            self._log_console(f"Error in cancellation handler: {e}")
 
     def _display_results(self, result):
         """Display analysis results in the UI."""
@@ -700,43 +785,124 @@ class DetectorsPage(ctk.CTkFrame):
             self.findings_text.delete("1.0", "end")
             self.findings_text.insert("1.0", f"Error loading findings: {e}")
 
-    def _export_results(self):
-        """Export results to a user-selected location."""
+    def _display_batch_results(self):
+        """Display aggregated results from batch analysis."""
         try:
-            from tkinter import filedialog
+            # Summary
+            summary_lines = []
+            summary_lines.append("=" * 60)
+            summary_lines.append("BATCH ANALYSIS SUMMARY")
+            summary_lines.append("=" * 60)
+            summary_lines.append(f"Total Binaries: {len(self._batch_results)}")
             
-            filepath = filedialog.asksaveasfilename(
-                title="Export Analysis Results",
-                defaultextension=".json",
-                filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
-            )
+            successful = sum(1 for r in self._batch_results.values() if not isinstance(r, dict) or "error" not in r)
+            errors = len(self._batch_results) - successful
+            cached = sum(1 for r in self._batch_results.values() if hasattr(r, 'cached') and r.cached)
             
-            if not filepath:
-                return
+            summary_lines.append(f"Successful: {successful}")
+            summary_lines.append(f"Errors: {errors}")
+            summary_lines.append(f"Cached: {cached}")
+            summary_lines.append("")
+            summary_lines.append("Per-File Summary:")
+            summary_lines.append("-" * 60)
+            
+            for file_hash, result in self._batch_results.items():
+                short_hash = file_hash[:16]
+                if isinstance(result, dict) and "error" in result:
+                    summary_lines.append(f"✗ {short_hash}... - ERROR: {result['error']}")
+                elif hasattr(result, 'cached') and result.cached:
+                    summary_lines.append(f"✓ {short_hash}... - Cached")
+                else:
+                    findings_count = result.summary.get('findings_count', 0) if hasattr(result, 'summary') else 0
+                    summary_lines.append(f"✓ {short_hash}... - {findings_count} findings")
 
-            # Copy static_results.json to selected location
-            scan_meta = getattr(self.master, "current_scan_meta", {})
-            workdir = scan_meta.get("workdir", "")
-            
-            if workdir:
-                # Find the analysis/static directory
-                analysis_dir = Path(workdir) / "analysis" / "static"
-                if analysis_dir.exists():
-                    # Find the most recent static_results.json
-                    results_files = list(analysis_dir.glob("*/static_results.json"))
-                    if results_files:
-                        latest = max(results_files, key=lambda p: p.stat().st_mtime)
-                        
-                        import shutil
-                        shutil.copy(latest, filepath)
-                        self._set_status(f"✅ Results exported to {filepath}")
-                        self._log_console(f"Exported results to: {filepath}")
-                        return
+            self.summary_text.delete("1.0", "end")
+            self.summary_text.insert("1.0", "\n".join(summary_lines))
 
-            self._set_status("❌ No results available to export", error=True)
+            # Aggregate all findings
+            all_findings = []
+            for file_hash, result in self._batch_results.items():
+                if isinstance(result, dict) and "error" in result:
+                    continue
+                    
+                if hasattr(result, 'static_results_path') and result.static_results_path:
+                    try:
+                        with open(result.static_results_path, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                            findings = data.get('findings', [])
+                            # Add file_hash to each finding
+                            for finding in findings:
+                                finding['source_file_hash'] = file_hash
+                            all_findings.extend(findings)
+                    except Exception:
+                        pass
+
+            # Display aggregated findings
+            output_lines = []
+            output_lines.append("=" * 80)
+            output_lines.append(f"AGGREGATED FINDINGS ({len(all_findings)} total from {successful} binaries)")
+            output_lines.append("=" * 80)
+            output_lines.append("")
+
+            if not all_findings:
+                output_lines.append("No cryptographic patterns detected across all binaries.")
+            else:
+                # Sort by confidence
+                sorted_findings = sorted(
+                    all_findings,
+                    key=lambda x: x.get('score', x.get('confidence', 0)),
+                    reverse=True
+                )
+
+                for i, finding in enumerate(sorted_findings[:100], 1):  # Top 100
+                    source_hash = finding.get('source_file_hash', 'unknown')[:16]
+                    output_lines.append(f"[{i}] {finding.get('type', 'unknown').upper()} from {source_hash}...")
+                    output_lines.append(f"    Confidence: {finding.get('confidence', finding.get('score', 0)):.2f}")
+                    output_lines.append(f"    Name: {finding.get('name', 'N/A')}")
+                    
+                    if 'reason_tags' in finding:
+                        output_lines.append(f"    Tags: {', '.join(finding['reason_tags'])}")
+                    
+                    output_lines.append("")
+
+            self.findings_text.delete("1.0", "end")
+            self.findings_text.insert("1.0", "\n".join(output_lines))
+
+            self._log_console("Batch results displayed successfully")
 
         except Exception as e:
-            self._set_status(f"❌ Export failed: {e}", error=True)
+            self._log_console(f"Error displaying batch results: {e}")
+
+    def _open_results_folder(self):
+        """Open the analysis results folder in file explorer."""
+        try:
+            import subprocess
+            import platform
+            
+            workdir = self._case_workdir or self._loaded_case_workdir
+            if not workdir:
+                self._set_status("❌ No case loaded", error=True)
+                return
+
+            workdir_path = Path(workdir)
+            analysis_dir = workdir_path / "analysis" / "static"
+            
+            if not analysis_dir.exists():
+                self._set_status("❌ No analysis results found", error=True)
+                return
+
+            # Open folder in file explorer (cross-platform)
+            if platform.system() == "Windows":
+                subprocess.run(["explorer", str(analysis_dir)], check=False)
+            elif platform.system() == "Darwin":  # macOS
+                subprocess.run(["open", str(analysis_dir)], check=False)
+            else:  # Linux
+                subprocess.run(["xdg-open", str(analysis_dir)], check=False)
+            
+            self._log_console(f"Opened results folder: {analysis_dir}")
+
+        except Exception as e:
+            self._set_status(f"❌ Failed to open folder: {e}", error=True)
 
     def _clear_results(self):
         """Clear all result displays."""
@@ -747,50 +913,65 @@ class DetectorsPage(ctk.CTkFrame):
         except Exception:
             pass
 
-    def _refresh_file_hashes(self):
-        """Scan workdir and populate file hash dropdown."""
+    def _scan_all_cases(self):
+        """Scan workdir for all preprocessed cases and update summary."""
         try:
             workdir = self._case_workdir or self._loaded_case_workdir
             if not workdir:
+                self.case_summary_label.configure(text="No case loaded")
                 return
 
             workdir_path = Path(workdir)
             preproc_dir = workdir_path / "preproc"
             
             if not preproc_dir.exists():
+                self.case_summary_label.configure(text="No preproc directory found")
                 return
 
-            # Find all file hash directories
-            hashes = []
+            # Find all valid file hash directories
+            all_hashes = []
+            cached_count = 0
+            
             for item in preproc_dir.iterdir():
                 if item.is_dir():
                     # Check if it has expected structure
-                    if (item / "input.bin").exists() or (item / "metadata.json").exists():
-                        hashes.append(item.name)
+                    if (item / "input.bin").exists() and (item / "metadata.json").exists():
+                        file_hash = item.name
+                        all_hashes.append(file_hash)
+                        
+                        # Check if already analyzed (has static_results.json)
+                        analysis_dir = workdir_path / "analysis" / "static" / file_hash
+                        if (analysis_dir / "static_results.json").exists():
+                            cached_count += 1
 
-            # Update dropdown
-            if not hashes:
-                self.file_hash_menu.configure(values=["auto"])
-                self.file_hash_var.set("auto")
-            elif len(hashes) == 1:
-                # Single hash - show it but keep auto as default
-                display_value = f"{hashes[0][:16]}... (only)"
-                self.file_hash_menu.configure(values=["auto", display_value])
-                self.file_hash_var.set("auto")
-                self._available_hashes = {display_value: hashes[0]}
+            # Update state
+            self._all_file_hashes = all_hashes
+            self._total_binaries = len(all_hashes)
+            self._cached_binaries = cached_count
+            self._ready_binaries = self._total_binaries - cached_count
+
+            # Update UI
+            if self._total_binaries == 0:
+                summary_text = "No preprocessed binaries found. Run Setup first."
+                self.case_summary_label.configure(text=summary_text, text_color="#f88")
+                self.run_static_btn.configure(state="disabled")
             else:
-                # Multiple hashes - user must select
-                display_values = [f"{h[:16]}..." for h in hashes]
-                all_values = ["auto"] + display_values
-                self.file_hash_menu.configure(values=all_values)
-                self.file_hash_var.set("auto")
-                # Store mapping from display to full hash
-                self._available_hashes = {f"{h[:16]}...": h for h in hashes}
+                summary_text = (
+                    f"• Preprocessed binaries: {self._total_binaries}\n"
+                    f"• Previously analyzed (cached): {self._cached_binaries}\n"
+                    f"• Ready for analysis: {self._ready_binaries if not self.force_var.get() else self._total_binaries}"
+                )
+                self.case_summary_label.configure(text=summary_text, text_color="#8f8")
+                self.run_static_btn.configure(state="normal")
                 
-                self._log_console(f"Found {len(hashes)} preprocessed binaries - please select one")
+            self._log_console(f"Scanned case: found {self._total_binaries} preprocessed binaries")
                 
         except Exception as e:
-            self._log_console(f"Error refreshing file hashes: {e}")
+            self._log_console(f"Error scanning cases: {e}")
+            self.case_summary_label.configure(
+                text=f"Error scanning cases: {e}",
+                text_color="#f88"
+            )
 
     def _browse_case_workdir(self):
         """Browse for case workdir."""
@@ -925,8 +1106,8 @@ class DetectorsPage(ctk.CTkFrame):
             else:
                 self.dynamic_frame.pack(fill="both", expand=True, pady=(0, 10))
 
-            # Refresh file hash dropdown
-            self._refresh_file_hashes()
+            # Scan all cases and update summary
+            self._scan_all_cases()
 
             self._set_status(f"✅ Loaded case: {workdir}")
             self._log_console(f"Standalone mode: Loaded case from {workdir}")
@@ -985,8 +1166,8 @@ class DetectorsPage(ctk.CTkFrame):
                 # Hide load case UI, show analysis UI
                 self.load_case_frame.pack_forget()
                 
-                # Refresh file hash dropdown
-                self._refresh_file_hashes()
+                # Scan all cases and update summary
+                self._scan_all_cases()
                 
                 self._set_status(f"Ready to analyze: {workdir}")
                 self._log_console(f"Loaded scan workspace: {workdir}")

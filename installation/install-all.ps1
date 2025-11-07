@@ -96,26 +96,33 @@ Write-Log "All requested components processed."
 <#
 install-all.ps1
 
-Wrapper to install multiple components (ghidra, frida, ...).
-It searches for component-specific installer scripts using the pattern
-  installation/install-<component>*.ps1
-and executes them in order, propagating common flags.
+Smart installer wrapper for all external dependencies (Ghidra, Frida, etc.).
+
+This script intelligently handles dependency installation:
+1. For Ghidra: First runs setup-ghidra.ps1 (auto-detects existing installations)
+2. For other components: Searches for install-<component>.ps1 scripts
+3. Only downloads if component not found locally
+4. Minimal user effort - auto-detection and configuration
 
 Usage examples:
-  # dry-run, show planned actions
-  .\installation\install-all.ps1 -Components ghidra,frida -DryRun
+  # Interactive mode (recommended for first-time setup)
+  .\installation\install-all.ps1
 
-  # run installers for ghidra only, accept license and force overwrite
-  .\installation\install-all.ps1 -Components ghidra -AcceptLicense -Force
+  # Fully automatic (for CI/automation)
+  .\installation\install-all.ps1 -AcceptLicense -AutoDetect
 
-  # run and force PowerShell fallback (where supported)
-  .\installation\install-all.ps1 -Components ghidra -ForceFallback
+  # Specific components
+  .\installation\install-all.ps1 -Components ghidra,frida
+
+  # Dry-run to see what would happen
+  .\installation\install-all.ps1 -Components ghidra -DryRun
 
 Design goals:
-- Idempotent: installer scripts should support -Force to overwrite.
-- Safe: DryRun mode prints actions without executing.
-- Extensible: new component installers can be added to installation/ with the naming pattern.
-- Logging: each component's stdout/stderr captured to a per-component log file in %TEMP%.
+- Smart: Auto-detects existing installations before downloading
+- Minimal effort: One command to set up everything
+- Safe: DryRun mode, checksum verification, atomic writes
+- Extensible: Add new components with install-<name>.ps1
+- User-friendly: Clear messages, progress indication
 #>
 
 param(
@@ -123,6 +130,7 @@ param(
     [switch]$AcceptLicense,
     [switch]$Force,
     [switch]$ForceFallback,
+    [switch]$AutoDetect,
     [switch]$DryRun,
     [string]$RepoRoot = (Get-Location).Path
 )

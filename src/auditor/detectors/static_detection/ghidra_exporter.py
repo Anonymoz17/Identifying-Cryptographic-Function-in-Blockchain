@@ -24,7 +24,13 @@ def _md5(s):
         return None
 
 try:
-    out_path = sys.argv[-1]
+    # Get output path from arguments (Ghidra may not pass args correctly)
+    # sys.argv is often [''] in Ghidra headless, so check length
+    if len(sys.argv) > 1 and sys.argv[-1] and sys.argv[-1] != '':
+        out_path = sys.argv[-1]
+    else:
+        # Use fixed filename - Python caller will rename if needed
+        out_path = 'ghidra-functions.json'
 except Exception:
     out_path = 'ghidra-functions.json'
 

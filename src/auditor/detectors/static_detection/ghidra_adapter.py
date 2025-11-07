@@ -22,7 +22,7 @@ def find_analyze_headless(options: Dict = None) -> Optional[str]:
     """Locate analyzeHeadless executable.
 
     Search order:
-      1) options.get('ghidra_install_dir') -> check known locations
+      1) options.get('install_dir') or options.get('ghidra_install_dir') -> check known locations
       2) environment variable GHIDRA_INSTALL_DIR
       3) PATH via shutil.which
 
@@ -31,20 +31,25 @@ def find_analyze_headless(options: Dict = None) -> Optional[str]:
     opts = options or {}
     candidates = []
 
-    install = opts.get("ghidra_install_dir") or os.environ.get("GHIDRA_INSTALL_DIR")
+    # Check both 'install_dir' and 'ghidra_install_dir' for consistency with resolve_ghidra
+    install = opts.get("install_dir") or opts.get("ghidra_install_dir") or os.environ.get("GHIDRA_INSTALL_DIR")
     if install:
-        candidates.append(os.path.join(install, "support", "analyzeHeadless"))
-        candidates.append(os.path.join(install, "analyzeHeadless"))
+        # Candidates are directories where analyzeHeadless executables might be
+        candidates.append(os.path.join(install, "support"))
+        candidates.append(install)
 
     exe_names = ["analyzeHeadless"]
     if os.name == "nt":
-        exe_names.extend(["analyzeHeadless.exe", "analyzeHeadless.bat"])
+        # On Windows, prefer .bat files first as they are directly executable
+        exe_names = ["analyzeHeadless.bat", "analyzeHeadless.exe", "analyzeHeadless"]
 
-    for base in candidates:
+    for base_dir in candidates:
         for name in exe_names:
-            p = base if os.path.isabs(base) and base.endswith(name) else os.path.join(base, name)
-            if os.path.isfile(p) and os.access(p, os.X_OK):
-                return os.path.abspath(p)
+            p = os.path.join(base_dir, name)
+            if os.path.isfile(p):
+                # On Windows, .bat files don't need execute permission check
+                if os.name == "nt" or os.access(p, os.X_OK):
+                    return os.path.abspath(p)
 
     which = shutil.which("analyzeHeadless")
     if which:
@@ -66,24 +71,31 @@ def resolve_ghidra(options: Dict = None) -> Optional[str]:
     # 1) explicit install_dir in options (higher precedence)
     install_dir = opts.get("install_dir") or opts.get("ghidra_install_dir")
     if install_dir:
-        p = os.path.join(install_dir, "support", "analyzeHeadless")
         if os.name == "nt":
-            # allow analyzeHeadless.exe or bat
-            for name in ("analyzeHeadless.exe", "analyzeHeadless.bat", "analyzeHeadless"):
+            # On Windows, prefer .bat files first as they are directly executable
+            for name in ("analyzeHeadless.bat", "analyzeHeadless.exe", "analyzeHeadless"):
                 cand = os.path.join(install_dir, "support", name)
-                if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                if os.path.isfile(cand):
                     return os.path.abspath(cand)
-        if os.path.isfile(p) and os.access(p, os.X_OK):
-            return os.path.abspath(p)
+        else:
+            p = os.path.join(install_dir, "support", "analyzeHeadless")
+            if os.path.isfile(p) and os.access(p, os.X_OK):
+                return os.path.abspath(p)
 
     # 2) persisted config
     try:
         persisted = _config.get_ghidra_install_dir()
         if persisted:
-            for name in ("analyzeHeadless", "analyzeHeadless.exe", "analyzeHeadless.bat"):
-                cand = os.path.join(persisted, "support", name)
-                if os.path.isfile(cand) and os.access(cand, os.X_OK):
-                    return os.path.abspath(cand)
+            if os.name == "nt":
+                for name in ("analyzeHeadless.bat", "analyzeHeadless.exe", "analyzeHeadless"):
+                    cand = os.path.join(persisted, "support", name)
+                    if os.path.isfile(cand):
+                        return os.path.abspath(cand)
+            else:
+                for name in ("analyzeHeadless",):
+                    cand = os.path.join(persisted, "support", name)
+                    if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                        return os.path.abspath(cand)
     except Exception:
         pass
 
@@ -134,8 +146,10 @@ def build_headless_cmd(analyze_path: str, project_dir: str, script_path: str, in
     is passed as the script's final argument.
     """
     args = [analyze_path]
-    # project_dir is used as the headless project location (we reuse out_dir)
+    # Ghidra requires: analyzeHeadless <project_location> <project_name>
+    # We use project_dir as location and "temp_project" as the project name
     args.append(os.path.abspath(project_dir))
+    args.append("temp_project")
     # import the input file
     args.extend(["-import", os.path.abspath(input_path)])
 
@@ -167,7 +181,13 @@ def run_headless_export(cmd: List[str], timeout: int = DEFAULT_TIMEOUT) -> Tuple
     Unit tests should patch this function to avoid invoking a real Ghidra.
     """
     try:
-        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=timeout)
+        # On Windows with .bat files, invoke via cmd.exe to avoid shell=True issues
+        if os.name == "nt" and cmd[0].endswith(".bat"):
+            # Wrap in cmd /c to execute the bat file properly
+            cmd = ["cmd.exe", "/c"] + cmd
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=timeout)
+        else:
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=timeout)
         stdout = proc.stdout.decode("utf-8", errors="replace") if proc.stdout else ""
         stderr = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
         return proc.returncode, stdout, stderr
@@ -219,8 +239,13 @@ def ensure_ghidra_export(input_path: str, out_dir: str, file_hash: str, options:
             # import the bundled exporter string and write it to disk
             from .ghidra_exporter import EXPORTER_SCRIPT
             bundled_path = os.path.join(out_dir, "ghidra_exporter.py")
+            
+            # Replace placeholder with actual output path (use forward slashes for Jython)
+            export_path_for_script = os.path.join(out_dir, "ghidra-functions.json").replace("\\", "/")
+            script_content = EXPORTER_SCRIPT.replace("'ghidra-functions.json'", f"'{export_path_for_script}'")
+            
             with open(bundled_path, "w", encoding="utf-8") as fh:
-                fh.write(EXPORTER_SCRIPT)
+                fh.write(script_content)
             script_path = bundled_path
         except Exception:
             # if writing fails, fall back to empty and rely on provided script_path
@@ -240,6 +265,15 @@ def ensure_ghidra_export(input_path: str, out_dir: str, file_hash: str, options:
         except Exception:
             pass
         return None
+    except Exception as e:
+        # Catch any other exception during Ghidra execution
+        try:
+            with open(os.path.join(out_dir, "ghidra-export.log"), "w", encoding="utf-8") as fh:
+                fh.write(f"EXCEPTION: {type(e).__name__}: {str(e)}\n")
+                fh.write(f"Command: {' '.join(cmd)}\n")
+        except Exception:
+            pass
+        return None
 
     # Persist logs for troubleshooting (best-effort)
     try:
@@ -254,8 +288,22 @@ def ensure_ghidra_export(input_path: str, out_dir: str, file_hash: str, options:
     # If run succeeded, write a tiny meta file and return export path if present
     if code == 0:
         _write_ghidra_meta(out_dir, analyze)
+        
+        # Check if export was created at expected location
         if os.path.isfile(export_path):
             return export_path
+        
+        # Ghidra script may not receive arguments correctly, check for default filename
+        default_export = os.path.join(out_dir, "ghidra-functions.json")
+        if os.path.isfile(default_export):
+            # Rename to expected location
+            try:
+                import shutil
+                shutil.move(default_export, export_path)
+                return export_path
+            except Exception:
+                # If rename fails, return the default path
+                return default_export
     return None
 
 

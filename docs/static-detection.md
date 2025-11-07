@@ -261,6 +261,7 @@ preproc/heuristic APIs for unit testing.
   orchestrator to schedule dynamic Frida runs — access guarded by role check.
 - Provide `hints_public.json` generated from `hints.json` that removes
   addresses/ranges and only contains counts/top-tags for UI display.
+  
 
 5. Caching, metadata, and reproducibility
 
