@@ -210,7 +210,6 @@ Integration testing notes
 
 - Integration tests that rely on a real Ghidra run should be gated and skipped by default. See `docs/ghidra_integration.md` for how to run the gated tests locally.
 
-
 For local development and testing we provide a small PowerShell helper that sets `GHIDRA_INSTALL_DIR` for your current session and runs a quick verification using the repository helper. This is intended for contributors and CI debugging — it does not perform a full install or change system-wide environment variables unless you explicitly request that.
 
 File: `tools/ghidra-dev-setup.ps1`
@@ -247,47 +246,47 @@ implementation roadmap.
 Goals and contract
 
 - Inputs: operating system, whether the user has admin privileges, explicit
-	consent for third-party licenses, options to auto-install Ghidra/Frida or
-	use existing installs.
+  consent for third-party licenses, options to auto-install Ghidra/Frida or
+  use existing installs.
 - Outputs: a working application install where the app can invoke `analyzeHeadless`
-	and Frida tooling; the install paths and consent flags persisted in per-user
-	config; verified checksums and short verification logs available for
-	debugging.
+  and Frida tooling; the install paths and consent flags persisted in per-user
+  config; verified checksums and short verification logs available for
+  debugging.
 - Success criteria: the app can discover and run `analyzeHeadless` (headless
-	exporter), Frida Python APIs are usable where required, and the user has
-	explicitly accepted third‑party licenses.
+  exporter), Frida Python APIs are usable where required, and the user has
+  explicitly accepted third‑party licenses.
 
 Top-level recommendations
 
 1. Keep the app lightweight; do not bundle large third‑party binaries in the
-	 main distribution. Offer optional automated install flows and a Docker image
-	 for CI.
+   main distribution. Offer optional automated install flows and a Docker image
+   for CI.
 2. Default to per-user installs (safer, no admin privileges). Provide an
-	 opt-in system-wide install for administrators.
+   opt-in system-wide install for administrators.
 3. Persist discovered/installed tool locations in a per-user config file (not
-	 only via environment variables). Use platform config dirs (XDG / %APPDATA%).
+   only via environment variables). Use platform config dirs (XDG / %APPDATA%).
 4. Always display license text and require explicit consent before downloading
-	 or installing Ghidra or other licensed tools.
+   or installing Ghidra or other licensed tools.
 5. Verify downloads using SHA256 (and PGP where available). Maintain a
-	 recommended/known-good list of versions.
+   recommended/known-good list of versions.
 6. Make installer actions idempotent and reversible (support uninstall/repair).
 
 Where to install (paths)
 
 - Application code & binaries:
-	- Per-user: Windows: `%LOCALAPPDATA%\\<AppName>\\`; macOS/Linux: `~/.local/share/<app>/`.
-	- System-wide (opt-in): Windows: `C:\Program Files\\<AppName>\\`; Linux/macOS: `/opt/<app>/`.
+  - Per-user: Windows: `%LOCALAPPDATA%\\<AppName>\\`; macOS/Linux: `~/.local/share/<app>/`.
+  - System-wide (opt-in): Windows: `C:\Program Files\\<AppName>\\`; Linux/macOS: `/opt/<app>/`.
 - Per-user config & manifests: use platform conventions, for example:
-	- Windows: `%APPDATA%\\<AppName>\\config.json` or `%LOCALAPPDATA%\\<AppName>\\`.
-	- macOS: `~/Library/Application Support/<AppName>/config.json`.
-	- Linux: `$XDG_CONFIG_HOME/<app>/config.json` (fallback: `~/.config/<app>/`).
+  - Windows: `%APPDATA%\\<AppName>\\config.json` or `%LOCALAPPDATA%\\<AppName>\\`.
+  - macOS: `~/Library/Application Support/<AppName>/config.json`.
+  - Linux: `$XDG_CONFIG_HOME/<app>/config.json` (fallback: `~/.config/<app>/`).
 - Ghidra (recommended default locations):
-	- Per-user Windows: `%LOCALAPPDATA%\\\\Ghidra\\\\ghidra_<version>\\`
-	- System Windows (admin opt-in): `C:\Program Files\\Ghidra\\ghidra_<version>\\`
-	- macOS/Linux: `~/.local/share/ghidra/<version>/` or `/opt/ghidra/<version>/` for system installs.
+  - Per-user Windows: `%LOCALAPPDATA%\\\\Ghidra\\\\ghidra_<version>\\`
+  - System Windows (admin opt-in): `C:\Program Files\\Ghidra\\ghidra_<version>\\`
+  - macOS/Linux: `~/.local/share/ghidra/<version>/` or `/opt/ghidra/<version>/` for system installs.
 - Frida:
-	- Python bindings should be installed in the app's Python virtualenv: e.g., `%LOCALAPPDATA%\\<app>\\venv\\`.
-	- `frida-server` artifacts kept under: `%LOCALAPPDATA%\\<app>\\runtimes\\frida\\<version>\\`.
+  - Python bindings should be installed in the app's Python virtualenv: e.g., `%LOCALAPPDATA%\\<app>\\venv\\`.
+  - `frida-server` artifacts kept under: `%LOCALAPPDATA%\\<app>\\runtimes\\frida\\<version>\\`.
 
 Installer UX and flows
 
@@ -299,13 +298,13 @@ Two main flows:
 Interactive installer (key steps):
 
 1. Present options: install app (required), install Ghidra (optional), install
-	 Frida (optional), choose install scope (user/system), accept licenses.
+   Frida (optional), choose install scope (user/system), accept licenses.
 2. If auto-installing Ghidra/Frida: show version and checksum; require user to
-	 accept license(s) explicitly.
+   accept license(s) explicitly.
 3. Download over HTTPS, verify checksum/PGP, extract to chosen location.
 4. Run verification probes (e.g., `analyzeHeadless -version`) and report
-	 status and any missing prerequisites (Java). Save path in app config on
-	 user's confirmation.
+   status and any missing prerequisites (Java). Save path in app config on
+   user's confirmation.
 
 Unattended/CI installation flags should be available (e.g., `--with-ghidra`,
 `--accept-ghidra-license`, `--system`) for automation.
@@ -313,29 +312,30 @@ Unattended/CI installation flags should be available (e.g., `--with-ghidra`,
 Security, verification and consent
 
 - Always download from official GHIDRA sites/URLs and show license text ahead
-	of download.
+  of download.
 - Verify downloaded archives with SHA256 (and PGP if available). Abort on
-	mismatch and remove partial files.
+  mismatch and remove partial files.
 - Record license acceptance (timestamped) in per-user config for auditability.
 - Prefer per-user installs to avoid escalated privileges; only perform
-	system-wide installs when the user explicitly requests and the installer
-	runs with appropriate elevation.
+  system-wide installs when the user explicitly requests and the installer
+  runs with appropriate elevation.
 
 Dependency management
 
 - Java (JDK): Ghidra requires a supported JDK. Options:
-	- Recommend users install OpenJDK (detect via `JAVA_HOME` or `java -version`).
-	- Optionally bundle a compatible JRE in the installer where licensing permits.
+  - Recommend users install OpenJDK (detect via `JAVA_HOME` or `java -version`).
+  - Optionally bundle a compatible JRE in the installer where licensing permits.
 - Python & frida bindings:
-	- Use a dedicated virtual environment for the app and `pip install` pinned
-		wheels (including `frida`/`frida-tools`) into that venv.
-	- Keep `requirements.txt` and lockfiles for reproducible installs.
+  - Use a dedicated virtual environment for the app and `pip install` pinned
+    wheels (including `frida`/`frida-tools`) into that venv.
+  - Keep `requirements.txt` and lockfiles for reproducible installs.
 - Native artifacts (frida-server): download and keep under app data dirs and
-	document device-specific steps to push/start `frida-server` on target devices.
+  document device-specific steps to push/start `frida-server` on target devices.
 
 Runtime detection and persistence
 
 Detection precedence (recommended):
+
 1. Explicit install path passed by the user for that run.
 2. Per-user app config (persisted path).
 3. Environment variables (`GHIDRA_INSTALL_DIR`, `JAVA_HOME`).
@@ -347,59 +347,65 @@ tools, versions, paths, and checksums for diagnostics and reproducibility.
 Error modes and edge cases
 
 - Java missing or incompatible: detect and display an actionable message with
-	either instructions to install OpenJDK or an option to bundle a JRE.
+  either instructions to install OpenJDK or an option to bundle a JRE.
 - analyzeHeadless present but returns non-zero for help: on Windows use a
-	`cmd /c` probe to capture output (we already do this in verification).
+  `cmd /c` probe to capture output (we already do this in verification).
 - Antivirus/quarantine: capture errors and recommend excluding the installed
-	folder if necessary.
+  folder if necessary.
 - Checksum mismatch: abort and remove the bad download; offer alternative
-	mirrors or manual install.
+  mirrors or manual install.
 
 CI and reproducible builds
 
 - Provide a Docker image with OpenJDK + Ghidra + app dependencies for CI.
 - Gate integration tests that require Ghidra behind a manual flag or secret.
 - For GitHub Actions, provide a job template that either pulls a prepared image
-	or downloads Ghidra during the job and sets `GHIDRA_INSTALL_DIR`.
+  or downloads Ghidra during the job and sets `GHIDRA_INSTALL_DIR`.
 
 Monitoring, updates and maintenance
 
 - Keep a tested list of recommended Ghidra versions. Warn users if a
-	provided Ghidra is untested.
+  provided Ghidra is untested.
 - Provide a repair/uninstall action in the UI and the ability to re-run
-	verification.
+  verification.
 - Avoid auto-updating Ghidra without explicit consent.
 
 Implementation roadmap (concrete tasks)
 
 Short-term (low-risk)
+
 - Add `.tool_manifest.json` schema and implement per-user config helpers (read/write).
 - Add CLI flags to save a provided `--ghidra-install-dir` into per-user config.
 - Add automated verify helpers for Java and frida-python.
 
 Medium-term
+
 - Implement interactive installer UI or CLI wrapper that runs the provided
-	scripts (PowerShell/Bash) with license acceptance and checksum verification.
+  scripts (PowerShell/Bash) with license acceptance and checksum verification.
 - Create a Docker image with OpenJDK, Ghidra, and frida for CI usage.
 
 Long-term (optional)
+
 - Build native OS installers (MSI/.pkg/.deb/.rpm) and package managers (winget,
-	brew tap) for easier distribution.
+  brew tap) for easier distribution.
 - Consider bundling a compatible JRE for a single-click install where licensing permits.
 
 Helpful example commands & artifacts
 
 - Verify analyzeHeadless on Windows (works well with `cmd /c`):
+
 ```powershell
 cmd /c "\\"C:\Users\\you\\Desktop\\ghidra_11.4.2_PUBLIC\\support\\analyzeHeadless.bat\\" -version"
 ```
 
 - Persist a detected path into per-user config (Python helper):
+
 ```powershell
 python -c "import sys; sys.path.insert(0,'src'); from auditor.detectors.static_detection import config; config.set_ghidra_install_dir(r'C:\\path\\to\\ghidra'); print('saved')"
 ```
 
 - Install frida into the app venv:
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
@@ -411,18 +417,19 @@ Testing & verification
 
 - Unit tests: mock `run_headless_export`, test `resolve_ghidra` and `verify_ghidra`.
 - Integration: use Docker image to run `ensure_ghidra_export` against a small
-	test binary (gate this test so it only runs when the image/ghidra is
-	available).
+  test binary (gate this test so it only runs when the image/ghidra is
+  available).
 
 Privacy and compliance
 
 - Record license acceptances in the per-user config (timestamp). Do not
-	upload disassembly or function metadata unless the user explicitly opts in.
+  upload disassembly or function metadata unless the user explicitly opts in.
 - If telemetry is added, make it opt-in and document exactly what is sent.
 
 Next steps
 
 I can implement any of the following next:
+
 - create the `.tool_manifest.schema.json` and per-user config helpers (small change)
 - add a `appctl tool install ghidra --version ..` CLI helper that downloads and verifies
 - prepare a Dockerfile and CI job example that bundles Ghidra and runs the gated tests
