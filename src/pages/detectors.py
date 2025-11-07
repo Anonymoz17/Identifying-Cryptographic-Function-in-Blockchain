@@ -27,6 +27,10 @@ class DetectorsPage(ctk.CTkFrame):
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
+        # Standalone mode state
+        self._standalone_mode = False
+        self._loaded_case_workdir = None
+
         # Main content frame
         content = ctk.CTkFrame(self, fg_color="transparent")
         content.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
@@ -50,6 +54,12 @@ class DetectorsPage(ctk.CTkFrame):
             acct.pack(side="right")
         except Exception:
             pass
+
+        # ========== Load Case UI (Standalone Mode) ==========
+        self.load_case_frame = ctk.CTkFrame(content)
+        self._build_load_case_ui(self.load_case_frame)
+        # Hidden by default, shown only in standalone mode
+        self.load_case_frame.pack_forget()
 
         # ========== Mode Toggle ==========
         mode_frame = ctk.CTkFrame(content)
@@ -318,6 +328,108 @@ class DetectorsPage(ctk.CTkFrame):
         )
         upgrade_btn.pack(pady=30)
 
+    def _build_load_case_ui(self, parent: ctk.CTkFrame):
+        """Build the load case UI for standalone mode."""
+        parent.grid_columnconfigure(0, weight=1)
+
+        # Title
+        title_label = ctk.CTkLabel(
+            parent,
+            text="Load Existing Case",
+            font=("Roboto", 18, "bold")
+        )
+        title_label.grid(row=0, column=0, sticky="w", padx=15, pady=(15, 5))
+
+        description = ctk.CTkLabel(
+            parent,
+            text="No active case detected. Load a previously preprocessed case to run static analysis.",
+            font=("Roboto", 12),
+            text_color="#aaa"
+        )
+        description.grid(row=1, column=0, sticky="w", padx=15, pady=(0, 15))
+
+        # Case selection frame
+        selection_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        selection_frame.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
+        selection_frame.grid_columnconfigure(1, weight=1)
+
+        # Workdir input
+        ctk.CTkLabel(
+            selection_frame,
+            text="Workdir:",
+            font=("Roboto", 12)
+        ).grid(row=0, column=0, sticky="w", pady=5)
+
+        workdir_row = ctk.CTkFrame(selection_frame, fg_color="transparent")
+        workdir_row.grid(row=0, column=1, sticky="ew", padx=(10, 0))
+        workdir_row.grid_columnconfigure(0, weight=1)
+
+        self.case_workdir_entry = ctk.CTkEntry(
+            workdir_row,
+            placeholder_text="Enter case workdir path or browse..."
+        )
+        self.case_workdir_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
+
+        browse_btn = ctk.CTkButton(
+            workdir_row,
+            text="Browse",
+            width=100,
+            command=self._browse_case_workdir
+        )
+        browse_btn.grid(row=0, column=1)
+
+        # Available cases list
+        ctk.CTkLabel(
+            selection_frame,
+            text="Available Cases:",
+            font=("Roboto", 12)
+        ).grid(row=1, column=0, sticky="nw", pady=(15, 5))
+
+        cases_frame = ctk.CTkFrame(selection_frame)
+        cases_frame.grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=(15, 5))
+        cases_frame.grid_columnconfigure(0, weight=1)
+
+        # Scrollable list of cases
+        self.cases_listbox = ctk.CTkTextbox(
+            cases_frame,
+            height=120,
+            font=("Consolas", 10)
+        )
+        self.cases_listbox.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+        self.cases_listbox.configure(state="disabled")
+
+        refresh_btn = ctk.CTkButton(
+            cases_frame,
+            text="🔄 Refresh Cases",
+            width=150,
+            command=self._refresh_case_list
+        )
+        refresh_btn.grid(row=1, column=0, pady=(5, 10))
+
+        # Action buttons
+        action_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        action_frame.grid(row=3, column=0, sticky="ew", padx=15, pady=(0, 15))
+
+        self.load_case_btn = ctk.CTkButton(
+            action_frame,
+            text="Load Case",
+            width=150,
+            height=40,
+            font=("Roboto", 14, "bold"),
+            fg_color="#4a9eff",
+            hover_color="#357abd",
+            command=self._load_selected_case
+        )
+        self.load_case_btn.pack(side="left", padx=5)
+
+        # Status for load case
+        self.load_case_status = ctk.CTkLabel(
+            action_frame,
+            text="",
+            font=("Roboto", 11)
+        )
+        self.load_case_status.pack(side="left", padx=15)
+
     def _on_mode_change(self, selected_label: str):
         """Handle mode toggle between static and dynamic."""
         mode = self._mode_map.get(selected_label, "static")
@@ -343,14 +455,19 @@ class DetectorsPage(ctk.CTkFrame):
         if self._analysis_running:
             return
 
-        # Get case workdir from master (set by setup page)
+        # Get case workdir (from setup page OR standalone load)
         try:
-            scan_meta = getattr(self.master, "current_scan_meta", None)
-            if not scan_meta or not scan_meta.get("workdir"):
-                self._set_status("❌ No scan data available. Please run Setup first.", error=True)
-                return
-            
-            self._case_workdir = scan_meta.get("workdir")
+            # Use loaded case workdir if available (standalone mode)
+            if self._loaded_case_workdir:
+                self._case_workdir = self._loaded_case_workdir
+            else:
+                # Try to get from setup page metadata
+                scan_meta = getattr(self.master, "current_scan_meta", None)
+                if not scan_meta or not scan_meta.get("workdir"):
+                    self._set_status("❌ No case loaded. Please load a case or run Setup first.", error=True)
+                    return
+                
+                self._case_workdir = scan_meta.get("workdir")
         except Exception as e:
             self._set_status(f"❌ Error: {e}", error=True)
             return
@@ -598,6 +715,154 @@ class DetectorsPage(ctk.CTkFrame):
         except Exception:
             pass
 
+    def _browse_case_workdir(self):
+        """Browse for case workdir."""
+        try:
+            from tkinter import filedialog
+            initial_dir = self.case_workdir_entry.get() or str(Path.cwd())
+            
+            directory = filedialog.askdirectory(
+                title="Select Case Workdir",
+                initialdir=initial_dir
+            )
+            
+            if directory:
+                self.case_workdir_entry.delete(0, "end")
+                self.case_workdir_entry.insert(0, directory)
+                self._refresh_case_list()
+        except Exception as e:
+            self._set_load_case_status(f"❌ Browse error: {e}", error=True)
+
+    def _refresh_case_list(self):
+        """Scan workdir for available preprocessed cases."""
+        try:
+            workdir = self.case_workdir_entry.get().strip()
+            if not workdir:
+                self._set_load_case_status("⚠️ Enter workdir path", error=True)
+                return
+
+            workdir_path = Path(workdir)
+            if not workdir_path.exists():
+                self._set_load_case_status(f"⚠️ Workdir not found: {workdir}", error=True)
+                self._update_cases_list([])
+                return
+
+            # Look for preproc directories
+            preproc_dir = workdir_path / "preproc"
+            if not preproc_dir.exists():
+                self._set_load_case_status("⚠️ No preproc directory found", error=True)
+                self._update_cases_list([])
+                return
+
+            # Find all case directories (file hash directories)
+            cases = []
+            for item in preproc_dir.iterdir():
+                if item.is_dir():
+                    # Check if it has the expected structure
+                    input_bin = item / "input.bin"
+                    metadata_json = item / "metadata.json"
+                    
+                    if input_bin.exists() or metadata_json.exists():
+                        # Valid case
+                        case_info = {
+                            "hash": item.name,
+                            "path": str(item),
+                            "has_binary": input_bin.exists(),
+                            "has_metadata": metadata_json.exists()
+                        }
+                        cases.append(case_info)
+
+            if not cases:
+                self._set_load_case_status("⚠️ No preprocessed cases found", error=True)
+            else:
+                self._set_load_case_status(f"✅ Found {len(cases)} case(s)", error=False)
+
+            self._update_cases_list(cases)
+            self._available_cases = cases
+
+        except Exception as e:
+            self._set_load_case_status(f"❌ Refresh error: {e}", error=True)
+            self._update_cases_list([])
+
+    def _update_cases_list(self, cases: list):
+        """Update the cases listbox with found cases."""
+        try:
+            self.cases_listbox.configure(state="normal")
+            self.cases_listbox.delete("1.0", "end")
+
+            if not cases:
+                self.cases_listbox.insert("end", "No cases found. Run Setup to create a case first.\n")
+            else:
+                self.cases_listbox.insert("end", f"Found {len(cases)} case(s):\n\n")
+                for i, case in enumerate(cases, 1):
+                    status_icons = []
+                    if case.get("has_binary"):
+                        status_icons.append("📦 bin")
+                    if case.get("has_metadata"):
+                        status_icons.append("📋 meta")
+                    
+                    status = " | ".join(status_icons) if status_icons else "❓ incomplete"
+                    self.cases_listbox.insert("end", f"{i}. {case['hash'][:16]}... ({status})\n")
+
+            self.cases_listbox.configure(state="disabled")
+        except Exception:
+            pass
+
+    def _load_selected_case(self):
+        """Load the case from the entered workdir."""
+        try:
+            workdir = self.case_workdir_entry.get().strip()
+            if not workdir:
+                self._set_load_case_status("⚠️ Enter workdir path", error=True)
+                return
+
+            workdir_path = Path(workdir)
+            if not workdir_path.exists():
+                self._set_load_case_status("⚠️ Workdir not found", error=True)
+                return
+
+            # Check if preproc exists
+            preproc_dir = workdir_path / "preproc"
+            if not preproc_dir.exists():
+                self._set_load_case_status("⚠️ No preproc directory", error=True)
+                return
+
+            # Check if we have any cases
+            if not hasattr(self, "_available_cases") or not self._available_cases:
+                self._set_load_case_status("⚠️ No cases available. Click Refresh first.", error=True)
+                return
+
+            # Load the workdir
+            self._loaded_case_workdir = str(workdir_path)
+            self._case_workdir = str(workdir_path)
+            self._standalone_mode = True
+
+            # Hide load case UI, show analysis UI
+            self.load_case_frame.pack_forget()
+            self.mode_toggle.pack(side="left", padx=10)
+            self.mode_description.pack(side="left", padx=15)
+
+            # Show the appropriate analysis frame
+            if self._current_mode == "static":
+                self.static_frame.pack(fill="both", expand=True, pady=(0, 10))
+            else:
+                self.dynamic_frame.pack(fill="both", expand=True, pady=(0, 10))
+
+            self._set_status(f"✅ Loaded case: {workdir}")
+            self._log_console(f"Standalone mode: Loaded case from {workdir}")
+            self._log_console(f"Found {len(self._available_cases)} preprocessed file(s)")
+
+        except Exception as e:
+            self._set_load_case_status(f"❌ Load error: {e}", error=True)
+
+    def _set_load_case_status(self, message: str, error: bool = False):
+        """Update load case status label."""
+        try:
+            color = "#f88" if error else "#8f8"
+            self.load_case_status.configure(text=message, text_color=color)
+        except Exception:
+            pass
+
     def _log_console(self, message: str):
         """Append message to console log."""
         try:
@@ -627,13 +892,43 @@ class DetectorsPage(ctk.CTkFrame):
     def on_enter(self):
         """Called when the page becomes visible."""
         try:
-            # Check if we have scan data
+            # Check if we have scan data from setup page
             scan_meta = getattr(self.master, "current_scan_meta", None)
+            
             if scan_meta and scan_meta.get("workdir"):
+                # Coming from setup page - normal flow
                 workdir = scan_meta.get("workdir")
+                self._standalone_mode = False
+                self._loaded_case_workdir = workdir
+                self._case_workdir = workdir
+                
+                # Hide load case UI, show analysis UI
+                self.load_case_frame.pack_forget()
+                
                 self._set_status(f"Ready to analyze: {workdir}")
                 self._log_console(f"Loaded scan workspace: {workdir}")
             else:
-                self._set_status("⚠️ No scan data. Please run Setup first.", error=True)
-        except Exception:
+                # Standalone mode - show load case UI
+                self._standalone_mode = True
+                self._loaded_case_workdir = None
+                self._case_workdir = None
+                
+                # Hide mode toggle and analysis frames, show load case UI
+                self.static_frame.pack_forget()
+                self.dynamic_frame.pack_forget()
+                self.load_case_frame.pack(fill="x", pady=(0, 20))
+                
+                self._set_status("ℹ️ Standalone mode: Load a case to begin analysis")
+                self._log_console("Standalone mode: No active case. Please load a case.")
+                
+                # Try to auto-populate workdir if possible
+                try:
+                    from auditor.setup_flow.output import get_default_workdir
+                    default_wd = str(get_default_workdir())
+                    self.case_workdir_entry.delete(0, "end")
+                    self.case_workdir_entry.insert(0, default_wd)
+                except Exception:
+                    pass
+        except Exception as e:
+            self._set_status(f"❌ Initialization error: {e}", error=True)
             pass

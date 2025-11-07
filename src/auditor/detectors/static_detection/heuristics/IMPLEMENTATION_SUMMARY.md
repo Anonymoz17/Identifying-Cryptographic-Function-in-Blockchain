@@ -20,14 +20,17 @@ Both heuristics integrate seamlessly with the existing static detection framewor
 **File**: `src/auditor/detectors/static_detection/heuristics/instruction_patterns.py`
 
 ### Purpose
+
 Analyzes disassembly and binary characteristics to detect patterns commonly found in cryptographic implementations.
 
 ### Detection Strategies
 
 #### A. Disassembly Pattern Analysis (Ghidra-based)
+
 Analyzes instruction sequences for crypto-indicative patterns:
 
 **Bitwise Operations:**
+
 - **XOR operations** - Stream ciphers, key mixing
   - Supports: `xor` (x86), `eor` (ARM), `veor` (ARM NEON)
 - **Rotation operations** - Block ciphers (AES, ChaCha20)
@@ -39,6 +42,7 @@ Analyzes instruction sequences for crypto-indicative patterns:
   - ARM variants: `orr`, `vorr`
 
 **Pattern Scoring:**
+
 - **XOR density > 15%** → +0.4 confidence (high XOR = stream cipher indicator)
 - **XOR density > 8%** → +0.25 confidence
 - **3+ rotation ops** → +0.3 confidence (block cipher rounds)
@@ -47,32 +51,39 @@ Analyzes instruction sequences for crypto-indicative patterns:
 - **Loops + bitwise ops** → +0.2 confidence (cipher rounds pattern)
 
 **Example Detection:**
+
 ```assembly
 xor eax, [roundkey]
 rol eax, 8
 xor eax, ebx
 loop round_loop
 ```
+
 → Confidence ≥ 0.5 (multiple indicators: XOR, rotation, loop)
 
 #### B. Entropy-Based Detection
+
 Identifies high-entropy code regions that may contain:
+
 - Crypto primitives
 - S-boxes / lookup tables
 - Obfuscated code
 - Compressed data
 
 **Entropy Thresholds:**
+
 - **≥ 7.8** → Very high entropy (0.75 confidence)
 - **≥ 7.5** → High entropy (0.65 confidence)
 - **≥ 7.0** → Elevated entropy (0.45 confidence)
 
 **Clustering Logic:**
+
 - Groups nearby high-entropy regions (max gap: 512 bytes)
 - Reports aggregate statistics (max, average entropy)
 - Reduces false positives from scattered entropy spikes
 
 ### Output Schema
+
 ```python
 {
     "id": "instr-pattern-abc12345",
@@ -91,6 +102,7 @@ Identifies high-entropy code regions that may contain:
 ```
 
 ### Test Coverage (8 tests)
+
 - ✅ XOR-heavy code detection (stream ciphers)
 - ✅ Rotation pattern detection (block ciphers)
 - ✅ Bitwise loop patterns (cipher rounds)
@@ -106,14 +118,17 @@ Identifies high-entropy code regions that may contain:
 **File**: `src/auditor/detectors/static_detection/heuristics/constants.py`
 
 ### Purpose
+
 Identifies cryptographic constants, initialization vectors, S-boxes, and tables embedded in binaries.
 
 ### Detection Strategies
 
 #### A. Known Crypto Constants Matching
+
 Detects 30+ known cryptographic constants from major algorithms:
 
 **Supported Algorithms:**
+
 - **SHA-256** - Initial values (H0-H7), round constants (K0-K63)
 - **SHA-1** - Initial hash values (H0-H4)
 - **MD5** - Magic constants (A, B, C, D)
@@ -122,6 +137,7 @@ Detects 30+ known cryptographic constants from major algorithms:
 - **BLAKE2** - Initialization vectors
 
 **Example Constants:**
+
 ```python
 "6a09e667" → SHA-256 H0
 "428a2f98" → SHA-256 K0 (round constant)
@@ -132,22 +148,27 @@ Detects 30+ known cryptographic constants from major algorithms:
 **Confidence**: 0.95 (very high for known constants)
 
 #### B. S-box Detection
+
 Identifies 256-byte substitution boxes used in block ciphers:
 
 **Characteristics:**
+
 - Exactly 256 bytes
 - High uniqueness (≥95% unique values = permutation)
 - High entropy (≥7.8 bits = uniform distribution)
 
 **Confidence Levels:**
+
 - **Uniqueness ≥95% + Entropy ≥7.8** → 0.9 confidence
 - **Uniqueness ≥85% + Entropy ≥7.5** → 0.7 confidence
 - **Uniqueness ≥70% + Entropy ≥7.0** → 0.5 confidence
 
 #### C. Repetition Pattern Analysis
+
 Detects repeated constant patterns that indicate crypto tables:
 
 **Pattern Types:**
+
 - **4-byte patterns** (repeated ≥4 times) → Round constants, key schedules
 - **8-byte patterns** (repeated ≥3 times) → 64-bit constants
 - **16-byte patterns** (entropy ≥3.0) → AES-related (128-bit blocks)
@@ -155,6 +176,7 @@ Detects repeated constant patterns that indicate crypto tables:
 - **10+ repetitions** → Lookup tables
 
 **Confidence Calculation:**
+
 ```python
 base = 0.3 + 0.1 * (repeat_count - 1)  # capped at 0.8
 if entropy >= 2.0: base += 0.1
@@ -163,18 +185,23 @@ final = min(base, 0.95)
 ```
 
 ### Entropy Calculation
+
 Shannon entropy formula:
+
 ```
 H = -Σ(p_i * log2(p_i))
 ```
+
 Where p_i = frequency of byte i
 
 **Interpretation:**
+
 - 0 bits = uniform data (all same byte)
 - 8 bits = perfect randomness (all 256 values equally)
 - 7.5-8.0 bits = high entropy (crypto-quality)
 
 ### Output Schema
+
 ```python
 {
     "id": "known-const-6a09e667",
@@ -193,6 +220,7 @@ Where p_i = frequency of byte i
 ```
 
 ### Test Coverage (20 tests)
+
 - ✅ Entropy calculation (uniform, random, empty data)
 - ✅ S-box detection (perfect, good, wrong size)
 - ✅ Known constant matching (SHA-256, AES, ChaCha20, MD5)
@@ -205,6 +233,7 @@ Where p_i = frequency of byte i
 ## Integration with Static Detection Pipeline
 
 ### Data Flow
+
 ```
 Ghidra Export → instruction_patterns_heuristic()
                       ↓
@@ -218,6 +247,7 @@ Static Artifacts → constants_heuristic()
 ```
 
 ### Runner Integration
+
 Both heuristics are automatically registered in `runner.py`:
 
 ```python
@@ -226,12 +256,13 @@ from .heuristics.signature import signature_heuristic
 from .heuristics.instruction_patterns import instruction_patterns_heuristic
 from .heuristics.constants import constants_heuristic
 
-heuristics.extend([signature_heuristic, 
-                   instruction_patterns_heuristic, 
+heuristics.extend([signature_heuristic,
+                   instruction_patterns_heuristic,
                    constants_heuristic])
 ```
 
 ### Static Artifacts Required
+
 - `entropy_map.json` - For instruction patterns (entropy detection)
 - `constants.json` - For constants detection (pattern matching)
 - Ghidra function exports - For disassembly analysis (optional but recommended)
@@ -241,13 +272,15 @@ heuristics.extend([signature_heuristic,
 ## Performance Characteristics
 
 ### Instruction Patterns
+
 - **Time Complexity**: O(n) where n = number of functions × lines of disassembly
 - **Memory**: Minimal (streaming analysis)
-- **Profiles**: 
+- **Profiles**:
   - Quick: Entropy windows of 256 bytes
   - Full: Entropy windows of 64 bytes (more granular)
 
 ### Constants Detection
+
 - **Time Complexity**: O(m) where m = number of unique patterns
 - **Memory**: O(m) for seen_patterns deduplication
 - **Pattern Size**: Handles 4-byte to 256-byte patterns efficiently
@@ -263,13 +296,14 @@ Both heuristics follow the prescribed architecture from `docs/static-detection.m
 ✅ **Cache-first**: Works with cached artifacts  
 ✅ **API-friendly**: Simple function signatures  
 ✅ **Schema-compliant**: Outputs validated against JSON schemas  
-✅ **Profile-aware**: Respects quick/full analysis modes  
+✅ **Profile-aware**: Respects quick/full analysis modes
 
 ---
 
 ## Future Enhancements
 
 ### Potential Improvements
+
 1. **Call Graph Analysis** - Boost confidence based on function relationships
 2. **Data Flow Tracking** - Follow crypto data through function boundaries
 3. **Machine Learning** - Train classifier on labeled crypto binaries
@@ -278,7 +312,9 @@ Both heuristics follow the prescribed architecture from `docs/static-detection.m
 6. **More Crypto Constants** - Expand library (Ed25519, Schnorr, etc.)
 
 ### Integration with FunctionScoring.json
+
 Next phase will map detected algorithms to risk scores:
+
 ```python
 detected: "SHA-1" → risk_level: "critical", recommend: ["SHA-256", "SHA-3"]
 detected: "AES-256" → risk_level: "safe", oss: 9.5
@@ -293,6 +329,7 @@ detected: "AES-256" → risk_level: "safe", oss: 9.5
 **Coverage**: ~95% (core logic fully covered)
 
 **Test Distribution:**
+
 - Instruction patterns: 8 tests
 - Constants detection: 20 tests
 
@@ -303,6 +340,7 @@ detected: "AES-256" → risk_level: "safe", oss: 9.5
 ## Developer Notes
 
 ### Running Tests
+
 ```powershell
 # All heuristic tests
 pytest tests/test_instruction_patterns_heuristic.py tests/test_constants_heuristic.py -v
@@ -316,7 +354,9 @@ pytest tests/test_*_heuristic.py --cov=src.auditor.detectors.static_detection.he
 ```
 
 ### Adding New Constants
+
 Edit `KNOWN_CRYPTO_CONSTANTS` dictionary in `constants.py`:
+
 ```python
 KNOWN_CRYPTO_CONSTANTS = {
     "new_constant_hex": {
@@ -328,6 +368,7 @@ KNOWN_CRYPTO_CONSTANTS = {
 ```
 
 ### Tuning Confidence Thresholds
+
 Adjust scoring weights in pattern analysis functions to balance precision/recall.
 
 ---
