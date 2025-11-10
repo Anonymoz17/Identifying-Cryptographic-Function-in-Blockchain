@@ -176,6 +176,9 @@ class DetectorsPage(ctk.CTkFrame):
         options_row = ctk.CTkFrame(config_frame, fg_color="transparent")
         options_row.grid(row=2, column=0, columnspan=3, sticky="w", padx=10, pady=10)
 
+        # Hidden profile variable (default to "full" for comprehensive analysis)
+        self.profile_var = tk.StringVar(value="full")
+        
         # Force re-analysis option
         self.force_var = tk.BooleanVar(value=False)
         force_check = ctk.CTkCheckBox(

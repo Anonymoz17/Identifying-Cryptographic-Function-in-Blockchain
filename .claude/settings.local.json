@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(python tests/test_dynamic_detection_e2e.py:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
