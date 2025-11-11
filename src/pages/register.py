@@ -1,9 +1,12 @@
 # src/pages/register.py
 """
 CryptoScope Registration Page
-- Themed using ui.theme
-- Registers user via Supabase backend
-- Clears fields and navigates to Login on success
+- Uniform vertical spacing for all 5 inputs
+- Confirm Password sits ABOVE 'Show password'
+- 'Show password' toggles BOTH password fields
+- Solid placeholder behavior on all inputs
+- No autofocus on page load
+- Uses shared theme (ui.theme)
 """
 
 import customtkinter as ctk
@@ -24,6 +27,9 @@ from ui.theme import (
     TITLE_FONT,
 )
 
+ENTRY_WIDTH = 420
+Y = 4                     # uniform vertical spacing between inputs
+PADX = 26
 
 class RegisterPage(ctk.CTkFrame):
     def __init__(self, master, switch_page):
@@ -37,122 +43,119 @@ class RegisterPage(ctk.CTkFrame):
         wrapper.pack(fill="both", expand=True)
 
         # Center card
-        card = ctk.CTkFrame(
+        self.card = ctk.CTkFrame(
             wrapper,
             corner_radius=12,
             border_width=1,
             border_color=BORDER,
             fg_color=CARD_BG,
         )
-        card.place(relx=0.5, rely=0.5, anchor="center")
-        card.grid_columnconfigure(0, weight=1)
+        self.card.place(relx=0.5, rely=0.5, anchor="center")
+        self.card.grid_columnconfigure(0, weight=1)
 
         # ---------- Header ----------
-        title = ctk.CTkLabel(
-            card, text="Create your account", font=TITLE_FONT, text_color=TEXT
-        )
+        title = ctk.CTkLabel(self.card, text="Create your account", font=TITLE_FONT, text_color=TEXT)
         subtitle = ctk.CTkLabel(
-            card,
+            self.card,
             text="Sign up to start using CryptoScope.",
             font=SUB_FONT,
             text_color=MUTED,
         )
-        title.grid(row=0, column=0, sticky="w", padx=26, pady=(22, 2))
-        subtitle.grid(row=1, column=0, sticky="w", padx=26, pady=(0, 10))
+        title.grid(row=0, column=0, sticky="w", padx=PADX, pady=(22, 2))
+        subtitle.grid(row=1, column=0, sticky="w", padx=PADX, pady=(0, 10))
 
         # ---------- Form ----------
-        form = ctk.CTkFrame(card, fg_color="transparent")
-        form.grid(row=2, column=0, sticky="ew", padx=26)
+        form = ctk.CTkFrame(self.card, fg_color="transparent")
+        form.grid(row=2, column=0, sticky="ew", padx=PADX)
         form.grid_columnconfigure(0, weight=1)
 
         self.fullname_entry = ctk.CTkEntry(
             form,
             placeholder_text="Full name",
-            height=38,
-            corner_radius=8,
-            fg_color=BG,
-            border_color=BORDER,
-            border_width=1,
-            text_color=TEXT,
+            placeholder_text_color=MUTED,
+            height=38, width=ENTRY_WIDTH, corner_radius=8,
+            fg_color=BG, border_color=BORDER, border_width=1, text_color=TEXT,
         )
-        self.fullname_entry.grid(row=0, column=0, sticky="ew", pady=(4, 6))
+        self.fullname_entry.grid(row=0, column=0, sticky="ew", pady=(Y, Y))
 
         self.username_entry = ctk.CTkEntry(
             form,
             placeholder_text="Username",
-            height=38,
-            corner_radius=8,
-            fg_color=BG,
-            border_color=BORDER,
-            border_width=1,
-            text_color=TEXT,
+            placeholder_text_color=MUTED,
+            height=38, width=ENTRY_WIDTH, corner_radius=8,
+            fg_color=BG, border_color=BORDER, border_width=1, text_color=TEXT,
         )
-        self.username_entry.grid(row=1, column=0, sticky="ew", pady=(4, 6))
+        self.username_entry.grid(row=1, column=0, sticky="ew", pady=(Y, Y))
 
         self.email_entry = ctk.CTkEntry(
             form,
             placeholder_text="Email address",
-            height=38,
-            corner_radius=8,
-            fg_color=BG,
-            border_color=BORDER,
-            border_width=1,
-            text_color=TEXT,
+            placeholder_text_color=MUTED,
+            height=38, width=ENTRY_WIDTH, corner_radius=8,
+            fg_color=BG, border_color=BORDER, border_width=1, text_color=TEXT,
         )
-        self.email_entry.grid(row=2, column=0, sticky="ew", pady=(4, 6))
-
-        pw_row = ctk.CTkFrame(form, fg_color="transparent")
-        pw_row.grid(row=3, column=0, sticky="ew", pady=(2, 6))
-        pw_row.grid_columnconfigure(0, weight=1)
+        self.email_entry.grid(row=2, column=0, sticky="ew", pady=(Y, Y))
 
         self.password_entry = ctk.CTkEntry(
-            pw_row,
+            form,
             placeholder_text="Password",
-            height=38,
-            corner_radius=8,
-            fg_color=BG,
-            border_color=BORDER,
-            border_width=1,
-            text_color=TEXT,
+            placeholder_text_color=MUTED,
+            height=38, width=ENTRY_WIDTH, corner_radius=8,
+            fg_color=BG, border_color=BORDER, border_width=1, text_color=TEXT,
             show="*",
         )
-        self.password_entry.grid(row=0, column=0, sticky="ew")
+        self.password_entry.grid(row=3, column=0, sticky="ew", pady=(Y, Y))
 
+        self.confirm_password_entry = ctk.CTkEntry(
+            form,
+            placeholder_text="Confirm password",
+            placeholder_text_color=MUTED,
+            height=38, width=ENTRY_WIDTH, corner_radius=8,
+            fg_color=BG, border_color=BORDER, border_width=1, text_color=TEXT,
+            show="*",
+        )
+        # Confirm ABOVE the checkbox, same spacing
+        self.confirm_password_entry.grid(row=4, column=0, sticky="ew", pady=(Y, Y))
+
+        # Keep placeholders consistent when leaving fields
+        for inp in (
+            self.fullname_entry,
+            self.username_entry,
+            self.email_entry,
+            self.password_entry,
+            self.confirm_password_entry,
+        ):
+            inp.bind("<FocusOut>", lambda _e: self._refresh_placeholders())
+
+        # 'Show password' BELOW both password fields, small top space
         show_pw = ctk.CTkCheckBox(
-            pw_row,
+            form,
             text="Show password",
             variable=self._show_pw,
             command=self._toggle_password,
             text_color=MUTED,
             border_color=OUTLINE_BR,
-            fg_color=PRIMARY,  # ✅ real color
+            fg_color=PRIMARY,     # must be a solid color
             hover_color=OUTLINE_H,
-            checkbox_height=16,
-            checkbox_width=16,
-            corner_radius=4,
+            checkbox_height=16, checkbox_width=16, corner_radius=4,
         )
+        show_pw.grid(row=5, column=0, sticky="w", pady=(Y, Y), padx=(6,0))
 
-        show_pw.grid(row=0, column=1, padx=(10, 0))
-
-        # Status label
-        self.status = ctk.CTkLabel(card, text="", font=BODY_FONT, text_color=MUTED)
-        self.status.grid(row=3, column=0, sticky="w", padx=26, pady=(2, 8))
+        # ---------- Status ----------
+        self.status = ctk.CTkLabel(self.card, text="", font=BODY_FONT, text_color=MUTED)
+        self.status.grid(row=3, column=0, sticky="w", padx=PADX, pady=(2, 8))
 
         # ---------- Actions ----------
-        actions = ctk.CTkFrame(card, fg_color="transparent")
-        actions.grid(row=4, column=0, sticky="ew", padx=26, pady=(4, 22))
+        actions = ctk.CTkFrame(self.card, fg_color="transparent")
+        actions.grid(row=4, column=0, sticky="ew", padx=PADX, pady=(4, 22))
         actions.grid_columnconfigure(0, weight=1)
         actions.grid_columnconfigure(1, weight=0)
 
         register_btn = ctk.CTkButton(
             actions,
             text="Register",
-            width=120,
-            height=38,
-            corner_radius=8,
-            fg_color=PRIMARY,
-            hover_color=PRIMARY_H,
-            text_color=BG,
+            width=120, height=38, corner_radius=8,
+            fg_color=PRIMARY, hover_color=PRIMARY_H, text_color=BG,
             command=self._do_register,
         )
         register_btn.grid(row=0, column=0, sticky="w")
@@ -160,42 +163,74 @@ class RegisterPage(ctk.CTkFrame):
         login_btn = ctk.CTkButton(
             actions,
             text="Back to Login",
-            width=140,
-            height=38,
-            corner_radius=8,
-            fg_color="transparent",
-            border_width=1,
-            border_color=OUTLINE_BR,
-            hover_color=OUTLINE_H,
-            text_color=TEXT,
+            width=140, height=38, corner_radius=8,
+            fg_color="transparent", border_width=1, border_color=OUTLINE_BR,
+            hover_color=OUTLINE_H, text_color=TEXT,
             command=lambda: self.switch_page("login"),
         )
         login_btn.grid(row=0, column=1, sticky="e", padx=(10, 0))
 
-        # Default size
-        card.configure(width=540, height=430)
+        # Card size
+        self.card.configure(width=560, height=560)
+
+        # No autofocus + ensure placeholders visible
+        self.after(10, self._defocus)
+        self.after(30, self._refresh_placeholders)
+
+    # ---------- Lifecycle ----------
+    def on_enter(self):
+        self._reset_fields()
+        self._set_status("")
+        self._defocus()
+        self.after(30, self._refresh_placeholders)
 
     # ---------- UI helpers ----------
+    def _defocus(self):
+        try:
+            self.focus_set()
+        except Exception:
+            pass
+
     def _toggle_password(self):
-        self.password_entry.configure(show="" if self._show_pw.get() else "*")
+        show = "" if self._show_pw.get() else "*"
+        self.password_entry.configure(show=show)
+        self.confirm_password_entry.configure(show=show)
 
     def _set_status(self, msg: str, error: bool = False):
         self.status.configure(text=msg, text_color=(TEXT if error else MUTED))
 
+    def _refresh_placeholders(self):
+        try:
+            if (self.fullname_entry.get() or "").strip() == "":
+                self.fullname_entry.configure(placeholder_text="Full name")
+            if (self.username_entry.get() or "").strip() == "":
+                self.username_entry.configure(placeholder_text="Username")
+            if (self.email_entry.get() or "").strip() == "":
+                self.email_entry.configure(placeholder_text="Email address")
+            if (self.password_entry.get() or "").strip() == "":
+                self.password_entry.configure(placeholder_text="Password")
+            if (self.confirm_password_entry.get() or "").strip() == "":
+                self.confirm_password_entry.configure(placeholder_text="Confirm password")
+        except Exception:
+            pass
+
     def _reset_fields(self):
-        for field in (
+        for w in (
             self.fullname_entry,
             self.username_entry,
             self.email_entry,
             self.password_entry,
+            self.confirm_password_entry,
         ):
             try:
-                field.delete(0, "end")
+                w.delete(0, "end")
             except Exception:
                 pass
         self._show_pw.set(False)
         self.password_entry.configure(show="*")
+        self.confirm_password_entry.configure(show="*")
         self._set_status("")
+        self._refresh_placeholders()
 
     # ---------- Registration Logic ----------
     def _do_register(self):
@@ -206,9 +241,14 @@ class RegisterPage(ctk.CTkFrame):
         username = (self.username_entry.get() or "").strip()
         email = (self.email_entry.get() or "").strip()
         password = self.password_entry.get() or ""
+        confirm  = self.confirm_password_entry.get() or ""
 
-        if not all([fullname, username, email, password]):
+        if not all([fullname, username, email, password, confirm]):
             self._set_status("Fill in all fields.", error=True)
+            return
+
+        if password != confirm:
+            self._set_status("Passwords do not match.", error=True)
             return
 
         self._busy = True
@@ -226,7 +266,6 @@ class RegisterPage(ctk.CTkFrame):
             self._set_status(str(result), error=True)
             return
 
-        # Success — go back to login
         self._set_status("Registration successful! Please log in.")
         self.after(1000, lambda: self.switch_page("login"))
         self._reset_fields()

@@ -4,14 +4,40 @@ from pathlib import Path
 
 import customtkinter as ctk
 
-from file_handler import FileHandler
-from pages import (
-    AuditorPage,
-    DashboardPage,
-    LoginPage,
-    RegisterPage,
-    LandingPage
-)
+# dual-mode imports: module (python -m src.app) and script (python src/app.py)
+try:
+    # when running as a package
+    from .file_handler import FileHandler
+    from .api_client_supabase import (
+        login as sb_login,
+        register_user as sb_register,
+        logout as sb_logout,
+        get_my_role as sb_get_role,
+    )
+    from .pages import (
+        LoginPage,
+        RegisterPage,
+        LandingPage,
+        DashboardPage,
+        AuditorPage,
+    )
+except ImportError:
+    # when running as a plain script
+    from file_handler import FileHandler
+    from api_client_supabase import (
+        login as sb_login,
+        register_user as sb_register,
+        logout as sb_logout,
+        get_my_role as sb_get_role,
+    )
+    from pages import (
+        LoginPage,
+        RegisterPage,
+        LandingPage,
+        DashboardPage,
+        AuditorPage,
+    )
+
 from pages import SetupPage, DetectorsPage
 
 
@@ -51,7 +77,7 @@ class App(ctk.CTk):
             p.grid_remove()
 
         # --- Start on Login (not dashboard) ---
-        self._current_page_name = "login"
+        self._current_page_name = "landing"
         self.switch_page(self._current_page_name)
 
         # Debounced resize handling

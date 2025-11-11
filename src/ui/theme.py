@@ -32,3 +32,7 @@ BODY_FONT    = ("Segoe UI", 13)          # General body text
 
 # Optional monospace for previews/logs (JSON, code, etc.)
 MONO_FONT    = ("Consolas", 12)
+
+# --- Icon plate (for dark cards) ---
+PLATE_BG = "#1F2A37"      # slightly lighter than CARD_BG
+PLATE_BORDER = "#334155"  # subtle border for the plate
