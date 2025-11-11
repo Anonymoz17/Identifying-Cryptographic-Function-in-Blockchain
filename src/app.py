@@ -1,4 +1,4 @@
-"""Top-level app runner moved under src for packaging."""
+"""Top-level app runner moved under src for packaging.""" 
 
 from pathlib import Path
 
@@ -51,7 +51,7 @@ class App(ctk.CTk):
             p.grid_remove()
 
         # --- Start on Login (not dashboard) ---
-        self._current_page_name = "detectors"
+        self._current_page_name = "login"
         self.switch_page(self._current_page_name)
 
         # Debounced resize handling
