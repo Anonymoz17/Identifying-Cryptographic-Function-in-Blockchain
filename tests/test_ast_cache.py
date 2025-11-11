@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from src.auditor.preproc import build_ast_cache, preprocess_items
+from src.auditor.setup_flow.preproc import build_ast_cache, preprocess_items
 
 
 def test_ast_cache_solidity(tmp_path: Path):

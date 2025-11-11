@@ -35,7 +35,7 @@ def test_build_ast_cache_with_fake_treesitter(tmp_path: Path, monkeypatch):
     (preproc_dir / "input.bin").write_text("function foo() {}")
 
     # import and call
-    from src.auditor.preproc import build_ast_cache
+    from src.auditor.setup_flow.preproc import build_ast_cache
 
     build_ast_cache([sha], str(tmp_path))
     assert (tmp_path / "artifacts" / "ast" / (sha + ".json")).exists()
@@ -69,7 +69,7 @@ def test_build_disasm_cache_with_fake_capstone(tmp_path: Path, monkeypatch):
     preproc_dir.mkdir(parents=True, exist_ok=True)
     (preproc_dir / "input.bin").write_bytes(b"\x90\x90\x90")
 
-    from src.auditor.preproc import build_disasm_cache
+    from src.auditor.setup_flow.preproc import build_disasm_cache
 
     build_disasm_cache([sha], str(tmp_path))
     assert (tmp_path / "artifacts" / "disasm" / (sha + ".json")).exists()

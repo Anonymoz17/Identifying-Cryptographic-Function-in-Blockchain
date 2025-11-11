@@ -8,11 +8,16 @@ CryptoScope Login Page
 """
 
 import customtkinter as ctk
+from PIL import Image, ImageDraw 
 
-# Supabase bridge (desktop app backend)
-from api_client_supabase import ensure_role_row as sb_ensure_role_row
-from api_client_supabase import get_my_role as sb_get_role
-from api_client_supabase import login as sb_login
+from api_client_supabase import (
+    login as sb_login,
+    ensure_role_row as sb_ensure_role_row,
+    get_my_role as sb_get_role,
+)
+from api_client_google import login_with_google
+from api_client_github import login_with_github
+
 from ui.theme import (
     BG,
     BODY_FONT,
@@ -36,11 +41,11 @@ class LoginPage(ctk.CTkFrame):
         super().__init__(master, fg_color=BG)
         self.switch_page = switch_page
 
-        # ---------- State ----------
+        # -------- state --------
         self._show_password = ctk.BooleanVar(value=False)
         self._busy = False
 
-        # ---------- Wrapper ----------
+        # -------- layout wrappers --------
         wrapper = ctk.CTkFrame(self, fg_color="transparent")
         wrapper.pack(fill="both", expand=True)
 
@@ -125,6 +130,7 @@ class LoginPage(ctk.CTkFrame):
             fg_color=PRIMARY,
             hover_color=PRIMARY_H,
             text_color=BG,
+            text_color=BG,
             command=self._do_login,
         )
         self.login_btn.grid(row=0, column=0, sticky="w")
@@ -161,7 +167,7 @@ class LoginPage(ctk.CTkFrame):
         except Exception:
             pass
 
-    # ---------- Lifecycle ----------
+    # -------- lifecycle --------
     def on_enter(self):
         # Clear fields and remove focus to avoid blinking caret
         self._reset_fields()
@@ -173,7 +179,7 @@ class LoginPage(ctk.CTkFrame):
     def on_resize(self, w: int, h: int):
         pass
 
-    # ---------- UI helpers ----------
+    # -------- helpers --------
     def _defocus(self):
         # move focus to the frame itself so no Entry shows the caret
         try:
@@ -190,10 +196,12 @@ class LoginPage(ctk.CTkFrame):
     def _set_busy(self, busy: bool):
         self._busy = busy
         state = "disabled" if busy else "normal"
-        try:
-            self.login_btn.configure(state=state)
-        except Exception:
-            pass
+        for b in (self.login_btn, getattr(self, "google_btn", None), getattr(self, "github_btn", None)):
+            try:
+                if b:
+                    b.configure(state=state)
+            except Exception:
+                pass
 
     def _reset_fields(self):
         try:
@@ -205,21 +213,18 @@ class LoginPage(ctk.CTkFrame):
             pass
         self._refresh_placeholders()                 # 👈 refresh
 
-    # ---------- Login flow ----------
+    # -------- login flows --------
     def _do_login(self):
         if self._busy:
             return
-
         email = (self.email_entry.get() or "").strip()
         password = self.password_entry.get() or ""
-
         if not email or not password:
             self._set_status("Enter email and password.", error=True)
             return
 
         self._set_busy(True)
         self._set_status("Signing in…")
-
         try:
             ok, token_or_err, user = sb_login(email, password)
         except Exception as e:

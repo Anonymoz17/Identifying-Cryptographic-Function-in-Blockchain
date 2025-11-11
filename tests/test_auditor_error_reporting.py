@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from src.auditor.preproc import preprocess_items
+from src.auditor.setup_flow.preproc import preprocess_items
 
 
 def test_missing_source_reports_error(tmp_path: Path):

@@ -391,7 +391,8 @@ class SetupPage(ctk.CTkFrame):
         wd = (self.workdir_entry.get() or "").strip() or str(Path.cwd() / "case_demo")
         case_id = (self.case_entry.get() or "").strip() or "CASE-000"
         try:
-            ws = Workspace(Path(wd), case_id); ws.ensure()
+            ws = Workspace(Path(wd), case_id)
+            ws.ensure()
             webbrowser.open(ws.root.as_uri())
         except Exception:
             self._set_status(f"Could not open folder: {wd}", True)

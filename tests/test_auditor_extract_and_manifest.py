@@ -2,7 +2,7 @@ import json
 import zipfile
 from pathlib import Path
 
-from src.auditor.preproc import preprocess_items
+from src.auditor.setup_flow.preproc import preprocess_items
 
 
 def test_extract_and_manifest(tmp_path: Path):
