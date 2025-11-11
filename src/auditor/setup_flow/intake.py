@@ -60,7 +60,6 @@ DEFAULT_DENY_BIN_EXTS = {
     ".so",
     ".dll",
     ".dylib",
-    ".exe",
     ".o",
     ".obj",
     ".a",

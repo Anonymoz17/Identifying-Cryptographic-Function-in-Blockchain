@@ -217,8 +217,13 @@ class FridaHarness:
 
         try:
             # Spawn process (suspended)
-            print(f"[Harness] Spawning: {' '.join(spawn_args)}")
-            pid = frida.spawn(**spawn_options)
+            # Frida spawn() signature: spawn(program, args=[], **options)
+            # Extract program from argv and pass separately
+            program = spawn_options.pop('argv')[0] if 'argv' in spawn_options else binary_path
+            argv = spawn_options.pop('argv', [])
+            
+            print(f"[Harness] Spawning: {' '.join([program] + argv)}")
+            pid = frida.spawn(program, argv=argv, **spawn_options)
             print(f"[Harness] Spawned PID: {pid}")
 
             # Attach to spawned process

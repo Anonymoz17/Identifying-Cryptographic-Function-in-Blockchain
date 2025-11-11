@@ -30,6 +30,7 @@ from . import quota_manager
 from . import retention_manager
 from . import resilience
 from . import performance
+from . import file_type_validator
 
 
 class DynamicRunner:
@@ -113,14 +114,14 @@ class DynamicRunner:
             print(f"[Runner] Mode: {ctx.mode}, Timeout: {ctx.timeout}s")
 
             result = self._preflight_checks(ctx, result)
-            if not result.is_success() and result.errors:
+            if result.errors:
                 print(f"[Runner] Pre-flight checks failed: {result.errors}")
                 return result
 
             # Stage 1: Setup
             print("[Runner] Stage 1: Loading configuration and hints...")
             config, hints_data, analysis_dir = self._setup(ctx, result)
-            if not result.is_success():
+            if hints_data is None or result.errors:
                 print(f"[Runner] Setup failed: {result.errors}")
                 return result
 
@@ -233,7 +234,8 @@ class DynamicRunner:
         1. License validation
         2. Frida availability
         3. Binary exists
-        4. Quota limits (if enabled)
+        4. File type compatibility (source code vs binary)
+        5. Quota limits (if enabled)
 
         Args:
             ctx: Context
@@ -258,6 +260,30 @@ class DynamicRunner:
         if not os.path.exists(binary_path):
             result.add_error(f"Binary not found: {binary_path}")
             return result
+        
+        # Check file type (NEW: validate it's not source code)
+        try:
+            metadata_path = os.path.join(ctx.preproc_dir, 'metadata.json')
+            if os.path.exists(metadata_path):
+                import json
+                with open(metadata_path) as f:
+                    meta = json.load(f)
+                
+                file_type = meta.get('file_type', 'unknown')
+                is_suitable, reason = file_type_validator.validate_file_for_dynamic_analysis(file_type)
+                
+                if not is_suitable:
+                    result.add_error(
+                        f"File type not suitable for dynamic analysis: {reason}\n"
+                        f"Hint: Use Static Analysis for source code files instead."
+                    )
+                    return result
+                
+                if reason:
+                    print(f"[Runner] File type check: {reason}")
+        
+        except Exception as e:
+            print(f"[Runner] Warning: Could not validate file type: {e}")
         
         # Check quota limits (if user_id provided in context)
         if hasattr(ctx, 'user_id') and ctx.user_id:
