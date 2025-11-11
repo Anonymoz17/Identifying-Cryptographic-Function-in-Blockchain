@@ -5,7 +5,8 @@
       "Bash(python tests/test_dynamic_detection_e2e.py:*)",
       "Bash(python -m py_compile:*)",
       "Bash(python:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(pytest:*)"
     ],
     "deny": [],
     "ask": []
