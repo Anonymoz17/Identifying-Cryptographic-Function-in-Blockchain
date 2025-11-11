@@ -4,7 +4,7 @@ import stat
 import zipfile
 from pathlib import Path
 
-from src.auditor.preproc import extract_artifacts
+from src.auditor.setup_flow.preproc import extract_artifacts
 
 
 def make_zip_with_perm(tmpdir: Path, member_name: str, content: bytes, perm: int):

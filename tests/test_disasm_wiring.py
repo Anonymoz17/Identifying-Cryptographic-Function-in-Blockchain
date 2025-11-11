@@ -35,7 +35,7 @@ def test_build_disasm_cache_with_fake_capstone(tmp_path, monkeypatch):
     bin_path.write_bytes(b"\x90\x90\xc3")
 
     # call build_disasm_cache (imported from module under test)
-    from src.auditor.preproc import build_disasm_cache
+    from src.auditor.setup_flow.preproc import build_disasm_cache
 
     build_disasm_cache([sha], str(tmp_path))
 

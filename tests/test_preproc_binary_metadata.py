@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from src.auditor.preproc import preprocess_items
+from src.auditor.setup_flow.preproc import preprocess_items
 
 
 def _write_minimal_elf(path: Path):

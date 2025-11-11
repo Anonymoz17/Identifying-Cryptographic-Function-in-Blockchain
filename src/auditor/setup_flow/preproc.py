@@ -73,25 +73,25 @@ def preprocess_items(
     manifest_writer: Optional[NDJSONBufferedWriter] = None,
     progress_cb: Optional[Callable[[int, int], None]] = None,
     cancel_event: Optional[object] = None,
-    max_extract_depth: int = 2,
-    do_extract: bool = True,
-    build_ast: bool = False,
-    build_disasm: bool = False,
-    preserve_permissions: bool = True,
-    move_extracted: bool = False,
-    stream: bool = False,
-    resume: bool = False,
     compute_sha: bool = True,
     copy_inputs: bool = True,
+    **kwargs,
 ) -> Dict[str, Any]:
     """Streaming preprocess core that integrates with SetupContext and Notifier.
 
-    Behavior:
-      - prefers ctx.case_dir as working directory
-      - writes per-artifact metadata.json into `preproc/<sha>/`
-      - when `manifest_writer` is provided, writes manifest lines as NDJSON
-        (one object per input) for streaming durability
-      - emits notifier.ok() for each successfully handled input
+        Behavior:
+            - prefers ctx.case_dir as working directory
+            - writes per-artifact metadata.json into `preproc/<sha>/`
+            - when `manifest_writer` is provided, writes manifest lines as NDJSON
+                (one object per input) for streaming durability
+            - emits notifier.ok() for each successfully handled input
+
+        Notes:
+            - This function implements only general, cross-cutting preprocessing
+                (enumeration, canonical copy, metadata, manifest/index emission). It
+                intentionally does not perform language-specific AST building or
+                binary disassembly; such steps should be implemented in separate
+                post-preproc stages. Any legacy flags passed in `kwargs` are ignored.
     """
     # prefer ctx.case_dir / preproc if available
     if getattr(ctx, "case_dir", None):
@@ -262,6 +262,3 @@ def preprocess_items(
     }
 
     return {"index": index_entries, "manifest_entries": manifest_entries, "stats": stats}
-
-
-

@@ -120,30 +120,12 @@ class LandingPage(ctk.CTkFrame):
         )
 
         create_card(
-            "Advisor",
-            "Access recommendations and migration strategies for detected algorithms.",
-            "Open Advisor",
-            lambda: self.switch_page("advisor"),
-            0,
-            1,
-        )
-
-        create_card(
             "Auditor",
             "Audit compliance of blockchain projects with cryptographic standards.",
             "Open Auditor",
-            lambda: self.switch_page("auditor"),
+            lambda: self.switch_page("setup"),
             1,
             0,
-        )
-
-        create_card(
-            "Reports",
-            "View and export previous analysis results as JSON or PDF summaries.",
-            "Open Reports",
-            lambda: self.switch_page("reports"),
-            1,
-            1,
         )
 
         # === FOOTER ===

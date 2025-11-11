@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Preproc metadata",
+  "type": "object",
+  "properties": {
+    "file_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA256 of the input.bin file (hex lowercase)"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "Alternate name for file_hash"
+    },
+    "schema_version": {
+      "type": "string",
+      "description": "Version identifier for the preproc metadata schema. Presently the project uses '1.0'"
+    },
+    "orig_filename": {
+      "type": "string",
+      "description": "Original filename uploaded by the user (optional)"
+    },
+    "arch": {
+      "type": "string",
+      "description": "Optional target architecture identifier, e.g. 'x86_64', 'aarch64'"
+    }
+  },
+  "required": ["schema_version"],
+  "anyOf": [{ "required": ["file_hash"] }, { "required": ["sha256"] }],
+  "additionalProperties": true
+}
