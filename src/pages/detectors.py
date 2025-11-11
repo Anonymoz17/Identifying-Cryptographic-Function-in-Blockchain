@@ -302,62 +302,594 @@ class DetectorsPage(ctk.CTkFrame):
         self.console_text = console_text
 
     def _build_dynamic_ui(self, parent: ctk.CTkFrame):
-        """Build the dynamic analysis UI (stub for now)."""
+        """Build the dynamic analysis UI with Frida instrumentation configuration."""
         parent.grid_columnconfigure(0, weight=1)
-        parent.grid_rowconfigure(0, weight=1)
+        parent.grid_rowconfigure(2, weight=1)
 
-        # Premium placeholder
-        premium_frame = ctk.CTkFrame(parent)
-        premium_frame.grid(row=0, column=0, sticky="nsew", padx=15, pady=15)
+        # Configuration section
+        config_frame = ctk.CTkFrame(parent)
+        config_frame.grid(row=0, column=0, sticky="ew", padx=15, pady=15)
+        config_frame.grid_columnconfigure(1, weight=1)
 
-        icon_label = ctk.CTkLabel(
-            premium_frame,
-            text="🔒",
-            font=("Roboto", 72)
+        # Execution mode selection
+        ctk.CTkLabel(
+            config_frame,
+            text="Execution Mode:",
+            font=("Roboto", 12, "bold")
+        ).grid(row=0, column=0, sticky="w", pady=5)
+
+        mode_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
+        mode_frame.grid(row=0, column=1, sticky="w", pady=5)
+
+        self.dynamic_mode_var = tk.StringVar(value="spawn")
+
+        spawn_radio = ctk.CTkRadioButton(
+            mode_frame,
+            text="Spawn (Launch binary with Frida)",
+            variable=self.dynamic_mode_var,
+            value="spawn"
         )
-        icon_label.pack(pady=(50, 20))
+        spawn_radio.pack(side="left", padx=(0, 20))
 
-        title = ctk.CTkLabel(
-            premium_frame,
-            text="Dynamic Analysis",
-            font=("Roboto", 28, "bold")
+        attach_radio = ctk.CTkRadioButton(
+            mode_frame,
+            text="Attach (Hook running process by PID)",
+            variable=self.dynamic_mode_var,
+            value="attach"
         )
-        title.pack(pady=(0, 10))
+        attach_radio.pack(side="left")
 
-        subtitle = ctk.CTkLabel(
-            premium_frame,
-            text="Premium Feature • Coming Soon",
-            font=("Roboto", 16),
-            text_color="#f90"
+        # Timeout configuration
+        ctk.CTkLabel(
+            config_frame,
+            text="Timeout (seconds):",
+            font=("Roboto", 12, "bold")
+        ).grid(row=1, column=0, sticky="w", pady=5)
+
+        timeout_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
+        timeout_frame.grid(row=1, column=1, sticky="ew", pady=5)
+        timeout_frame.grid_columnconfigure(1, weight=1)
+
+        self.dynamic_timeout_var = tk.IntVar(value=500)
+
+        timeout_slider = ctk.CTkSlider(
+            timeout_frame,
+            from_=50,
+            to=1000,
+            number_of_steps=19,
+            variable=self.dynamic_timeout_var,
+            command=self._on_timeout_change
         )
-        subtitle.pack(pady=(0, 30))
+        timeout_slider.grid(row=0, column=0, sticky="ew", padx=(0, 10))
 
-        description = ctk.CTkLabel(
-            premium_frame,
-            text="Dynamic analysis uses Frida instrumentation to trace crypto operations at runtime.\n"
-                 "This feature requires a premium subscription and will be available in a future update.\n\n"
-                 "Features:\n"
-                 "• Runtime function hooking and tracing\n"
-                 "• Memory analysis for key material\n"
-                 "• Call graph generation\n"
-                 "• Integration with static analysis hints",
-            font=("Roboto", 12),
+        self.timeout_label = ctk.CTkLabel(
+            timeout_frame,
+            text="500s",
+            font=("Roboto", 11),
             text_color="#aaa",
-            justify="center"
+            width=50
         )
-        description.pack(pady=20)
+        self.timeout_label.grid(row=0, column=1, sticky="w")
 
-        upgrade_btn = ctk.CTkButton(
-            premium_frame,
-            text="Learn More About Premium",
-            width=250,
-            height=45,
+        # Memory limit
+        ctk.CTkLabel(
+            config_frame,
+            text="Memory Limit (MB):",
+            font=("Roboto", 12, "bold")
+        ).grid(row=2, column=0, sticky="w", pady=5)
+
+        memory_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
+        memory_frame.grid(row=2, column=1, sticky="ew", pady=5)
+
+        self.dynamic_memory_var = tk.IntVar(value=1024)
+        memory_spinbox = ctk.CTkOptionMenu(
+            memory_frame,
+            values=["128", "256", "512", "1024", "2048", "4096"],
+            variable=self.dynamic_memory_var,
+            width=150
+        )
+        memory_spinbox.pack(side="left")
+
+        # Instrumenters selection
+        ctk.CTkLabel(
+            config_frame,
+            text="Instrumenters:",
+            font=("Roboto", 12, "bold")
+        ).grid(row=3, column=0, sticky="nw", pady=5)
+
+        instr_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
+        instr_frame.grid(row=3, column=1, sticky="w", pady=5)
+
+        self.crypto_ops_var = tk.BooleanVar(value=True)
+        self.memory_scan_var = tk.BooleanVar(value=False)
+        self.call_graph_var = tk.BooleanVar(value=False)
+
+        ctk.CTkCheckBox(
+            instr_frame,
+            text="Crypto Operations (bcrypt.dll, crypt32.dll)",
+            variable=self.crypto_ops_var,
+            font=("Roboto", 11)
+        ).pack(anchor="w", pady=2)
+
+        ctk.CTkCheckBox(
+            instr_frame,
+            text="Memory Scanning (High-entropy detection)",
+            variable=self.memory_scan_var,
+            font=("Roboto", 11)
+        ).pack(anchor="w", pady=2)
+
+        ctk.CTkCheckBox(
+            instr_frame,
+            text="Call Graph (Function relationships)",
+            variable=self.call_graph_var,
+            font=("Roboto", 11)
+        ).pack(anchor="w", pady=2)
+
+        # Advanced options
+        ctk.CTkLabel(
+            config_frame,
+            text="Options:",
+            font=("Roboto", 12, "bold")
+        ).grid(row=4, column=0, sticky="w", pady=5)
+
+        options_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
+        options_frame.grid(row=4, column=1, sticky="w", pady=5)
+
+        self.dynamic_force_var = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            options_frame,
+            text="Force re-analysis (ignore cache)",
+            variable=self.dynamic_force_var,
+            font=("Roboto", 11)
+        ).pack(side="left", padx=(0, 20))
+
+        # Action buttons
+        action_frame = ctk.CTkFrame(parent)
+        action_frame.grid(row=1, column=0, sticky="ew", padx=15, pady=(0, 15))
+
+        self.run_dynamic_btn = ctk.CTkButton(
+            action_frame,
+            text="▶ Analyze All Binaries",
+            command=self._run_dynamic_analysis,
+            width=220,
+            height=40,
             font=("Roboto", 14, "bold"),
-            fg_color="#f90",
-            hover_color="#e80",
+            fg_color="#5a7e9f",
+            hover_color="#4a6a8f"
+        )
+        self.run_dynamic_btn.pack(side="left", padx=10)
+
+        self.cancel_dynamic_btn = ctk.CTkButton(
+            action_frame,
+            text="⏹ Cancel",
+            command=self._cancel_dynamic_analysis,
+            width=120,
+            height=40,
+            state="disabled",
+            fg_color="#8b3a3a",
+            hover_color="#6b2a2a"
+        )
+        self.cancel_dynamic_btn.pack(side="left", padx=10)
+
+        self.open_dynamic_results_btn = ctk.CTkButton(
+            action_frame,
+            text="📁 Open Results",
+            command=self._open_dynamic_results_folder,
+            width=160,
+            height=40,
             state="disabled"
         )
-        upgrade_btn.pack(pady=30)
+        self.open_dynamic_results_btn.pack(side="left", padx=10)
+
+        # Progress section
+        progress_frame = ctk.CTkFrame(action_frame, fg_color="transparent")
+        progress_frame.pack(side="left", fill="x", expand=True, padx=20)
+
+        self.dynamic_progress_bar = ctk.CTkProgressBar(progress_frame, width=300)
+        self.dynamic_progress_bar.pack(side="left", fill="x", expand=True)
+        self.dynamic_progress_bar.set(0)
+
+        self.dynamic_progress_label = ctk.CTkLabel(
+            progress_frame,
+            text="",
+            font=("Roboto", 11),
+            text_color="#aaa"
+        )
+        self.dynamic_progress_label.pack(side="left", padx=10)
+
+        # Results display
+        results_frame = ctk.CTkFrame(parent)
+        results_frame.grid(row=2, column=0, sticky="nsew", padx=15, pady=(0, 15))
+        results_frame.grid_rowconfigure(1, weight=1)
+        results_frame.grid_columnconfigure(0, weight=1)
+
+        results_header = ctk.CTkLabel(
+            results_frame,
+            text="Dynamic Analysis Results",
+            font=("Roboto", 16, "bold")
+        )
+        results_header.grid(row=0, column=0, sticky="w", padx=10, pady=10)
+
+        # Tabbed results view
+        self.dynamic_results_notebook = ctk.CTkTabview(results_frame)
+        self.dynamic_results_notebook.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+
+        # Summary tab
+        self.dynamic_results_notebook.add("Summary")
+        dynamic_summary_text = ctk.CTkTextbox(
+            self.dynamic_results_notebook.tab("Summary"),
+            wrap="word",
+            font=("Consolas", 11)
+        )
+        dynamic_summary_text.pack(fill="both", expand=True, padx=5, pady=5)
+        self.dynamic_summary_text = dynamic_summary_text
+
+        # Traces tab
+        self.dynamic_results_notebook.add("Traces")
+        dynamic_traces_text = ctk.CTkTextbox(
+            self.dynamic_results_notebook.tab("Traces"),
+            wrap="word",
+            font=("Consolas", 10)
+        )
+        dynamic_traces_text.pack(fill="both", expand=True, padx=5, pady=5)
+        self.dynamic_traces_text = dynamic_traces_text
+
+        # Call Graph tab
+        self.dynamic_results_notebook.add("Call Graph")
+        dynamic_callgraph_text = ctk.CTkTextbox(
+            self.dynamic_results_notebook.tab("Call Graph"),
+            wrap="word",
+            font=("Consolas", 10)
+        )
+        dynamic_callgraph_text.pack(fill="both", expand=True, padx=5, pady=5)
+        self.dynamic_callgraph_text = dynamic_callgraph_text
+
+        # Console/Log tab
+        self.dynamic_results_notebook.add("Console")
+        dynamic_console_text = ctk.CTkTextbox(
+            self.dynamic_results_notebook.tab("Console"),
+            wrap="word",
+            font=("Consolas", 9)
+        )
+        dynamic_console_text.pack(fill="both", expand=True, padx=5, pady=5)
+        self.dynamic_console_text = dynamic_console_text
+
+        # Dynamic analysis state
+        self._dynamic_analysis_running = False
+        self._dynamic_cancel_event = None
+        self._dynamic_batch_results = {}
+
+    def _on_timeout_change(self, value):
+        """Update timeout label when slider changes."""
+        try:
+            self.timeout_label.configure(text=f"{int(float(value))}s")
+        except Exception:
+            pass
+
+    def _run_dynamic_analysis(self):
+        """Run dynamic analysis in background thread."""
+        if self._dynamic_analysis_running:
+            return
+
+        # Get case workdir
+        try:
+            if self._loaded_case_workdir:
+                self._case_workdir = self._loaded_case_workdir
+            else:
+                scan_meta = getattr(self.master, "current_scan_meta", None)
+                if not scan_meta or not scan_meta.get("workdir"):
+                    self._log_dynamic_console("❌ No case loaded. Please load a case or run Setup first.")
+                    return
+
+                self._case_workdir = scan_meta.get("workdir")
+        except Exception as e:
+            self._log_dynamic_console(f"❌ Error: {e}")
+            return
+
+        # UI feedback
+        self._dynamic_analysis_running = True
+        self.run_dynamic_btn.configure(state="disabled")
+        self.cancel_dynamic_btn.configure(state="normal")
+        self.open_dynamic_results_btn.configure(state="disabled")
+        self.dynamic_progress_bar.set(0)
+        self._clear_dynamic_results()
+        self._log_dynamic_console("Starting dynamic analysis...")
+
+        # Run in background thread
+        self._dynamic_cancel_event = threading.Event()
+        t = threading.Thread(target=self._batch_dynamic_analysis_thread, daemon=True)
+        t.start()
+
+    def _batch_dynamic_analysis_thread(self):
+        """Background thread for batch dynamic analysis of all binaries."""
+        try:
+            from auditor.detectors.dynamic_detection import DynamicRunner, DynamicContext
+
+            # Initialize batch results
+            self._dynamic_batch_results = {}
+
+            mode = self.dynamic_mode_var.get()
+            timeout = self.dynamic_timeout_var.get()
+            memory_limit = int(self.dynamic_memory_var.get())
+            force = self.dynamic_force_var.get()
+
+            total_files = len(self._all_file_hashes)
+
+            self.after(0, self._log_dynamic_console, f"Starting batch dynamic analysis of {total_files} binaries...")
+            self.after(0, self._log_dynamic_console, f"Mode: {mode}, Timeout: {timeout}s, Memory: {memory_limit}MB")
+
+            # Create runner once (reuse for all files)
+            runner = DynamicRunner()
+
+            # Process each file hash
+            for index, file_hash in enumerate(self._all_file_hashes, 1):
+                # Check for cancellation
+                if self._dynamic_cancel_event and self._dynamic_cancel_event.is_set():
+                    self.after(0, self._on_dynamic_batch_cancelled, index - 1, total_files)
+                    return
+
+                # Update progress
+                progress = (index - 0.5) / total_files
+                self.after(0, self.dynamic_progress_bar.set, progress)
+                self.after(0, self._update_dynamic_batch_progress, index, total_files, file_hash)
+
+                try:
+                    # Build context for this specific file
+                    hints_path = os.path.join(
+                        self._case_workdir, 'analysis', 'static', file_hash, 'hints.json'
+                    )
+
+                    ctx = DynamicContext(
+                        file_hash=file_hash,
+                        preproc_dir=os.path.join(self._case_workdir, 'preproc', file_hash),
+                        hints_path=hints_path,
+                        analysis_base=self._case_workdir,
+                        mode=mode,
+                        timeout=timeout,
+                        memory_limit=memory_limit,
+                        instrumenters={
+                            'crypto_ops': self.crypto_ops_var.get(),
+                            'memory_scan': self.memory_scan_var.get(),
+                            'call_graph': self.call_graph_var.get()
+                        }
+                    )
+
+                    # Run analysis for this file
+                    result = runner.run(ctx)
+
+                    # Store result
+                    self._dynamic_batch_results[file_hash] = result
+
+                    # Log completion
+                    if result.is_success():
+                        status = "✓ Cached" if result.cached else "✓ Analyzed"
+                        self.after(0, self._log_dynamic_console, f"{status} [{index}/{total_files}] {file_hash[:16]}...")
+                    else:
+                        self.after(0, self._log_dynamic_console, f"⚠️ Incomplete [{index}/{total_files}] {file_hash[:16]}...")
+
+                except Exception as e:
+                    # Log error but continue with next file
+                    self._dynamic_batch_results[file_hash] = {"error": str(e)}
+                    self.after(0, self._log_dynamic_console, f"✗ Error [{index}/{total_files}] {file_hash[:16]}...: {e}")
+
+            # All files processed
+            self.after(0, self.dynamic_progress_bar.set, 1.0)
+            self.after(0, self._on_dynamic_batch_complete, total_files)
+
+        except Exception as e:
+            self.after(0, self._on_dynamic_analysis_error, str(e))
+
+    def _update_dynamic_batch_progress(self, current: int, total: int, file_hash: str):
+        """Update progress label with batch status."""
+        try:
+            percent = int((current / total) * 100)
+            self.dynamic_progress_label.configure(
+                text=f"Processing {current}/{total} ({percent}%) - {file_hash[:16]}..."
+            )
+        except Exception:
+            pass
+
+    def _cancel_dynamic_analysis(self):
+        """Cancel ongoing dynamic analysis."""
+        if self._dynamic_cancel_event:
+            self._dynamic_cancel_event.set()
+        self._log_dynamic_console("Cancellation requested...")
+
+    def _on_dynamic_analysis_error(self, error_msg: str):
+        """Handle dynamic analysis error."""
+        self._dynamic_analysis_running = False
+        self.run_dynamic_btn.configure(state="normal")
+        self.cancel_dynamic_btn.configure(state="disabled")
+        self.dynamic_progress_bar.set(0)
+        self._log_dynamic_console(f"❌ Error: {error_msg}")
+
+    def _on_dynamic_batch_complete(self, total_files: int):
+        """Handle successful batch dynamic analysis completion."""
+        try:
+            self._dynamic_analysis_running = False
+            self.run_dynamic_btn.configure(state="normal")
+            self.cancel_dynamic_btn.configure(state="disabled")
+            self.open_dynamic_results_btn.configure(state="normal")
+            self.dynamic_progress_bar.set(1.0)
+            self.dynamic_progress_label.configure(text=f"Completed {total_files}/{total_files}")
+
+            # Count successes and errors
+            successes = sum(1 for r in self._dynamic_batch_results.values() if isinstance(r, dict) and "error" not in r or hasattr(r, 'is_success') and r.is_success())
+            errors = total_files - successes
+            cached = sum(1 for r in self._dynamic_batch_results.values() if hasattr(r, 'cached') and r.cached)
+
+            if errors > 0:
+                self._log_dynamic_console(f"Batch analysis completed with {errors} error(s)")
+            else:
+                self._log_dynamic_console(f"Batch analysis completed successfully!")
+
+            # Display aggregated results
+            self._display_dynamic_batch_results()
+
+        except Exception as e:
+            self._log_dynamic_console(f"Error in batch completion: {e}")
+
+    def _on_dynamic_batch_cancelled(self, processed: int, total: int):
+        """Handle batch dynamic analysis cancellation."""
+        try:
+            self._dynamic_analysis_running = False
+            self.run_dynamic_btn.configure(state="normal")
+            self.cancel_dynamic_btn.configure(state="disabled")
+            self.dynamic_progress_bar.set(0)
+            self.dynamic_progress_label.configure(text="")
+
+            self._log_dynamic_console(f"Batch analysis cancelled by user")
+
+            # Display partial results if any
+            if self._dynamic_batch_results:
+                self._display_dynamic_batch_results()
+
+        except Exception as e:
+            self._log_dynamic_console(f"Error in cancellation handler: {e}")
+
+    def _display_dynamic_batch_results(self):
+        """Display aggregated results from dynamic batch analysis."""
+        try:
+            # Summary
+            summary_lines = []
+            summary_lines.append("=" * 60)
+            summary_lines.append("DYNAMIC ANALYSIS SUMMARY")
+            summary_lines.append("=" * 60)
+            summary_lines.append(f"Total Binaries: {len(self._dynamic_batch_results)}")
+
+            successful = sum(1 for r in self._dynamic_batch_results.values() if not isinstance(r, dict) or "error" not in r)
+            errors = len(self._dynamic_batch_results) - successful
+            cached = sum(1 for r in self._dynamic_batch_results.values() if hasattr(r, 'cached') and r.cached)
+
+            summary_lines.append(f"Successful: {successful}")
+            summary_lines.append(f"Errors: {errors}")
+            summary_lines.append(f"Cached: {cached}")
+            summary_lines.append("")
+            summary_lines.append("Per-File Summary:")
+            summary_lines.append("-" * 60)
+
+            for file_hash, result in self._dynamic_batch_results.items():
+                short_hash = file_hash[:16]
+                if isinstance(result, dict) and "error" in result:
+                    summary_lines.append(f"✗ {short_hash}... - ERROR: {result['error']}")
+                elif hasattr(result, 'incomplete') and result.incomplete:
+                    summary_lines.append(f"⚠️ {short_hash}... - Incomplete: {result.incomplete_reason}")
+                elif hasattr(result, 'summary') and result.summary:
+                    crypto_calls = result.summary.get('total_crypto_calls', 0)
+                    summary_lines.append(f"✓ {short_hash}... - {crypto_calls} crypto calls detected")
+                else:
+                    summary_lines.append(f"✓ {short_hash}... - Completed")
+
+            self.dynamic_summary_text.delete("1.0", "end")
+            self.dynamic_summary_text.insert("1.0", "\n".join(summary_lines))
+
+            # Aggregate findings from all traces
+            all_findings = []
+            trace_count = 0
+
+            for file_hash, result in self._dynamic_batch_results.items():
+                if isinstance(result, dict) and "error" in result:
+                    continue
+
+                if hasattr(result, 'trace_path') and result.trace_path and os.path.exists(result.trace_path):
+                    try:
+                        with open(result.trace_path, 'r', encoding='utf-8') as f:
+                            for line in f:
+                                if line.strip():
+                                    trace_count += 1
+                                    try:
+                                        event = json.loads(line)
+                                        if event.get('type') == 'crypto_call':
+                                            all_findings.append({
+                                                'file_hash': file_hash,
+                                                'function': event.get('function'),
+                                                'module': event.get('module'),
+                                                'timestamp': event.get('timestamp')
+                                            })
+                                    except json.JSONDecodeError:
+                                        pass
+                    except Exception:
+                        pass
+
+            # Display aggregated findings
+            output_lines = []
+            output_lines.append("=" * 80)
+            output_lines.append(f"AGGREGATED FINDINGS ({len(all_findings)} crypto calls from {successful} binaries)")
+            output_lines.append("=" * 80)
+            output_lines.append("")
+
+            if not all_findings:
+                output_lines.append("No cryptographic operations detected during dynamic analysis.")
+            else:
+                # Group by function
+                functions = {}
+                for finding in all_findings:
+                    key = f"{finding.get('module')}!{finding.get('function')}"
+                    if key not in functions:
+                        functions[key] = 0
+                    functions[key] += 1
+
+                for func, count in sorted(functions.items(), key=lambda x: x[1], reverse=True):
+                    output_lines.append(f"• {func}: {count} calls")
+
+            self.dynamic_traces_text.delete("1.0", "end")
+            self.dynamic_traces_text.insert("1.0", "\n".join(output_lines))
+
+            self._log_dynamic_console("Results displayed successfully")
+
+        except Exception as e:
+            self._log_dynamic_console(f"Error displaying batch results: {e}")
+
+    def _open_dynamic_results_folder(self):
+        """Open the dynamic analysis results folder in file explorer."""
+        try:
+            import subprocess
+            import platform
+
+            workdir = self._case_workdir or self._loaded_case_workdir
+            if not workdir:
+                self._log_dynamic_console("❌ No case loaded")
+                return
+
+            workdir_path = Path(workdir)
+            analysis_dir = workdir_path / "analysis" / "dynamic"
+
+            if not analysis_dir.exists():
+                self._log_dynamic_console("❌ No dynamic analysis results found")
+                return
+
+            # Open folder in file explorer (cross-platform)
+            if platform.system() == "Windows":
+                subprocess.run(["explorer", str(analysis_dir)], check=False)
+            elif platform.system() == "Darwin":  # macOS
+                subprocess.run(["open", str(analysis_dir)], check=False)
+            else:  # Linux
+                subprocess.run(["xdg-open", str(analysis_dir)], check=False)
+
+            self._log_dynamic_console(f"Opened results folder: {analysis_dir}")
+
+        except Exception as e:
+            self._log_dynamic_console(f"❌ Failed to open folder: {e}")
+
+    def _clear_dynamic_results(self):
+        """Clear all dynamic result displays."""
+        try:
+            self.dynamic_summary_text.delete("1.0", "end")
+            self.dynamic_traces_text.delete("1.0", "end")
+            self.dynamic_callgraph_text.delete("1.0", "end")
+            self.dynamic_console_text.delete("1.0", "end")
+        except Exception:
+            pass
+
+    def _log_dynamic_console(self, message: str):
+        """Append message to dynamic analysis console log."""
+        try:
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            self.dynamic_console_text.insert("end", f"[{timestamp}] {message}\n")
+            self.dynamic_console_text.see("end")
+        except Exception:
+            pass
 
     def _build_load_case_ui(self, parent: ctk.CTkFrame):
         """Build the load case UI for standalone mode."""

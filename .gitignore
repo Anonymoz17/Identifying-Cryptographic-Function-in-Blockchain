@@ -25,3 +25,5 @@ dist/
 .vite/
 *DS_Store/
 .DS_Store/
+
+.claude/
