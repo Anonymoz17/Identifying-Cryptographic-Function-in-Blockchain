@@ -15,6 +15,7 @@ def generate_crypto_hooks(hints_data: Dict[str, Any], config) -> str:
     Hooks Windows crypto APIs based on:
     1. Static analysis hints (crypto_function type)
     2. Default crypto API lists from config
+    3. Additional crypto libraries (OpenSSL, CNG, etc.)
 
     Args:
         hints_data: Hints from static analysis
@@ -52,6 +53,8 @@ def generate_crypto_hooks(hints_data: Dict[str, Any], config) -> str:
         _generate_script_header(),
         _generate_bcrypt_hooks(bcrypt_apis, crypto_hints),
         _generate_crypt32_hooks(crypt32_apis, crypto_hints),
+        _generate_openssl_hooks(crypto_hints),
+        _generate_ncrypt_hooks(crypto_hints),
         _generate_custom_hooks(crypto_hints),
         _generate_script_footer()
     ]
@@ -60,7 +63,7 @@ def generate_crypto_hooks(hints_data: Dict[str, Any], config) -> str:
 
 
 def _generate_script_header() -> str:
-    """Generate script header."""
+    """Generate script header with local helper functions."""
     return """
 // ============================================================================
 // Crypto Operations Instrumenter
@@ -68,6 +71,105 @@ def _generate_script_header() -> str:
 // ============================================================================
 
 console.log("[CryptoOps] Installing crypto API hooks...");
+
+// ============================================================================
+// Local Helper Functions
+// Re-defined here to ensure availability in this script context
+// ============================================================================
+
+// Global state for crypto call limiting
+var _cryptoCallCount = 0;
+var _maxCryptoCallsReached = false;
+var MAX_CRYPTO_CALLS = 100;  // Configurable limit
+
+/**
+ * Check if a module is loaded.
+ */
+function isModuleLoaded(moduleName) {
+    try {
+        return Process.findModuleByName(moduleName) !== null;
+    } catch (e) {
+        return false;
+    }
+}
+
+/**
+ * Check if we should continue capturing crypto calls.
+ */
+function shouldCaptureCryptoCall() {
+    if (_maxCryptoCallsReached) {
+        return false;
+    }
+
+    _cryptoCallCount++;
+
+    if (_cryptoCallCount >= MAX_CRYPTO_CALLS) {
+        _maxCryptoCallsReached = true;
+        send({
+            type: "limit_reached",
+            limit_type: "max_crypto_calls",
+            count: _cryptoCallCount
+        });
+        console.log("[CryptoOps] Max crypto calls limit reached: " + MAX_CRYPTO_CALLS);
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Get current timestamp in milliseconds.
+ */
+function getTimestamp() {
+    return Date.now();
+}
+
+/**
+ * Hash a pointer value (address).
+ */
+function hashPointer(ptr) {
+    if (ptr.isNull()) {
+        return "null_pointer";
+    }
+    return ptr.toString();
+}
+
+/**
+ * Find exported function in a module.
+ */
+function findExport(moduleName, functionName) {
+    try {
+        return Module.findExportByName(moduleName, functionName);
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * Get call backtrace (limited depth).
+ */
+function getBacktrace(maxDepth) {
+    try {
+        var bt = Thread.backtrace(this.context, Backtracer.ACCURATE);
+        var result = [];
+        var depth = Math.min(bt.length, maxDepth || 5);
+
+        for (var i = 0; i < depth; i++) {
+            var symbol = DebugSymbol.fromAddress(bt[i]);
+            result.push(symbol.toString());
+        }
+
+        return result;
+    } catch (e) {
+        return ["backtrace_error"];
+    }
+}
+
+console.log("[CryptoOps] Helper functions loaded");
+
+// ============================================================================
+// Crypto Stats Tracking
+// ============================================================================
 
 var cryptoStats = {
     bcrypt: {},
@@ -127,6 +229,143 @@ if (isModuleLoaded("crypt32.dll")) {
     console.log("[CryptoOps] crypt32.dll hooks installed");
 } else {
     console.log("[CryptoOps] crypt32.dll not loaded");
+}
+""")
+
+    return '\n'.join(hooks)
+
+
+def _generate_openssl_hooks(hints: List[Dict]) -> str:
+    """Generate hooks for OpenSSL crypto library."""
+    openssl_apis = [
+        'EVP_EncryptInit',
+        'EVP_EncryptUpdate',
+        'EVP_EncryptFinal',
+        'EVP_DecryptInit',
+        'EVP_DecryptUpdate',
+        'EVP_DecryptFinal',
+        'EVP_DigestInit',
+        'EVP_DigestUpdate',
+        'EVP_DigestFinal',
+        'EVP_PKEY_encrypt',
+        'EVP_PKEY_decrypt',
+        'EVP_PKEY_sign',
+        'EVP_PKEY_verify',
+        'HMAC_Init',
+        'HMAC_Update',
+        'HMAC_Final',
+        'RAND_bytes',
+        'BN_bin2bn',
+        'EC_KEY_generate_key'
+    ]
+
+    hooks = ["""
+// ============================================================================
+// OpenSSL (libcrypto) Hooks
+// Covers OpenSSL 1.1.x and 3.x variants
+// ============================================================================
+
+// Try common OpenSSL library names
+var openssl_libs = ["libcrypto.dll", "libcrypto-1_1.dll", "libcrypto-3.dll", "libcrypto-3-x64.dll"];
+
+for (var lib_idx = 0; lib_idx < openssl_libs.length; lib_idx++) {
+    var lib_name = openssl_libs[lib_idx];
+    if (isModuleLoaded(lib_name)) {
+        console.log("[CryptoOps] " + lib_name + " loaded, installing hooks...");
+"""]
+
+    # Generate hooks for each OpenSSL API
+    for api_name in openssl_apis:
+        hint = _find_hint_for_function(api_name, hints)
+        hint_id = hint.get('id') if hint else None
+
+        # Generate hook with dynamic library name
+        hook_code = f"""
+    // Hook: libcrypto!{api_name}
+    try {{
+        var addr_{api_name}_openssl = Module.findExportByName(lib_name, "{api_name}");
+        if (addr_{api_name}_openssl) {{
+            Interceptor.attach(addr_{api_name}_openssl, {{
+                onEnter: function(args) {{
+                    if (!shouldCaptureCryptoCall()) {{
+                        return;
+                    }}
+
+                    this.enterTime = getTimestamp();
+                    send({{
+                        type: "crypto_call",
+                        hint_id: {f'"{hint_id}"' if hint_id else 'null'},
+                        function: "{api_name}",
+                        module: lib_name,
+                        address: addr_{api_name}_openssl.toString(),
+                        timestamp: this.enterTime,
+                        args_count: args.length
+                    }});
+                }},
+                onLeave: function(retval) {{
+                    if (this.enterTime) {{
+                        send({{
+                            type: "crypto_return",
+                            function: "{api_name}",
+                            module: lib_name,
+                            timestamp: getTimestamp()
+                        }});
+                    }}
+                }}
+            }});
+            console.log("[CryptoOps]   Hooked: " + lib_name + "!{api_name}");
+        }}
+    }} catch (e) {{
+        // Silently skip if export not found
+    }}
+"""
+        hooks.append(hook_code)
+
+    hooks.append("""
+        console.log("[CryptoOps] " + lib_name + " hooks installed");
+        break;  // Use first available OpenSSL library
+    }
+}
+""")
+
+    return '\n'.join(hooks)
+
+
+def _generate_ncrypt_hooks(hints: List[Dict]) -> str:
+    """Generate hooks for Windows CNG (Cryptography Next Generation) APIs."""
+    ncrypt_apis = [
+        'NCryptEncrypt',
+        'NCryptDecrypt',
+        'NCryptSignHash',
+        'NCryptVerifySignature',
+        'NCryptSecretAgreement',
+        'NCryptDeriveKey',
+        'NCryptGenerateKey',
+        'NCryptCreatePersistedKey',
+        'NCryptOpenKey',
+        'NCryptDeleteKey',
+        'NCryptImportKey',
+        'NCryptExportKey'
+    ]
+
+    hooks = ["""
+// ============================================================================
+// NCrypt (CNG - Cryptography Next Generation) Hooks
+// ============================================================================
+
+if (isModuleLoaded("ncrypt.dll")) {
+    console.log("[CryptoOps] ncrypt.dll loaded, installing hooks...");
+"""]
+
+    for api_name in ncrypt_apis:
+        hint = _find_hint_for_function(api_name, hints)
+        hint_id = hint.get('id') if hint else None
+        hooks.append(_generate_api_hook('ncrypt.dll', api_name, hint_id))
+
+    hooks.append("""
+    console.log("[CryptoOps] ncrypt.dll hooks installed");
+} else {
+    console.log("[CryptoOps] ncrypt.dll not loaded");
 }
 """)
 

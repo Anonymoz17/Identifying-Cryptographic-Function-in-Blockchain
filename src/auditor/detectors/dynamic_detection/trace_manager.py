@@ -89,10 +89,17 @@ class TraceManager:
         # Check event type
         event_type = event.get('type', 'unknown')
 
+        # Diagnostic logging
+        if event_type == 'crypto_call':
+            function = event.get('function', 'unknown')
+            module = event.get('module', 'unknown')
+            print(f"[TraceManager] Crypto call captured: {module}!{function}")
+
         # Check crypto call limit
         if event_type == 'crypto_call':
             if self.crypto_call_count >= self.max_crypto_calls:
                 self.max_crypto_calls_reached = True
+                print(f"[TraceManager] Crypto call limit reached ({self.max_crypto_calls})")
                 return False  # Skip this crypto call
             self.crypto_call_count += 1
 
@@ -105,12 +112,16 @@ class TraceManager:
         elif event_type == 'call_graph':
             self.call_graph_edge_count += 1
 
+        else:
+            print(f"[TraceManager] Unknown event type: {event_type}")
+
         # Estimate event size
         event_size = len(json.dumps(event, separators=(',', ':')))
 
         # Check size limit
         if self.total_size + event_size > self.max_size:
             self.max_size_reached = True
+            print(f"[TraceManager] Size limit reached ({self.total_size + event_size} > {self.max_size})")
             return False
 
         # Add event

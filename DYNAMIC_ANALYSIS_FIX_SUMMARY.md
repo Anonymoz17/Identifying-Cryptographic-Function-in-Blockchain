@@ -1,18 +1,22 @@
 # Dynamic Analysis Fix - Complete Summary
 
 ## Issue
+
 User reported that Dynamic Analysis was running but showing NO RESULTS:
+
 - Empty call graph
-- Empty traces (0 events)  
+- Empty traces (0 events)
 - Despite having 77 crypto hints from static analysis
 - Status showed "incomplete" despite no visible errors
 
 ## Root Causes Identified and Fixed
 
 ### Critical Bug #1: Setup Error Checking Logic
+
 **File**: `src/auditor/detectors/dynamic_detection/runner.py` (lines 115-125)
 
 **Problem**: After loading hints in Setup stage, code was checking `if not result.is_success()` to detect errors. However, `is_success()` returns True only if BOTH:
+
 1. `result.errors` is empty
 2. `result.dynamic_results_path` is not None
 
@@ -27,12 +31,14 @@ Since `dynamic_results_path` is only set AFTER all analysis completes, this chec
 ---
 
 ### Critical Bug #2: Frida spawn() API Call
+
 **File**: `src/auditor/detectors/dynamic_detection/frida_harness.py` (lines 210-226)
 
 **Problem**: The code was calling `frida.spawn(**spawn_options)` where `spawn_options` contained:
+
 ```python
 {
-    'argv': ['/path/to/binary', 'arg1', 'arg2'],  
+    'argv': ['/path/to/binary', 'arg1', 'arg2'],
     'env': {...},
     'cwd': '...',
     'stdio': 'pipe'
@@ -40,6 +46,7 @@ Since `dynamic_results_path` is only set AFTER all analysis completes, this chec
 ```
 
 However, the Frida API requires:
+
 ```python
 frida.spawn(program, argv=[...], **options)
 ```
@@ -48,7 +55,8 @@ The positional `program` argument was missing.
 
 **Symptoms**: `TypeError: spawn() missing 1 required positional argument: 'program'`
 
-**Solution**: 
+**Solution**:
+
 ```python
 program = spawn_options.pop('argv')[0]  # Extract binary path
 argv = spawn_options.pop('argv', [])    # Keep remaining args
@@ -62,6 +70,7 @@ pid = frida.spawn(program, argv=argv, **spawn_options)
 ## Changes Made
 
 ### Change 1: runner.py - Preflight checks (line ~115)
+
 ```python
 # BEFORE:
 result = self._preflight_checks(ctx, result)
@@ -75,6 +84,7 @@ if result.errors:
 ```
 
 ### Change 2: runner.py - Setup checks (line ~124)
+
 ```python
 # BEFORE:
 config, hints_data, analysis_dir = self._setup(ctx, result)
@@ -90,6 +100,7 @@ if hints_data is None or result.errors:
 ```
 
 ### Change 3: frida_harness.py - Spawn mode (lines ~210-226)
+
 ```python
 # BEFORE:
 spawn_options = sandbox.get_spawn_options(binary_path, spawn_args[1:] if len(spawn_args) > 1 else [])
@@ -102,7 +113,7 @@ spawn_options = sandbox.get_spawn_options(binary_path, spawn_args[1:] if len(spa
 try:
     program = spawn_options.pop('argv')[0] if 'argv' in spawn_options else binary_path
     argv = spawn_options.pop('argv', [])
-    
+
     print(f"[Harness] Spawning: {' '.join([program] + argv)}")
     pid = frida.spawn(program, argv=argv, **spawn_options)
 ```
@@ -114,11 +125,13 @@ try:
 The fixes were verified through diagnostic scripts:
 
 1. **Hook Generation Verification** (diagnose_hook_generation.py):
+
    - ✅ 2 hook scripts generated (35KB total)
    - ✅ 77 crypto hints properly referenced
    - ✅ Hints being used in generated JavaScript
 
 2. **Frida Installation Test** (test_frida_basic.py):
+
    - ✅ Frida 17.2.14 installed
    - ✅ Can spawn processes
    - ✅ Can attach and load scripts
@@ -135,6 +148,7 @@ The fixes were verified through diagnostic scripts:
 ## Pipeline Status After Fix
 
 ### Before Fix:
+
 ```
 Setup → Static → Dynamic (ERROR: spawn() missing argument)
   ↓
@@ -148,6 +162,7 @@ Empty results
 ```
 
 ### After Fix:
+
 ```
 Setup → Static → Dynamic (OK: Frida spawns correctly)
   ↓
@@ -177,7 +192,6 @@ Now that the critical infrastructure bugs are fixed, the following should be tes
 
 1. `src/auditor/detectors/dynamic_detection/runner.py`
    - 2 lines changed (error checking logic)
-   
 2. `src/auditor/detectors/dynamic_detection/frida_harness.py`
    - 3 lines changed (spawn API call)
 

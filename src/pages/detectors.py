@@ -12,9 +12,587 @@ import os
 import threading
 import tkinter as tk
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Callable
 
 import customtkinter as ctk
+
+
+class DynamicAdvancedOptionsModal(ctk.CTkToplevel):
+    """Advanced options modal for dynamic analysis configuration.
+
+    This modal provides comprehensive configuration for dynamic analysis including:
+    - Mode selection (Spawn/Attach)
+    - Process ID input for attach mode
+    - Timeout configuration with mode-specific ranges
+    - Memory limit selection
+    - Instrumenter selection (read-only display)
+    - Force re-analysis option
+    - Real-time validation with warnings
+
+    The modal syncs with parent's mode selection and validates all inputs
+    before allowing the user to apply settings.
+    """
+
+    # Factory defaults by mode
+    DEFAULTS = {
+        'spawn': {
+            'timeout': 120,
+            'memory_limit': 512,
+            'timeout_range': (50, 500)
+        },
+        'attach': {
+            'timeout': 60,
+            'memory_limit': 256,
+            'timeout_range': (30, 300)
+        }
+    }
+
+    def __init__(
+        self,
+        parent,
+        mode_var: tk.StringVar,
+        current_settings: Optional[Dict[str, Any]] = None,
+        on_apply: Optional[Callable[[Dict[str, Any]], None]] = None
+    ):
+        """Initialize the advanced options modal.
+
+        Args:
+            parent: Parent window (DetectorsPage or similar)
+            mode_var: StringVar from parent containing mode ('spawn' or 'attach')
+            current_settings: Dict of current settings to pre-populate
+            on_apply: Callback function to receive applied settings
+        """
+        super().__init__(parent)
+
+        # Store parent references
+        self.parent_window = parent
+        self.parent_mode_var = mode_var
+        self.on_apply_callback = on_apply
+
+        # Modal settings
+        self.title("Advanced Dynamic Analysis Options")
+        self.geometry("600x550")
+        self.resizable(False, False)
+
+        # Center on parent
+        self.after(100, self._center_on_parent)
+
+        # Modal behavior
+        self.transient(parent)
+        self.grab_set()
+
+        # Internal state
+        self._current_mode = mode_var.get()
+        self._pending_settings = current_settings or {}
+        self._last_applied_settings = current_settings or {}
+        self._validation_errors = []
+        self._validation_warnings = []
+
+        # Create UI variables
+        self._create_variables()
+
+        # Build UI
+        self._build_ui()
+
+        # Initialize values from current settings or defaults
+        self._initialize_values()
+
+        # Sync with parent mode
+        self._sync_mode_from_parent()
+
+        # Bind mode change handler
+        self.mode_var.trace_add('write', self._on_mode_changed)
+
+        # Validate initially
+        self._validate_all()
+
+    def _create_variables(self):
+        """Create all Tkinter variables for the modal."""
+        # Mode selection (synced with parent)
+        self.mode_var = tk.StringVar(value=self._current_mode)
+
+        # Process ID for attach mode
+        self.attach_pid_var = tk.StringVar(value="")
+
+        # Timeout
+        self.timeout_var = tk.IntVar(value=120)
+
+        # Memory limit
+        self.memory_limit_var = tk.StringVar(value="512")
+
+        # Instrumenters (read-only display)
+        self.crypto_ops_var = tk.BooleanVar(value=True)
+        self.memory_scan_var = tk.BooleanVar(value=False)
+        self.call_graph_var = tk.BooleanVar(value=False)
+
+        # Force re-analysis
+        self.force_var = tk.BooleanVar(value=False)
+
+    def _build_ui(self):
+        """Build the complete UI layout."""
+        # Main content frame
+        content = ctk.CTkFrame(self, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=20, pady=20)
+        content.grid_columnconfigure(1, weight=1)
+
+        row = 0
+
+        # ========== Mode Selection ==========
+        mode_label = ctk.CTkLabel(
+            content,
+            text="Execution Mode:",
+            font=("Roboto", 12, "bold"),
+            width=150,
+            anchor="w"
+        )
+        mode_label.grid(row=row, column=0, sticky="w", pady=10)
+
+        mode_frame = ctk.CTkFrame(content, fg_color="transparent")
+        mode_frame.grid(row=row, column=1, sticky="w", pady=10, padx=(10, 0))
+
+        self.spawn_radio = ctk.CTkRadioButton(
+            mode_frame,
+            text="Spawn",
+            variable=self.mode_var,
+            value="spawn",
+            font=("Roboto", 11)
+        )
+        self.spawn_radio.pack(side="left", padx=(0, 20))
+
+        self.attach_radio = ctk.CTkRadioButton(
+            mode_frame,
+            text="Attach",
+            variable=self.mode_var,
+            value="attach",
+            font=("Roboto", 11)
+        )
+        self.attach_radio.pack(side="left")
+
+        row += 1
+
+        # ========== Process ID Field (Attach Only) ==========
+        self.pid_label = ctk.CTkLabel(
+            content,
+            text="Process ID:",
+            font=("Roboto", 12, "bold"),
+            width=150,
+            anchor="w"
+        )
+        self.pid_label.grid(row=row, column=0, sticky="w", pady=10)
+
+        self.pid_entry = ctk.CTkEntry(
+            content,
+            textvariable=self.attach_pid_var,
+            placeholder_text="Enter PID to attach to",
+            font=("Roboto", 11),
+            width=200
+        )
+        self.pid_entry.grid(row=row, column=1, sticky="w", pady=10, padx=(10, 0))
+
+        # Bind validation on PID change
+        self.attach_pid_var.trace_add('write', lambda *args: self._validate_all())
+
+        row += 1
+
+        # ========== Timeout Slider ==========
+        timeout_label = ctk.CTkLabel(
+            content,
+            text="Timeout:",
+            font=("Roboto", 12, "bold"),
+            width=150,
+            anchor="w"
+        )
+        timeout_label.grid(row=row, column=0, sticky="w", pady=10)
+
+        timeout_container = ctk.CTkFrame(content, fg_color="transparent")
+        timeout_container.grid(row=row, column=1, sticky="ew", pady=10, padx=(10, 0))
+        timeout_container.grid_columnconfigure(0, weight=1)
+
+        self.timeout_slider = ctk.CTkSlider(
+            timeout_container,
+            from_=50,
+            to=500,
+            variable=self.timeout_var,
+            command=self._on_timeout_changed
+        )
+        self.timeout_slider.grid(row=0, column=0, sticky="ew", padx=(0, 10))
+
+        self.timeout_value_label = ctk.CTkLabel(
+            timeout_container,
+            text="120s",
+            font=("Roboto", 11),
+            text_color="#aaa",
+            width=60
+        )
+        self.timeout_value_label.grid(row=0, column=1)
+
+        row += 1
+
+        # ========== Memory Limit Dropdown ==========
+        memory_label = ctk.CTkLabel(
+            content,
+            text="Memory Limit:",
+            font=("Roboto", 12, "bold"),
+            width=150,
+            anchor="w"
+        )
+        memory_label.grid(row=row, column=0, sticky="w", pady=10)
+
+        memory_options = ["128", "256", "512", "1024", "2048", "4096"]
+        self.memory_dropdown = ctk.CTkOptionMenu(
+            content,
+            values=memory_options,
+            variable=self.memory_limit_var,
+            command=lambda *args: self._validate_all(),
+            width=150,
+            font=("Roboto", 11)
+        )
+        self.memory_dropdown.grid(row=row, column=1, sticky="w", pady=10, padx=(10, 0))
+
+        row += 1
+
+        # ========== Instrumenters (Read-only Display) ==========
+        instr_label = ctk.CTkLabel(
+            content,
+            text="Instrumenters:",
+            font=("Roboto", 12, "bold"),
+            width=150,
+            anchor="nw"
+        )
+        instr_label.grid(row=row, column=0, sticky="nw", pady=10)
+
+        instr_frame = ctk.CTkFrame(content, fg_color="transparent")
+        instr_frame.grid(row=row, column=1, sticky="w", pady=10, padx=(10, 0))
+
+        self.crypto_ops_check = ctk.CTkCheckBox(
+            instr_frame,
+            text="Crypto Operations (always enabled)",
+            variable=self.crypto_ops_var,
+            font=("Roboto", 11),
+            state="disabled"
+        )
+        self.crypto_ops_check.pack(anchor="w", pady=2)
+
+        self.memory_scan_check = ctk.CTkCheckBox(
+            instr_frame,
+            text="Memory Scanning (disabled)",
+            variable=self.memory_scan_var,
+            font=("Roboto", 11),
+            state="disabled"
+        )
+        self.memory_scan_check.pack(anchor="w", pady=2)
+
+        self.call_graph_check = ctk.CTkCheckBox(
+            instr_frame,
+            text="Call Graph (disabled)",
+            variable=self.call_graph_var,
+            font=("Roboto", 11),
+            state="disabled"
+        )
+        self.call_graph_check.pack(anchor="w", pady=2)
+
+        row += 1
+
+        # ========== Force Re-analysis ==========
+        force_label = ctk.CTkLabel(
+            content,
+            text="Options:",
+            font=("Roboto", 12, "bold"),
+            width=150,
+            anchor="w"
+        )
+        force_label.grid(row=row, column=0, sticky="w", pady=10)
+
+        self.force_check = ctk.CTkCheckBox(
+            content,
+            text="Force re-analysis (ignore cache)",
+            variable=self.force_var,
+            font=("Roboto", 11),
+            state="disabled"
+        )
+        self.force_check.grid(row=row, column=1, sticky="w", pady=10, padx=(10, 0))
+
+        row += 1
+
+        # ========== Validation Warnings Display ==========
+        warnings_label = ctk.CTkLabel(
+            content,
+            text="Validation:",
+            font=("Roboto", 12, "bold"),
+            width=150,
+            anchor="nw"
+        )
+        warnings_label.grid(row=row, column=0, sticky="nw", pady=10)
+
+        self.warnings_text = ctk.CTkTextbox(
+            content,
+            height=80,
+            font=("Roboto", 10),
+            fg_color="#2b2b2b",
+            wrap="word"
+        )
+        self.warnings_text.grid(row=row, column=1, sticky="ew", pady=10, padx=(10, 0))
+
+        row += 1
+
+        # ========== Action Buttons ==========
+        button_frame = ctk.CTkFrame(content, fg_color="transparent")
+        button_frame.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(20, 0))
+        button_frame.grid_columnconfigure(1, weight=1)
+
+        self.apply_btn = ctk.CTkButton(
+            button_frame,
+            text="Apply",
+            command=self._on_apply,
+            width=120,
+            height=36,
+            font=("Roboto", 12, "bold"),
+            fg_color="#2a7e3f",
+            hover_color="#236633"
+        )
+        self.apply_btn.grid(row=0, column=0, padx=5)
+
+        self.reset_btn = ctk.CTkButton(
+            button_frame,
+            text="Reset to Defaults",
+            command=self._reset_to_defaults,
+            width=150,
+            height=36,
+            font=("Roboto", 12),
+            fg_color="#5a5a5a",
+            hover_color="#4a4a4a"
+        )
+        self.reset_btn.grid(row=0, column=1, padx=5)
+
+        self.cancel_btn = ctk.CTkButton(
+            button_frame,
+            text="Cancel",
+            command=self._on_cancel,
+            width=120,
+            height=36,
+            font=("Roboto", 12),
+            fg_color="#8b3a3a",
+            hover_color="#6b2a2a"
+        )
+        self.cancel_btn.grid(row=0, column=2, padx=5)
+
+    def _initialize_values(self):
+        """Initialize values from pending settings or defaults."""
+        mode = self._current_mode
+
+        # Load from pending settings if available
+        if self._pending_settings:
+            self.attach_pid_var.set(str(self._pending_settings.get('attach_pid', '')))
+            self.timeout_var.set(self._pending_settings.get('timeout', self.DEFAULTS[mode]['timeout']))
+            self.memory_limit_var.set(str(self._pending_settings.get('memory_limit', self.DEFAULTS[mode]['memory_limit'])))
+            self.force_var.set(self._pending_settings.get('force', False))
+        else:
+            # Use factory defaults
+            self.timeout_var.set(self.DEFAULTS[mode]['timeout'])
+            self.memory_limit_var.set(str(self.DEFAULTS[mode]['memory_limit']))
+
+    def _sync_mode_from_parent(self):
+        """Sync mode selection from parent's mode variable."""
+        parent_mode = self.parent_mode_var.get()
+        if parent_mode != self.mode_var.get():
+            self.mode_var.set(parent_mode)
+
+    def _on_mode_changed(self, *args):
+        """Handle mode change (spawn/attach)."""
+        new_mode = self.mode_var.get()
+
+        # Update timeout slider range
+        timeout_range = self.DEFAULTS[new_mode]['timeout_range']
+        self.timeout_slider.configure(from_=timeout_range[0], to=timeout_range[1])
+
+        # Reset timeout to factory default for new mode
+        self.timeout_var.set(self.DEFAULTS[new_mode]['timeout'])
+
+        # Update memory limit to default for new mode
+        self.memory_limit_var.set(str(self.DEFAULTS[new_mode]['memory_limit']))
+
+        # Show/hide PID field based on mode
+        if new_mode == "attach":
+            self.pid_label.grid()
+            self.pid_entry.grid()
+        else:
+            self.pid_label.grid_remove()
+            self.pid_entry.grid_remove()
+
+        # Update parent's mode var
+        self.parent_mode_var.set(new_mode)
+
+        # Update validation
+        self._validate_all()
+
+        # Update timeout label
+        self._on_timeout_changed(self.timeout_var.get())
+
+    def _on_timeout_changed(self, value):
+        """Update timeout label when slider changes."""
+        try:
+            timeout_val = int(float(value))
+            self.timeout_value_label.configure(text=f"{timeout_val}s")
+            self._validate_all()
+        except Exception:
+            pass
+
+    def _validate_all(self):
+        """Validate all settings and update warnings display."""
+        self._validation_errors = []
+        self._validation_warnings = []
+
+        mode = self.mode_var.get()
+        timeout = self.timeout_var.get()
+        memory_limit = int(self.memory_limit_var.get())
+
+        # Validate PID for attach mode
+        if mode == "attach":
+            pid_str = self.attach_pid_var.get().strip()
+            if not pid_str:
+                self._validation_errors.append("ERROR: Process ID is required for Attach mode")
+            else:
+                try:
+                    pid = int(pid_str)
+                    if pid <= 0:
+                        self._validation_errors.append("ERROR: Process ID must be positive")
+                    else:
+                        # Try to validate PID exists using psutil if available
+                        try:
+                            import psutil
+                            if not psutil.pid_exists(pid):
+                                self._validation_warnings.append(f"WARNING: Process ID {pid} does not exist on system")
+                        except ImportError:
+                            # psutil not available, skip validation
+                            pass
+                except ValueError:
+                    self._validation_errors.append("ERROR: Process ID must be a valid integer")
+
+        # Validate timeout
+        if mode == "spawn" and timeout < 30:
+            self._validation_warnings.append("WARNING: Timeout < 30s for spawn mode may be insufficient")
+        elif mode == "attach" and timeout < 10:
+            self._validation_warnings.append("WARNING: Timeout < 10s for attach mode may be insufficient")
+
+        # Validate memory with crypto_ops
+        if memory_limit < 256 and self.crypto_ops_var.get():
+            self._validation_warnings.append("WARNING: Memory < 256 MB with crypto_ops may cause performance issues")
+
+        # Update display
+        self._update_warnings_display()
+
+        # Enable/disable Apply button based on errors
+        if self._validation_errors:
+            self.apply_btn.configure(state="disabled")
+        else:
+            self.apply_btn.configure(state="normal")
+
+    def _update_warnings_display(self):
+        """Update the warnings text display."""
+        self.warnings_text.configure(state="normal")
+        self.warnings_text.delete("1.0", "end")
+
+        if not self._validation_errors and not self._validation_warnings:
+            self.warnings_text.insert("1.0", "All settings are valid.\n", "valid")
+            self.warnings_text.tag_config("valid", foreground="#8f8")
+        else:
+            # Display errors first
+            for error in self._validation_errors:
+                self.warnings_text.insert("end", f"{error}\n", "error")
+
+            # Then warnings
+            for warning in self._validation_warnings:
+                self.warnings_text.insert("end", f"{warning}\n", "warning")
+
+            # Configure tags
+            self.warnings_text.tag_config("error", foreground="#f88")
+            self.warnings_text.tag_config("warning", foreground="#fa0")
+
+        self.warnings_text.configure(state="disabled")
+
+    def _reset_to_defaults(self):
+        """Reset all settings to factory defaults for current mode."""
+        mode = self.mode_var.get()
+        defaults = self.DEFAULTS[mode]
+
+        self.timeout_var.set(defaults['timeout'])
+        self.memory_limit_var.set(str(defaults['memory_limit']))
+        self.attach_pid_var.set("")
+        self.force_var.set(False)
+
+        self._validate_all()
+
+        # Log to console for debugging
+        print(f"[DynamicAdvancedOptions] Reset to defaults for mode: {mode}")
+
+    def _on_apply(self):
+        """Apply settings and close modal."""
+        if self._validation_errors:
+            return
+
+        # Build settings dict
+        mode = self.mode_var.get()
+        settings = {
+            'mode': mode,
+            'timeout': self.timeout_var.get(),
+            'memory_limit': int(self.memory_limit_var.get()),
+            'crypto_ops': self.crypto_ops_var.get(),
+            'memory_scan': self.memory_scan_var.get(),
+            'call_graph': self.call_graph_var.get(),
+            'force': self.force_var.get()
+        }
+
+        # Add attach_pid if in attach mode
+        if mode == 'attach':
+            try:
+                settings['attach_pid'] = int(self.attach_pid_var.get().strip())
+            except ValueError:
+                settings['attach_pid'] = None
+        else:
+            settings['attach_pid'] = None
+
+        # Store as last applied
+        self._last_applied_settings = settings.copy()
+
+        # Call callback if provided
+        if self.on_apply_callback:
+            self.on_apply_callback(settings)
+
+        # Log for debugging
+        print(f"[DynamicAdvancedOptions] Applied settings: {settings}")
+        print(f"[DynamicAdvancedOptions] Validation warnings: {len(self._validation_warnings)}")
+
+        # Close modal
+        self.destroy()
+
+    def _on_cancel(self):
+        """Cancel and close modal without applying."""
+        print("[DynamicAdvancedOptions] Cancelled without applying")
+        self.destroy()
+
+    def _center_on_parent(self):
+        """Center the modal on parent window."""
+        try:
+            self.update_idletasks()
+
+            # Get parent position and size
+            parent_x = self.parent_window.winfo_rootx()
+            parent_y = self.parent_window.winfo_rooty()
+            parent_width = self.parent_window.winfo_width()
+            parent_height = self.parent_window.winfo_height()
+
+            # Get modal size
+            modal_width = self.winfo_width()
+            modal_height = self.winfo_height()
+
+            # Calculate centered position
+            x = parent_x + (parent_width - modal_width) // 2
+            y = parent_y + (parent_height - modal_height) // 2
+
+            # Set position
+            self.geometry(f"+{x}+{y}")
+        except Exception:
+            pass
 
 
 class DetectorsPage(ctk.CTkFrame):
@@ -302,11 +880,38 @@ class DetectorsPage(ctk.CTkFrame):
         self.console_text = console_text
 
     def _build_dynamic_ui(self, parent: ctk.CTkFrame):
-        """Build the dynamic analysis UI with Frida instrumentation configuration."""
+        """Build the simplified dynamic analysis UI.
+
+        Main panel shows only essential controls:
+        - Mode selection (Spawn/Attach)
+        - PID input (for Attach mode)
+        - Advanced Options button
+        - Action buttons and progress
+
+        All advanced settings (timeout, memory, instrumenters, force re-analysis)
+        are accessible via the Advanced Options modal.
+        """
         parent.grid_columnconfigure(0, weight=1)
         parent.grid_rowconfigure(2, weight=1)
 
-        # Configuration section
+        # Initialize instance variables for advanced settings management
+        # These store the last applied settings from Advanced Options modal
+        self._dynamic_advanced_settings = {}
+
+        # Initialize timeout/memory with smart defaults (spawn mode defaults)
+        # These will be updated based on mode or advanced settings
+        self.dynamic_timeout_var = tk.IntVar(value=120)  # Default spawn timeout
+        self.dynamic_memory_var = tk.IntVar(value=512)   # Default spawn memory
+
+        # Initialize instrumenter flags with defaults
+        self.crypto_ops_var = tk.BooleanVar(value=True)
+        self.memory_scan_var = tk.BooleanVar(value=False)
+        self.call_graph_var = tk.BooleanVar(value=False)
+
+        # Initialize force re-analysis flag
+        self.dynamic_force_var = tk.BooleanVar(value=False)
+
+        # Configuration section - simplified to show only essential controls
         config_frame = ctk.CTkFrame(parent)
         config_frame.grid(row=0, column=0, sticky="ew", padx=15, pady=15)
         config_frame.grid_columnconfigure(1, weight=1)
@@ -327,7 +932,8 @@ class DetectorsPage(ctk.CTkFrame):
             mode_frame,
             text="Spawn (Launch binary with Frida)",
             variable=self.dynamic_mode_var,
-            value="spawn"
+            value="spawn",
+            command=self._on_dynamic_mode_changed
         )
         spawn_radio.pack(side="left", padx=(0, 20))
 
@@ -335,113 +941,42 @@ class DetectorsPage(ctk.CTkFrame):
             mode_frame,
             text="Attach (Hook running process by PID)",
             variable=self.dynamic_mode_var,
-            value="attach"
+            value="attach",
+            command=self._on_dynamic_mode_changed
         )
         attach_radio.pack(side="left")
 
-        # Timeout configuration
+        # PID input for attach mode
         ctk.CTkLabel(
             config_frame,
-            text="Timeout (seconds):",
+            text="Process ID (for Attach):",
             font=("Roboto", 12, "bold")
-        ).grid(row=1, column=0, sticky="w", pady=5)
+        ).grid(row=0, column=2, sticky="w", padx=(20, 0), pady=5)
 
-        timeout_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
-        timeout_frame.grid(row=1, column=1, sticky="ew", pady=5)
-        timeout_frame.grid_columnconfigure(1, weight=1)
-
-        self.dynamic_timeout_var = tk.IntVar(value=500)
-
-        timeout_slider = ctk.CTkSlider(
-            timeout_frame,
-            from_=50,
-            to=1000,
-            number_of_steps=19,
-            variable=self.dynamic_timeout_var,
-            command=self._on_timeout_change
+        self.dynamic_attach_pid_var = tk.StringVar(value="")
+        pid_entry = ctk.CTkEntry(
+            config_frame,
+            textvariable=self.dynamic_attach_pid_var,
+            placeholder_text="Enter PID (required for Attach mode)",
+            width=200
         )
-        timeout_slider.grid(row=0, column=0, sticky="ew", padx=(0, 10))
+        pid_entry.grid(row=0, column=3, sticky="ew", padx=(10, 0), pady=5)
 
-        self.timeout_label = ctk.CTkLabel(
-            timeout_frame,
-            text="500s",
-            font=("Roboto", 11),
-            text_color="#aaa",
-            width=50
+        # Advanced Options button - positioned after mode selection
+        advanced_btn_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
+        advanced_btn_frame.grid(row=1, column=1, sticky="w", pady=(10, 5))
+
+        self.advanced_dynamic_btn = ctk.CTkButton(
+            advanced_btn_frame,
+            text="⚙️ Advanced Options",
+            command=self._open_dynamic_advanced_options,
+            width=180,
+            height=36,
+            font=("Roboto", 12),
+            fg_color="#5a7e9f",
+            hover_color="#4a6a8f"
         )
-        self.timeout_label.grid(row=0, column=1, sticky="w")
-
-        # Memory limit
-        ctk.CTkLabel(
-            config_frame,
-            text="Memory Limit (MB):",
-            font=("Roboto", 12, "bold")
-        ).grid(row=2, column=0, sticky="w", pady=5)
-
-        memory_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
-        memory_frame.grid(row=2, column=1, sticky="ew", pady=5)
-
-        self.dynamic_memory_var = tk.IntVar(value=1024)
-        memory_spinbox = ctk.CTkOptionMenu(
-            memory_frame,
-            values=["128", "256", "512", "1024", "2048", "4096"],
-            variable=self.dynamic_memory_var,
-            width=150
-        )
-        memory_spinbox.pack(side="left")
-
-        # Instrumenters selection
-        ctk.CTkLabel(
-            config_frame,
-            text="Instrumenters:",
-            font=("Roboto", 12, "bold")
-        ).grid(row=3, column=0, sticky="nw", pady=5)
-
-        instr_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
-        instr_frame.grid(row=3, column=1, sticky="w", pady=5)
-
-        self.crypto_ops_var = tk.BooleanVar(value=True)
-        self.memory_scan_var = tk.BooleanVar(value=False)
-        self.call_graph_var = tk.BooleanVar(value=False)
-
-        ctk.CTkCheckBox(
-            instr_frame,
-            text="Crypto Operations (bcrypt.dll, crypt32.dll)",
-            variable=self.crypto_ops_var,
-            font=("Roboto", 11)
-        ).pack(anchor="w", pady=2)
-
-        ctk.CTkCheckBox(
-            instr_frame,
-            text="Memory Scanning (High-entropy detection)",
-            variable=self.memory_scan_var,
-            font=("Roboto", 11)
-        ).pack(anchor="w", pady=2)
-
-        ctk.CTkCheckBox(
-            instr_frame,
-            text="Call Graph (Function relationships)",
-            variable=self.call_graph_var,
-            font=("Roboto", 11)
-        ).pack(anchor="w", pady=2)
-
-        # Advanced options
-        ctk.CTkLabel(
-            config_frame,
-            text="Options:",
-            font=("Roboto", 12, "bold")
-        ).grid(row=4, column=0, sticky="w", pady=5)
-
-        options_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
-        options_frame.grid(row=4, column=1, sticky="w", pady=5)
-
-        self.dynamic_force_var = tk.BooleanVar(value=False)
-        ctk.CTkCheckBox(
-            options_frame,
-            text="Force re-analysis (ignore cache)",
-            variable=self.dynamic_force_var,
-            font=("Roboto", 11)
-        ).pack(side="left", padx=(0, 20))
+        self.advanced_dynamic_btn.pack(side="left")
 
         # Action buttons
         action_frame = ctk.CTkFrame(parent)
@@ -559,12 +1094,104 @@ class DetectorsPage(ctk.CTkFrame):
         self._dynamic_cancel_event = None
         self._dynamic_batch_results = {}
 
-    def _on_timeout_change(self, value):
-        """Update timeout label when slider changes."""
+    def _on_dynamic_mode_changed(self):
+        """Handle dynamic mode change between spawn and attach."""
         try:
-            self.timeout_label.configure(text=f"{int(float(value))}s")
+            mode = self.dynamic_mode_var.get()
+            if mode == "attach":
+                self._log_dynamic_console("ℹ️ Attach mode selected: Enter the PID of the process to attach to")
+            else:
+                self._log_dynamic_console("ℹ️ Spawn mode selected: Binary will be launched with Frida instrumentation")
         except Exception:
             pass
+
+    def _open_dynamic_advanced_options(self):
+        """Open the advanced options modal for dynamic analysis."""
+        try:
+            # Build current settings dict from UI state
+            current_settings = {
+                'mode': self.dynamic_mode_var.get(),
+                'timeout': self.dynamic_timeout_var.get(),
+                'memory_limit': self.dynamic_memory_var.get(),
+                'crypto_ops': self.crypto_ops_var.get(),
+                'memory_scan': self.memory_scan_var.get(),
+                'call_graph': self.call_graph_var.get(),
+                'force': self.dynamic_force_var.get()
+            }
+
+            # Add attach_pid if available
+            pid_str = self.dynamic_attach_pid_var.get().strip()
+            if pid_str:
+                try:
+                    current_settings['attach_pid'] = int(pid_str)
+                except ValueError:
+                    current_settings['attach_pid'] = None
+            else:
+                current_settings['attach_pid'] = None
+
+            # Use last applied settings if available (session memory)
+            if self._dynamic_advanced_settings:
+                current_settings.update(self._dynamic_advanced_settings)
+
+            # Open modal
+            modal = DynamicAdvancedOptionsModal(
+                parent=self,
+                mode_var=self.dynamic_mode_var,
+                current_settings=current_settings,
+                on_apply=self._on_advanced_options_applied
+            )
+
+            self._log_dynamic_console("Advanced options dialog opened")
+
+        except Exception as e:
+            self._log_dynamic_console(f"Error opening advanced options: {e}")
+
+    def _on_advanced_options_applied(self, settings: Dict[str, Any]):
+        """Handle applied settings from advanced options modal.
+
+        Updates internal variables based on settings from the Advanced Options modal.
+        These settings will be used by the batch analysis thread instead of defaults.
+
+        Args:
+            settings: Dict containing all applied settings from modal
+        """
+        try:
+            # Store in session state - these override defaults when analysis runs
+            self._dynamic_advanced_settings = settings.copy()
+
+            # Update internal variables (not visible in UI, but used by batch thread)
+            self.dynamic_mode_var.set(settings['mode'])
+            self.dynamic_timeout_var.set(settings['timeout'])
+            self.dynamic_memory_var.set(settings['memory_limit'])
+
+            # Update PID if provided
+            if settings.get('attach_pid') is not None:
+                self.dynamic_attach_pid_var.set(str(settings['attach_pid']))
+
+            # Update instrumenter flags
+            self.crypto_ops_var.set(settings.get('crypto_ops', True))
+            self.memory_scan_var.set(settings.get('memory_scan', False))
+            self.call_graph_var.set(settings.get('call_graph', False))
+
+            # Update force re-analysis flag
+            self.dynamic_force_var.set(settings.get('force', False))
+
+            # Log the applied settings
+            self._log_dynamic_console("⚙️ Advanced options applied:")
+            self._log_dynamic_console(f"  Mode: {settings['mode']}")
+            self._log_dynamic_console(f"  Timeout: {settings['timeout']}s")
+            self._log_dynamic_console(f"  Memory Limit: {settings['memory_limit']} MB")
+
+            if settings.get('attach_pid'):
+                self._log_dynamic_console(f"  Attach PID: {settings['attach_pid']}")
+
+            self._log_dynamic_console(f"  Instrumenters: crypto_ops={settings['crypto_ops']}, memory_scan={settings['memory_scan']}, call_graph={settings['call_graph']}")
+
+            if settings.get('force'):
+                self._log_dynamic_console(f"  Force re-analysis: enabled")
+
+        except Exception as e:
+            self._log_dynamic_console(f"Error applying advanced options: {e}")
 
     def _run_dynamic_analysis(self):
         """Run dynamic analysis in background thread."""
@@ -601,7 +1228,14 @@ class DetectorsPage(ctk.CTkFrame):
         t.start()
 
     def _batch_dynamic_analysis_thread(self):
-        """Background thread for batch dynamic analysis of all binaries."""
+        """Background thread for batch dynamic analysis of all binaries.
+
+        Uses smart defaults based on execution mode:
+        - Spawn mode: 120s timeout, 512MB memory
+        - Attach mode: 60s timeout, 256MB memory
+
+        If user has configured Advanced Options, those settings override defaults.
+        """
         try:
             from auditor.detectors.dynamic_detection import DynamicRunner, DynamicContext
 
@@ -609,8 +1243,28 @@ class DetectorsPage(ctk.CTkFrame):
             self._dynamic_batch_results = {}
 
             mode = self.dynamic_mode_var.get()
-            timeout = self.dynamic_timeout_var.get()
-            memory_limit = int(self.dynamic_memory_var.get())
+
+            # Apply smart defaults based on mode if advanced settings not configured
+            if not self._dynamic_advanced_settings:
+                # Factory defaults based on mode
+                if mode == "spawn":
+                    timeout = 120   # Spawn mode: longer timeout for binary startup
+                    memory_limit = 512  # Spawn mode: more memory for full binary execution
+                    self.after(0, self._log_dynamic_console, "ℹ️ Using default spawn settings (120s, 512MB)")
+                else:  # attach mode
+                    timeout = 60    # Attach mode: shorter timeout for quick hooking
+                    memory_limit = 256  # Attach mode: less memory needed for hooking
+                    self.after(0, self._log_dynamic_console, "ℹ️ Using default attach settings (60s, 256MB)")
+
+                # Update internal variables with defaults
+                self.dynamic_timeout_var.set(timeout)
+                self.dynamic_memory_var.set(memory_limit)
+            else:
+                # Use settings from Advanced Options modal
+                timeout = self.dynamic_timeout_var.get()
+                memory_limit = int(self.dynamic_memory_var.get())
+                self.after(0, self._log_dynamic_console, "ℹ️ Using advanced options settings")
+
             force = self.dynamic_force_var.get()
 
             total_files = len(self._all_file_hashes)
@@ -639,6 +1293,19 @@ class DetectorsPage(ctk.CTkFrame):
                         self._case_workdir, 'analysis', 'static', file_hash, 'hints.json'
                     )
 
+                    # Get attach_pid if in attach mode
+                    attach_pid = None
+                    if mode == 'attach':
+                        try:
+                            pid_str = self.dynamic_attach_pid_var.get().strip()
+                            if not pid_str:
+                                self.after(0, self._log_dynamic_console, f"❌ Attach mode requires Process ID")
+                                continue
+                            attach_pid = int(pid_str)
+                        except ValueError:
+                            self.after(0, self._log_dynamic_console, f"❌ Invalid PID: {pid_str}")
+                            continue
+
                     ctx = DynamicContext(
                         file_hash=file_hash,
                         preproc_dir=os.path.join(self._case_workdir, 'preproc', file_hash),
@@ -647,6 +1314,7 @@ class DetectorsPage(ctk.CTkFrame):
                         mode=mode,
                         timeout=timeout,
                         memory_limit=memory_limit,
+                        attach_pid=attach_pid,
                         instrumenters={
                             'crypto_ops': self.crypto_ops_var.get(),
                             'memory_scan': self.memory_scan_var.get(),

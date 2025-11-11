@@ -3,7 +3,9 @@
 ## Date: November 11, 2025
 
 ## Problem Statement
+
 Dynamic analysis was running but producing NO RESULTS:
+
 - Call graph was empty
 - Traces were empty (0 events)
 - Despite Setup and Static Analysis working correctly
@@ -12,9 +14,11 @@ Dynamic analysis was running but producing NO RESULTS:
 ## Root Causes Found and Fixed
 
 ### Bug #1: Setup Error Check (runner.py)
+
 **Location**: `src/auditor/detectors/dynamic_detection/runner.py` line 124
 
-**Issue**: 
+**Issue**:
+
 ```python
 if not result.is_success():
     # ERROR: is_success() checks if dynamic_results_path is not None
@@ -24,6 +28,7 @@ if not result.is_success():
 ```
 
 **Fix**:
+
 ```python
 if hints_data is None or result.errors:
     # Check for actual errors instead of incomplete results
@@ -35,9 +40,11 @@ if hints_data is None or result.errors:
 ---
 
 ### Bug #2: Frida spawn() API Call (frida_harness.py)
+
 **Location**: `src/auditor/detectors/dynamic_detection/frida_harness.py` line 210
 
 **Issue**:
+
 ```python
 # sandbox.get_spawn_options() returns:
 # {'argv': ['/path/to/binary', 'arg1'], 'env': {...}, 'cwd': '...', 'stdio': 'pipe'}
@@ -50,6 +57,7 @@ pid = frida.spawn(**spawn_options)
 ```
 
 **Fix**:
+
 ```python
 # Frida API: spawn(program, argv=[], **options)
 program = spawn_options.pop('argv')[0]  # Extract binary path
@@ -68,6 +76,7 @@ pid = frida.spawn(program, argv=argv, **spawn_options)
 ### File 1: `src/auditor/detectors/dynamic_detection/runner.py`
 
 **Change 1 - Line ~115** (Preflight checks):
+
 ```python
 # BEFORE:
 result = self._preflight_checks(ctx, result)
@@ -81,6 +90,7 @@ if result.errors:
 ```
 
 **Change 2 - Line ~124** (Setup checks):
+
 ```python
 # BEFORE:
 if not result.is_success():
@@ -94,6 +104,7 @@ if hints_data is None or result.errors:
 ### File 2: `src/auditor/detectors/dynamic_detection/frida_harness.py`
 
 **Change - Line ~210** (Spawn mode):
+
 ```python
 # BEFORE:
 spawn_options = sandbox.get_spawn_options(...)
