@@ -26,6 +26,10 @@ from . import frida_harness
 from . import trace_manager
 from . import traces_sanitizer
 from . import results_packager
+from . import quota_manager
+from . import retention_manager
+from . import resilience
+from . import performance
 
 
 class DynamicRunner:
@@ -229,6 +233,7 @@ class DynamicRunner:
         1. License validation
         2. Frida availability
         3. Binary exists
+        4. Quota limits (if enabled)
 
         Args:
             ctx: Context
@@ -253,6 +258,26 @@ class DynamicRunner:
         if not os.path.exists(binary_path):
             result.add_error(f"Binary not found: {binary_path}")
             return result
+        
+        # Check quota limits (if user_id provided in context)
+        if hasattr(ctx, 'user_id') and ctx.user_id:
+            try:
+                qm = quota_manager.QuotaManager(ctx.analysis_base)
+                quota_status = qm.check_quota(ctx.user_id, ctx.file_hash)
+                
+                if not quota_status['allowed']:
+                    violations = quota_status.get('violations', [])
+                    result.add_error(f"Quota exceeded: {'; '.join(violations)}")
+                    return result
+                
+                print(f"[Runner] Quota check passed for user {ctx.user_id}")
+                
+            except quota_manager.QuotaExceededError as e:
+                result.add_error(str(e))
+                return result
+            except Exception as e:
+                # Don't fail analysis if quota check has issues
+                print(f"[Runner] Warning: Quota check failed: {e}")
 
         # Update Frida version
         if self._frida_available:

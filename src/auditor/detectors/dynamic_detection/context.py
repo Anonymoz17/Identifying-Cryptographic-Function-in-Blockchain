@@ -41,6 +41,7 @@ class DynamicContext:
         config_path: Optional path to dynamic_config.json for per-binary settings
         tool_versions: Tool versions for cache validation
         instrumenters: Which instrumenters to enable
+        user_id: Optional user identifier for quota tracking (Phase 8)
     """
     file_hash: str
     preproc_dir: str
@@ -58,6 +59,7 @@ class DynamicContext:
         'memory_scan': False,  # Optional, lightweight
         'call_graph': False    # Optional
     })
+    user_id: Optional[str] = None  # For quota tracking (Phase 8)
 
     def __post_init__(self):
         """Validate context after initialization."""
