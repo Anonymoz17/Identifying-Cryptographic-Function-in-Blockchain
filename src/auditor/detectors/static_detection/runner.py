@@ -17,7 +17,17 @@ from . import cache
 
 import os
 import json
+import time
+import logging
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
+
+# Overall timeout for entire static detection pipeline (5 minutes default)
+DEFAULT_PIPELINE_TIMEOUT = 300.0
+# Per-stage timeouts (can be adjusted based on file size/complexity)
+DEFAULT_PREPROC_TIMEOUT = 60.0
+DEFAULT_HEURISTICS_TIMEOUT = 120.0
 
 
 class StaticRunner:
@@ -41,17 +51,22 @@ class StaticRunner:
         5. Executes heuristic detectors
         6. Scores and aggregates findings
         7. Generates hints and packages results
-        
+
         Returns:
             RunResult with paths to generated artifacts and summary
-            
+
         Raises:
             FileNotFoundError: If preprocessed input is not found
             ValueError: If input validation fails
             RuntimeError: If critical pipeline step fails
+            TimeoutError: If pipeline exceeds timeout
         """
         # Prepare result container
         result = RunResult(file_hash="", cached=False, summary={}, errors=None)
+
+        # Start overall pipeline timer
+        pipeline_start = time.time()
+        pipeline_timeout = getattr(ctx, "pipeline_timeout", DEFAULT_PIPELINE_TIMEOUT)
 
         try:
             # Resolve preproc directory according to the storage conventions in
@@ -142,9 +157,23 @@ class StaticRunner:
                 result.summary = {"note": f"reused cached static results ({reason})"}
                 return result
 
+            # Check overall timeout before expensive operations
+            elapsed = time.time() - pipeline_start
+            if elapsed > pipeline_timeout:
+                raise TimeoutError(f"Static detection pipeline exceeded timeout ({elapsed:.1f}s > {pipeline_timeout}s)")
+
             # 1) generate lightweight static preproc artifacts (profile-aware)
             preproc_out = os.path.join(analysis_dir, "preproc")
-            static_artifacts = static_preproc.generate_static_preproc(preproc_dir=preproc_dir_to_use, out_dir=preproc_out, profile=ctx.profile)
+            # Calculate per-stage timeout based on elapsed time
+            remaining_time = pipeline_timeout - elapsed
+            preproc_timeout = min(DEFAULT_PREPROC_TIMEOUT, max(10.0, remaining_time * 0.2))  # Use 20% of remaining time, minimum 10s
+            logger.debug(f"Starting static_preproc with timeout {preproc_timeout:.1f}s (remaining: {remaining_time:.1f}s)")
+            static_artifacts = static_preproc.generate_static_preproc(
+                preproc_dir=preproc_dir_to_use,
+                out_dir=preproc_out,
+                profile=ctx.profile,
+                timeout_sec=preproc_timeout
+            )
 
             # Add preproc and binary paths to static_artifacts for location enrichment
             static_artifacts["__preproc_dir__"] = preproc_dir_to_use
@@ -203,6 +232,11 @@ class StaticRunner:
                 except Exception:
                     pass
 
+            # Check timeout before heuristics
+            elapsed = time.time() - pipeline_start
+            if elapsed > pipeline_timeout:
+                raise TimeoutError(f"Static detection pipeline exceeded timeout before heuristics ({elapsed:.1f}s > {pipeline_timeout}s)")
+
             # 3) run heuristics
             # collect heuristic callables from heuristics package
             heuristics = []
@@ -222,7 +256,18 @@ class StaticRunner:
             except Exception:
                 pass
 
-            findings = heuristics_manager.run_heuristics(ghidra_export, preproc.metadata, heuristics, static_artifacts=static_artifacts)
+            # Calculate heuristics timeout from remaining time
+            remaining_time = pipeline_timeout - elapsed
+            heuristics_timeout = min(DEFAULT_HEURISTICS_TIMEOUT, max(10.0, remaining_time * 0.4))  # Use 40% of remaining
+            logger.debug(f"Running heuristics with timeout {heuristics_timeout:.1f}s (remaining: {remaining_time:.1f}s)")
+
+            findings = heuristics_manager.run_heuristics(
+                ghidra_export,
+                preproc.metadata,
+                heuristics,
+                static_artifacts=static_artifacts,
+                timeout_sec=heuristics_timeout
+            )
 
             # 4) PHASE 2: Enrich findings with Ghidra context (function call graph, signatures)
             if ghidra_export:
