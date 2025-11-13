@@ -356,36 +356,45 @@ class StaticTab(ctk.CTkFrame):
             )
             copy_btn.grid(row=0, column=2, sticky="e", padx=(4, 0))
 
-        # Location info from additional data
-        # Priority fields to show first
-        priority_fields = ['offset', 'function', 'section', 'file_offset', 'virtual_address', 'module', 'address']
+        # Detection metadata section
+        # Show reason tags and evidence tags if available
+        reason_tags = finding.additional_data.get('reason_tags', []) if finding.additional_data else []
+        evidence_tags = finding.additional_data.get('evidence_tags', []) if finding.additional_data else []
 
-        if finding.additional_data:
-            # Show priority location fields first
-            location_shown = False
-            for field in priority_fields:
-                if field in finding.additional_data:
-                    if not location_shown:
-                        location_header = ctk.CTkLabel(
-                            details_content,
-                            text="Location Info:",
-                            font=("Roboto", 10, "bold"),
-                            text_color=COLORS['text_secondary']
-                        )
-                        location_header.pack(anchor="w", padx=0, pady=(8, 4))
-                        location_shown = True
+        if reason_tags or evidence_tags:
+            metadata_header = ctk.CTkLabel(
+                details_content,
+                text="Detection Metadata:",
+                font=("Roboto", 10, "bold"),
+                text_color=COLORS['text_secondary']
+            )
+            metadata_header.pack(anchor="w", padx=0, pady=(8, 4))
 
-                    value = finding.additional_data[field]
-                    field_label = field.replace('_', ' ').title()
-                    loc_text = ctk.CTkLabel(
-                        details_content,
-                        text=f"{field_label}: {value}",
-                        font=("Roboto", 9),
-                        text_color=COLORS['text'],
-                        wraplength=250,
-                        justify="left"
-                    )
-                    loc_text.pack(anchor="w", padx=0, pady=2)
+            # Show reason tags
+            if reason_tags:
+                tags_str = ", ".join(reason_tags)
+                tags_label = ctk.CTkLabel(
+                    details_content,
+                    text=f"Detection Tags: {tags_str}",
+                    font=("Roboto", 9),
+                    text_color=COLORS['text'],
+                    wraplength=250,
+                    justify="left"
+                )
+                tags_label.pack(anchor="w", padx=0, pady=2)
+
+            # Show evidence tags if different from reason tags
+            if evidence_tags and evidence_tags != reason_tags:
+                ev_tags_str = ", ".join(evidence_tags)
+                ev_label = ctk.CTkLabel(
+                    details_content,
+                    text=f"Evidence: {ev_tags_str}",
+                    font=("Roboto", 9),
+                    text_color=COLORS['text'],
+                    wraplength=250,
+                    justify="left"
+                )
+                ev_label.pack(anchor="w", padx=0, pady=2)
 
         # Separator
         sep = ctk.CTkFrame(details_content, height=1, fg_color=COLORS['border'])
@@ -433,46 +442,36 @@ class StaticTab(ctk.CTkFrame):
             )
             fix_text.pack(anchor="w", padx=0, pady=(0, 8))
 
-        # Additional data (if any remaining - exclude location fields already shown)
-        location_fields_to_exclude = ['offset', 'function', 'section', 'file_offset', 'virtual_address', 'module', 'address']
+        # Additional data (if any remaining - exclude location/metadata fields already shown)
+        fields_to_exclude = ['reason_tags', 'evidence_tags', 'evidence_snippet', 'evidence', 'offset', 'function', 'section', 'file_offset', 'virtual_address', 'module', 'address']
         other_data = {k: v for k, v in (finding.additional_data or {}).items()
-                      if k not in location_fields_to_exclude}
-        if other_data or finding.additional_data:
+                      if k not in fields_to_exclude}
+
+        if other_data:
             additional_label = ctk.CTkLabel(
                 details_content,
-                text="Additional Info:",
+                text="Additional Metadata:",
                 font=("Roboto", 10, "bold"),
                 text_color=COLORS['text_secondary']
             )
             additional_label.pack(anchor="w", padx=0, pady=(8, 4))
 
             # Show all remaining data (both expected and unexpected fields help with debugging)
-            display_data = other_data if other_data else (finding.additional_data or {})
-            if display_data:
-                for key, value in display_data.items():
-                    # Format value nicely
-                    value_str = str(value)
-                    if len(value_str) > 80:
-                        value_str = value_str[:77] + "..."
-                    field_label = key.replace('_', ' ').title()
-                    info_text = ctk.CTkLabel(
-                        details_content,
-                        text=f"{field_label}: {value_str}",
-                        font=("Roboto", 9),
-                        text_color=COLORS['text'],
-                        wraplength=250,
-                        justify="left"
-                    )
-                    info_text.pack(anchor="w", padx=0, pady=2)
-            else:
-                # If no additional data at all, show message
-                no_data = ctk.CTkLabel(
+            for key, value in other_data.items():
+                # Format value nicely
+                value_str = str(value)
+                if len(value_str) > 80:
+                    value_str = value_str[:77] + "..."
+                field_label = key.replace('_', ' ').title()
+                info_text = ctk.CTkLabel(
                     details_content,
-                    text="(No additional metadata available)",
+                    text=f"{field_label}: {value_str}",
                     font=("Roboto", 9),
-                    text_color=COLORS['text_secondary']
+                    text_color=COLORS['text'],
+                    wraplength=250,
+                    justify="left"
                 )
-                no_data.pack(anchor="w", padx=0, pady=2)
+                info_text.pack(anchor="w", padx=0, pady=2)
 
     def _get_fix_suggestion(self, finding: 'Finding') -> Optional[str]:
         """Get actionable fix suggestion based on finding type."""

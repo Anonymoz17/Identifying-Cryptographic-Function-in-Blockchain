@@ -193,16 +193,34 @@ class ResultsDataModel:
             # Parse findings
             self.static_findings = []
             for finding_data in data.get('findings', []):
+                # Extract evidence string (can be nested object or direct string)
+                evidence_str = finding_data.get('evidence_snippet', '')
+                if not evidence_str and isinstance(finding_data.get('evidence'), dict):
+                    evidence_str = finding_data.get('evidence', {}).get('snippet', '')
+
+                # Build additional_data from available fields
+                # Include reason_tags and other metadata
+                additional_data = {
+                    'reason_tags': finding_data.get('reason_tags', []),
+                    'evidence_tags': finding_data.get('evidence', {}).get('reason_tags', []) if isinstance(finding_data.get('evidence'), dict) else [],
+                }
+
+                # Add any other fields from the finding that aren't standard
+                standard_fields = {'id', 'type', 'name', 'confidence', 'score', 'count', 'address', 'evidence', 'evidence_snippet', 'reason_tags'}
+                for key, value in finding_data.items():
+                    if key not in standard_fields and key not in additional_data:
+                        additional_data[key] = value
+
                 finding = Finding(
                     id=finding_data.get('id', f"static_{len(self.static_findings)}"),
                     type=finding_data.get('type', 'unknown'),
-                    address=finding_data.get('address'),
+                    address=finding_data.get('address'),  # May be None, that's OK
                     confidence=float(finding_data.get('confidence', 0.5)),
                     score=finding_data.get('score'),
                     name=finding_data.get('name', ''),
-                    evidence=finding_data.get('evidence', ''),
+                    evidence=evidence_str,  # Use evidence_snippet or evidence.snippet
                     count=finding_data.get('count', 1),
-                    additional_data=finding_data.get('additional_data', {})
+                    additional_data=additional_data
                 )
                 self.static_findings.append(finding)
 
