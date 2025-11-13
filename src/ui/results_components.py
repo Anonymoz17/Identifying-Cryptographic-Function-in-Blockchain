@@ -346,7 +346,7 @@ class FilterPanel(ctk.CTkFrame):
 
         conf_label = ctk.CTkLabel(
             conf_frame,
-            text="Confidence:",
+            text="Max Confidence:",
             font=("Roboto", 10),
             text_color=COLORS['text_secondary']
         )
@@ -418,8 +418,13 @@ class FindingsTable(ctk.CTkFrame):
         table.add_finding("Finding 1", "0.95", "constant_table")
     """
 
-    def __init__(self, master, **kwargs):
-        """Initialize the findings table."""
+    def __init__(self, master, on_sort_column: Optional[Callable] = None, **kwargs):
+        """Initialize the findings table.
+
+        Args:
+            master: Parent widget
+            on_sort_column: Callback when column header is clicked (receives column name: 'confidence', 'name', 'type')
+        """
         super().__init__(
             master,
             fg_color="transparent",
@@ -427,6 +432,7 @@ class FindingsTable(ctk.CTkFrame):
         )
 
         self.grid_columnconfigure(0, weight=1)
+        self.on_sort_column = on_sort_column
 
         # Selection tracking
         self.selected_row_frame = None  # Current selected row widget
@@ -444,14 +450,39 @@ class FindingsTable(ctk.CTkFrame):
         id_h = ctk.CTkLabel(header, text="ID", font=("Roboto", 10, "bold"))
         id_h.grid(row=0, column=0, padx=12, pady=8, sticky="w")
 
-        name_h = ctk.CTkLabel(header, text="Finding", font=("Roboto", 10, "bold"))
+        # Clickable column headers
+        name_h = ctk.CTkLabel(
+            header,
+            text="Finding",
+            font=("Roboto", 10, "bold"),
+            text_color=COLORS['text']
+        )
         name_h.grid(row=0, column=1, padx=12, pady=8, sticky="ew")
+        if on_sort_column:
+            name_h.configure(cursor="hand2")
+            name_h.bind("<Button-1>", lambda e: on_sort_column('name'))
 
-        conf_h = ctk.CTkLabel(header, text="Confidence", font=("Roboto", 10, "bold"))
+        conf_h = ctk.CTkLabel(
+            header,
+            text="Confidence ▲▼",
+            font=("Roboto", 10, "bold"),
+            text_color=COLORS['text']
+        )
         conf_h.grid(row=0, column=2, padx=12, pady=8, sticky="e")
+        if on_sort_column:
+            conf_h.configure(cursor="hand2")
+            conf_h.bind("<Button-1>", lambda e: on_sort_column('confidence'))
 
-        type_h = ctk.CTkLabel(header, text="Type", font=("Roboto", 10, "bold"))
+        type_h = ctk.CTkLabel(
+            header,
+            text="Type",
+            font=("Roboto", 10, "bold"),
+            text_color=COLORS['text']
+        )
         type_h.grid(row=0, column=3, padx=12, pady=8, sticky="e")
+        if on_sort_column:
+            type_h.configure(cursor="hand2")
+            type_h.bind("<Button-1>", lambda e: on_sort_column('type'))
 
         # Scrollable content
         self.scroll_frame = ctk.CTkScrollableFrame(

@@ -70,8 +70,11 @@ class StaticTab(ctk.CTkFrame):
         )
         header.grid(row=0, column=0, sticky="ew", padx=0, pady=(0, 8))
 
-        # Findings table
-        self.findings_table = FindingsTable(left_section)
+        # Findings table with sort callback
+        self.findings_table = FindingsTable(
+            left_section,
+            on_sort_column=self._sort_findings  # Pass sort callback
+        )
         self.findings_table.grid(row=1, column=0, sticky="nsew", padx=0, pady=0)
 
         # Right side - Details panel
@@ -121,9 +124,11 @@ class StaticTab(ctk.CTkFrame):
         if not self.data_model:
             return
 
-        # Get all filtered findings
-        min_conf = self.current_filters.get('min_confidence', 0.0)
-        self.all_findings = self.data_model.get_static_findings(min_confidence=min_conf)
+        # Get all findings, then filter by MAX confidence (shows findings with confidence <= threshold)
+        # When slider is at 5%, shows findings with confidence 0-5% (low confidence)
+        max_conf = self.current_filters.get('min_confidence', 1.0)
+        all_findings = self.data_model.get_static_findings(min_confidence=0.0)
+        self.all_findings = [f for f in all_findings if f.confidence <= max_conf]
 
         # Calculate total pages
         if self.all_findings:
@@ -352,23 +357,29 @@ class StaticTab(ctk.CTkFrame):
             copy_btn.grid(row=0, column=2, sticky="e", padx=(4, 0))
 
         # Location info from additional data
-        if finding.additional_data and any(k in finding.additional_data for k in ['offset', 'function', 'section', 'file_offset']):
-            location_header = ctk.CTkLabel(
-                details_content,
-                text="Location Info:",
-                font=("Roboto", 10, "bold"),
-                text_color=COLORS['text_secondary']
-            )
-            location_header.pack(anchor="w", padx=0, pady=(8, 4))
+        # Priority fields to show first
+        priority_fields = ['offset', 'function', 'section', 'file_offset', 'virtual_address', 'module', 'address']
 
-            # Display relevant location fields
-            location_fields = ['offset', 'function', 'section', 'file_offset', 'virtual_address', 'module']
-            for field in location_fields:
+        if finding.additional_data:
+            # Show priority location fields first
+            location_shown = False
+            for field in priority_fields:
                 if field in finding.additional_data:
+                    if not location_shown:
+                        location_header = ctk.CTkLabel(
+                            details_content,
+                            text="Location Info:",
+                            font=("Roboto", 10, "bold"),
+                            text_color=COLORS['text_secondary']
+                        )
+                        location_header.pack(anchor="w", padx=0, pady=(8, 4))
+                        location_shown = True
+
                     value = finding.additional_data[field]
+                    field_label = field.replace('_', ' ').title()
                     loc_text = ctk.CTkLabel(
                         details_content,
-                        text=f"{field.replace('_', ' ').title()}: {value}",
+                        text=f"{field_label}: {value}",
                         font=("Roboto", 9),
                         text_color=COLORS['text'],
                         wraplength=250,
@@ -422,10 +433,11 @@ class StaticTab(ctk.CTkFrame):
             )
             fix_text.pack(anchor="w", padx=0, pady=(0, 8))
 
-        # Additional data (if any remaining)
+        # Additional data (if any remaining - exclude location fields already shown)
+        location_fields_to_exclude = ['offset', 'function', 'section', 'file_offset', 'virtual_address', 'module', 'address']
         other_data = {k: v for k, v in (finding.additional_data or {}).items()
-                      if k not in ['offset', 'function', 'section', 'file_offset', 'virtual_address', 'module']}
-        if other_data:
+                      if k not in location_fields_to_exclude}
+        if other_data or finding.additional_data:
             additional_label = ctk.CTkLabel(
                 details_content,
                 text="Additional Info:",
@@ -434,16 +446,33 @@ class StaticTab(ctk.CTkFrame):
             )
             additional_label.pack(anchor="w", padx=0, pady=(8, 4))
 
-            for key, value in other_data.items():
-                info_text = ctk.CTkLabel(
+            # Show all remaining data (both expected and unexpected fields help with debugging)
+            display_data = other_data if other_data else (finding.additional_data or {})
+            if display_data:
+                for key, value in display_data.items():
+                    # Format value nicely
+                    value_str = str(value)
+                    if len(value_str) > 80:
+                        value_str = value_str[:77] + "..."
+                    field_label = key.replace('_', ' ').title()
+                    info_text = ctk.CTkLabel(
+                        details_content,
+                        text=f"{field_label}: {value_str}",
+                        font=("Roboto", 9),
+                        text_color=COLORS['text'],
+                        wraplength=250,
+                        justify="left"
+                    )
+                    info_text.pack(anchor="w", padx=0, pady=2)
+            else:
+                # If no additional data at all, show message
+                no_data = ctk.CTkLabel(
                     details_content,
-                    text=f"{key}: {value}",
+                    text="(No additional metadata available)",
                     font=("Roboto", 9),
-                    text_color=COLORS['text'],
-                    wraplength=250,
-                    justify="left"
+                    text_color=COLORS['text_secondary']
                 )
-                info_text.pack(anchor="w", padx=0, pady=2)
+                no_data.pack(anchor="w", padx=0, pady=2)
 
     def _get_fix_suggestion(self, finding: 'Finding') -> Optional[str]:
         """Get actionable fix suggestion based on finding type."""
