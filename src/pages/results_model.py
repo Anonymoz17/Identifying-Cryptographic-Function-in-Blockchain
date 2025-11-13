@@ -31,7 +31,11 @@ logger = logging.getLogger(__name__)
 # Data Classes
 @dataclass
 class Finding:
-    """A single cryptographic finding from static analysis."""
+    """A single cryptographic finding from static analysis.
+
+    Phase 1 fields: location metadata (address, section, function_name)
+    Phase 2 fields: context enrichment (callers, callees, function_profile, call_chain)
+    """
 
     id: str
     type: str  # constant_table, signature_pattern, instruction_pattern, etc.

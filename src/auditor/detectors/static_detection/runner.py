@@ -224,15 +224,24 @@ class StaticRunner:
 
             findings = heuristics_manager.run_heuristics(ghidra_export, preproc.metadata, heuristics, static_artifacts=static_artifacts)
 
-            # 4) scoring aggregation
+            # 4) PHASE 2: Enrich findings with Ghidra context (function call graph, signatures)
+            if ghidra_export:
+                try:
+                    from . import ghidra_enrichment
+                    findings = ghidra_enrichment.enrich_findings_with_context(findings, ghidra_export)
+                except Exception:
+                    # Enrichment is optional; continue if it fails
+                    pass
+
+            # 5) scoring aggregation
             scored = scoring.aggregate_scores(findings)
 
-            # 5) hints generation (full and public redacted)
+            # 6) hints generation (full and public redacted)
             hints_dir = analysis_dir
             hints_path = hints_generator.generate_hints(scored, hints_dir, redact=False, file_hash=preproc.file_hash)
             hints_public_path = hints_generator.generate_hints(scored, hints_dir, redact=True, file_hash=preproc.file_hash)
 
-            # 6) package results
+            # 7) package results
             meta = {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "profile": ctx.profile,
@@ -240,7 +249,7 @@ class StaticRunner:
             }
             static_results_path = results_packager.package_results(preproc.file_hash, scored, analysis_dir, meta=meta)
 
-            # 7) cache metadata is written by results_packager.package_results
+            # 8) cache metadata is written by results_packager.package_results
             # which already persisted a `.cache_meta.json` next to the
             # `static_results.json`. Keep runner logic minimal here.
 
