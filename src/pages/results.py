@@ -10,6 +10,7 @@ Supports role-based access control (free vs premium users).
 
 import os
 import logging
+import threading
 from pathlib import Path
 from typing import Optional, Callable
 from enum import Enum
@@ -76,6 +77,19 @@ class ResultsPage(ctk.CTkFrame):
         self.current_tab = 'overview'
         self._current_gate: Optional[LockedFeatureView] = None
 
+        # Standalone mode state
+        self._standalone_mode = False
+        self._loaded_case_workdir: Optional[str] = None
+        self._available_cases = {}  # Maps display name to workdir path
+        self._available_files = {}  # Maps file hash to file info for current case
+        self._selected_file_hash: Optional[str] = None
+
+        # Async loading state
+        self._tab_loading_thread: Optional[threading.Thread] = None
+        self._loading_tab_name: Optional[str] = None
+        self._tabs_loaded = set()  # Tracks which tabs have been loaded
+        self._tabs_lock = threading.Lock()  # Thread safety for _tabs_loaded
+
         # Create layout
         try:
             self._create_layout()
@@ -90,28 +104,143 @@ class ResultsPage(ctk.CTkFrame):
     def _create_layout(self):
         """Create three-column layout."""
         self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure(0, weight=0)  # Left panel: 20%
-        self.grid_columnconfigure(1, weight=1)  # Center: 50%
-        self.grid_columnconfigure(2, weight=0)  # Right panel: 30%
+        self.grid_columnconfigure(0, weight=1)
+
+        # Load case frame (shown only in standalone mode, hidden by default)
+        self.load_case_frame = ctk.CTkFrame(self, fg_color=COLORS['bg'])
+        self.load_case_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
+        self.load_case_frame.grid_columnconfigure(0, weight=1)
+        self._build_load_case_ui(self.load_case_frame)
+        self.load_case_frame.grid_remove()  # Hidden by default
+
+        # Main results layout (shown in pipeline mode or after loading in standalone)
+        self.results_container = ctk.CTkFrame(self, fg_color=COLORS['bg'])
+        self.results_container.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        self.results_container.grid_rowconfigure(0, weight=1)
+        self.results_container.grid_columnconfigure(0, weight=0)  # Left panel: 20%
+        self.results_container.grid_columnconfigure(1, weight=1)  # Center: 50%
+        self.results_container.grid_columnconfigure(2, weight=0)  # Right panel: 30%
 
         # Left panel
-        self.left_panel = ctk.CTkFrame(self, fg_color=COLORS['card_bg'], width=240)
+        self.left_panel = ctk.CTkFrame(self.results_container, fg_color=COLORS['card_bg'], width=240)
         self.left_panel.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
         self.left_panel.grid_propagate(False)
         self._create_left_panel()
 
         # Center panel (tabs)
-        self.center_panel = ctk.CTkFrame(self, fg_color=COLORS['bg'])
+        self.center_panel = ctk.CTkFrame(self.results_container, fg_color=COLORS['bg'])
         self.center_panel.grid(row=0, column=1, sticky="nsew", padx=0, pady=0)
         self.center_panel.grid_rowconfigure(1, weight=1)
         self.center_panel.grid_columnconfigure(0, weight=1)
         self._create_center_panel()
 
         # Right panel
-        self.right_panel = ctk.CTkFrame(self, fg_color=COLORS['card_bg'], width=280)
+        self.right_panel = ctk.CTkFrame(self.results_container, fg_color=COLORS['card_bg'], width=280)
         self.right_panel.grid(row=0, column=2, sticky="nsew", padx=0, pady=0)
         self.right_panel.grid_propagate(False)
         self._create_right_panel()
+
+    def _build_load_case_ui(self, parent: ctk.CTkFrame):
+        """Build the load case UI for standalone mode."""
+        parent.grid_columnconfigure(0, weight=1)
+
+        # Title
+        title_label = ctk.CTkLabel(
+            parent,
+            text="Load Analysis Results",
+            font=("Roboto", 18, "bold")
+        )
+        title_label.grid(row=0, column=0, sticky="w", padx=15, pady=(15, 5))
+
+        description = ctk.CTkLabel(
+            parent,
+            text="No active case detected. Load a case and select a file to view analysis results.",
+            font=("Roboto", 12),
+            text_color="#aaa"
+        )
+        description.grid(row=1, column=0, sticky="w", padx=15, pady=(0, 15))
+
+        # Case selection frame
+        selection_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        selection_frame.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
+        selection_frame.grid_columnconfigure(1, weight=1)
+
+        # Workdir input
+        ctk.CTkLabel(
+            selection_frame,
+            text="Case Workdir:",
+            font=("Roboto", 12)
+        ).grid(row=0, column=0, sticky="w", pady=5)
+
+        workdir_row = ctk.CTkFrame(selection_frame, fg_color="transparent")
+        workdir_row.grid(row=0, column=1, sticky="ew", padx=(10, 0))
+        workdir_row.grid_columnconfigure(0, weight=1)
+
+        self.case_workdir_entry = ctk.CTkEntry(
+            workdir_row,
+            placeholder_text="Enter case workdir path or browse..."
+        )
+        self.case_workdir_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
+
+        browse_btn = ctk.CTkButton(
+            workdir_row,
+            text="Browse",
+            width=100,
+            command=self._browse_case_workdir
+        )
+        browse_btn.grid(row=0, column=1)
+
+        # File selection
+        ctk.CTkLabel(
+            selection_frame,
+            text="Analyzed Files:",
+            font=("Roboto", 12)
+        ).grid(row=1, column=0, sticky="nw", pady=(15, 5))
+
+        files_frame = ctk.CTkFrame(selection_frame)
+        files_frame.grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=(15, 5))
+        files_frame.grid_columnconfigure(0, weight=1)
+
+        # Scrollable list of files
+        self.files_listbox = ctk.CTkTextbox(
+            files_frame,
+            height=120,
+            font=("Consolas", 10)
+        )
+        self.files_listbox.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+        self.files_listbox.configure(state="disabled")
+
+        refresh_btn = ctk.CTkButton(
+            files_frame,
+            text="🔄 Refresh Files",
+            width=150,
+            command=self._refresh_file_list
+        )
+        refresh_btn.grid(row=1, column=0, pady=(5, 10))
+
+        # Action buttons
+        action_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        action_frame.grid(row=3, column=0, sticky="ew", padx=15, pady=(0, 15))
+
+        self.load_case_btn = ctk.CTkButton(
+            action_frame,
+            text="Load Case & File",
+            width=150,
+            height=40,
+            font=("Roboto", 14, "bold"),
+            fg_color="#4a9eff",
+            hover_color="#357abd",
+            command=self._load_selected_case
+        )
+        self.load_case_btn.pack(side="left", padx=5)
+
+        # Status for load case
+        self.load_case_status = ctk.CTkLabel(
+            action_frame,
+            text="",
+            font=("Roboto", 11)
+        )
+        self.load_case_status.pack(side="left", padx=15)
 
     def _create_left_panel(self):
         """Create left panel with navigation and info."""
@@ -263,6 +392,24 @@ class ResultsPage(ctk.CTkFrame):
         self.tab_content.grid_rowconfigure(0, weight=1)
         self.tab_content.grid_columnconfigure(0, weight=1)
 
+        # Loading indicator (hidden by default)
+        self.loading_indicator = ctk.CTkFrame(self.tab_content, fg_color=COLORS['bg'])
+        self.loading_indicator.grid(row=0, column=0, sticky="nsew")
+        self.loading_indicator.grid_rowconfigure(0, weight=1)
+        self.loading_indicator.grid_columnconfigure(0, weight=1)
+
+        # Loading label
+        loading_label = ctk.CTkLabel(
+            self.loading_indicator,
+            text="Loading tab data...",
+            font=("Roboto", 14),
+            text_color=COLORS['text_secondary']
+        )
+        loading_label.grid(row=0, column=0)
+
+        # Hide by default
+        self.loading_indicator.grid_remove()
+
     def _create_right_panel(self):
         """Create right panel with visualizations."""
         self.right_panel.grid_rowconfigure(0, weight=1)
@@ -290,7 +437,7 @@ class ResultsPage(ctk.CTkFrame):
     # ======== Tab Management ========
 
     def _switch_tab(self, tab_name: str):
-        """Switch to a specific tab."""
+        """Switch to a specific tab (async loading)."""
         # Check access for premium tabs
         if self.TAB_NAMES[tab_name][1]:  # is_premium
             if not self._is_user_premium():
@@ -303,22 +450,85 @@ class ResultsPage(ctk.CTkFrame):
         if self._current_gate and self._current_gate.winfo_exists():
             self._current_gate.grid_remove()
 
-        # Show/hide tabs
+        # Hide all tab content and show loading
         for name, tab in self.tabs.items():
-            if name == tab_name:
-                # Validate tab still exists before using it
+            if tab.winfo_exists():
+                tab.grid_remove()
+
+        # Check if tab is already loaded
+        with self._tabs_lock:
+            tab_already_loaded = tab_name in self._tabs_loaded
+
+        if tab_already_loaded:
+            # Tab is already loaded, show it immediately
+            tab = self.tabs[tab_name]
+            if tab.winfo_exists():
+                self.loading_indicator.grid_remove()
+                tab.grid(row=0, column=0, sticky="nsew")
+            self._update_tab_button_styles()
+        else:
+            # Tab not loaded yet, show loading indicator and load in background
+            self.loading_indicator.grid()
+            self._loading_tab_name = tab_name
+
+            # Cancel any existing loading thread
+            if self._tab_loading_thread and self._tab_loading_thread.is_alive():
+                # Thread is still running, don't create another one
+                return
+
+            # Spawn background thread to load tab data
+            self._tab_loading_thread = threading.Thread(
+                target=self._load_tab_background,
+                args=(tab_name,),
+                daemon=True
+            )
+            self._tab_loading_thread.start()
+
+    def _load_tab_background(self, tab_name: str):
+        """Load tab data in background thread."""
+        try:
+            if not self.data_model:
+                self.after(0, lambda: self._on_tab_load_complete(tab_name, False))
+                return
+
+            tab = self.tabs[tab_name]
+
+            # Call load_data synchronously in background thread
+            tab.load_data(self.data_model)
+
+            # Mark tab as loaded
+            with self._tabs_lock:
+                self._tabs_loaded.add(tab_name)
+
+            # Update UI on main thread
+            self.after(0, lambda: self._on_tab_load_complete(tab_name, True))
+
+        except Exception as e:
+            logger.exception(f"Error loading tab {tab_name}: {e}")
+            self.after(0, lambda: self._on_tab_load_complete(tab_name, False))
+
+    def _on_tab_load_complete(self, tab_name: str, success: bool):
+        """Called when tab loading completes (on main thread)."""
+        try:
+            if not success:
+                logger.error(f"Failed to load tab {tab_name}")
+                self.loading_indicator.grid()
+                return
+
+            # Hide loading indicator
+            self.loading_indicator.grid_remove()
+
+            # Show the loaded tab
+            if tab_name == self.current_tab:
+                tab = self.tabs[tab_name]
                 if tab.winfo_exists():
                     tab.grid(row=0, column=0, sticky="nsew")
-                    if self.data_model:
-                        tab.load_data(self.data_model)
-                else:
-                    logger.warning(f"Tab {tab_name} widget does not exist, skipping")
-            else:
-                if tab.winfo_exists():
-                    tab.grid_remove()
 
-        # Update tab button styles
-        self._update_tab_button_styles()
+            # Update tab button styles
+            self._update_tab_button_styles()
+
+        except Exception as e:
+            logger.exception(f"Error completing tab load for {tab_name}: {e}")
 
     def _update_tab_button_styles(self):
         """Update tab button appearance based on current tab."""
@@ -449,10 +659,203 @@ class ResultsPage(ctk.CTkFrame):
     def on_enter(self):
         """Called when page is displayed."""
         logger.info("ResultsPage: on_enter called")
-        # Refresh data if already loaded
-        if self.data_model:
-            self._update_metrics()
+
+        # Check if we have case_path and file_hash already set (from detectors pipeline)
+        if self.case_path and self.file_hash:
+            # Coming from detectors page - normal pipeline flow
+            self._standalone_mode = False
+            self._loaded_case_workdir = None
+
+            # Hide load case UI
+            self.load_case_frame.grid_remove()
+
+            # Show results UI
+            self.results_container.grid()
+
+            # Refresh data
+            if self.data_model:
+                self._update_metrics()
+
+            logger.info(f"Pipeline mode: Loaded case {self.case_path}, file {self.file_hash[:16]}...")
+        else:
+            # Standalone mode - show load case UI
+            self._standalone_mode = True
+            self._loaded_case_workdir = None
+            self.case_path = None
+            self.file_hash = None
+
+            # Hide results UI
+            self.results_container.grid_remove()
+
+            # Show load case UI
+            self.load_case_frame.grid()
+
+            # Try to auto-populate workdir if possible
+            try:
+                from auditor.setup_flow.output import get_default_workdir
+                default_wd = str(get_default_workdir())
+                self.case_workdir_entry.delete(0, "end")
+                self.case_workdir_entry.insert(0, default_wd)
+            except Exception:
+                pass
+
+            logger.info("Standalone mode: No active case. Please load a case and select a file.")
 
     def on_resize(self, width: int, height: int):
         """Called when window is resized."""
         pass
+
+    # ======== Standalone Mode: Case/File Loading ========
+
+    def _browse_case_workdir(self):
+        """Browse for a case workdir."""
+        try:
+            from tkinter import filedialog
+            workdir = filedialog.askdirectory(
+                title="Select Case Workdir",
+                initialdir=self.case_workdir_entry.get() or "."
+            )
+            if workdir:
+                self.case_workdir_entry.delete(0, "end")
+                self.case_workdir_entry.insert(0, workdir)
+                # Auto-refresh files when workdir changes
+                self._refresh_file_list()
+        except Exception as e:
+            self._set_load_case_status(f"❌ Browse error: {e}", error=True)
+            logger.exception(f"Browse error: {e}")
+
+    def _refresh_file_list(self):
+        """Scan the analysis directory for available files with results."""
+        try:
+            workdir = self.case_workdir_entry.get().strip()
+            if not workdir:
+                self._set_load_case_status("⚠️ Please enter a workdir first", error=True)
+                return
+
+            workdir_path = Path(workdir)
+            if not workdir_path.exists():
+                self._set_load_case_status(f"⚠️ Workdir not found: {workdir}", error=True)
+                return
+
+            # Look for analysis/static and analysis/dynamic directories
+            analysis_dir = workdir_path / "analysis"
+            if not analysis_dir.exists():
+                self._set_load_case_status("⚠️ No analysis directory found", error=True)
+                return
+
+            # Collect all files with analysis results
+            self._available_files = {}
+            files_found = []
+
+            # Check static results
+            static_dir = analysis_dir / "static"
+            if static_dir.exists():
+                for hash_dir in static_dir.iterdir():
+                    if hash_dir.is_dir():
+                        file_hash = hash_dir.name
+                        results_file = hash_dir / "static_results.json"
+                        if results_file.exists():
+                            self._available_files[file_hash] = {
+                                "workdir": str(workdir_path),
+                                "has_static": True,
+                                "has_dynamic": False
+                            }
+                            files_found.append(f"📄 {file_hash[:16]}... (static)")
+
+            # Check dynamic results
+            dynamic_dir = analysis_dir / "dynamic"
+            if dynamic_dir.exists():
+                for hash_dir in dynamic_dir.iterdir():
+                    if hash_dir.is_dir():
+                        file_hash = hash_dir.name
+                        results_file = hash_dir / "dynamic_results.json"
+                        if results_file.exists():
+                            if file_hash in self._available_files:
+                                self._available_files[file_hash]["has_dynamic"] = True
+                                # Update display
+                                files_found = [f.replace("(static)", "(static+dynamic)") if file_hash in f else f for f in files_found]
+                            else:
+                                self._available_files[file_hash] = {
+                                    "workdir": str(workdir_path),
+                                    "has_static": False,
+                                    "has_dynamic": True
+                                }
+                                files_found.append(f"📄 {file_hash[:16]}... (dynamic)")
+
+            # Update files listbox
+            self.files_listbox.configure(state="normal")
+            self.files_listbox.delete("1.0", "end")
+
+            if files_found:
+                for file_info in files_found:
+                    self.files_listbox.insert("end", file_info + "\n")
+                self._set_load_case_status(f"✓ Found {len(self._available_files)} file(s)", error=False)
+            else:
+                self.files_listbox.insert("end", "No analyzed files found in this case.\n")
+                self._set_load_case_status("⚠️ No analyzed files found", error=True)
+
+            self.files_listbox.configure(state="disabled")
+
+        except Exception as e:
+            self._set_load_case_status(f"❌ Scan error: {e}", error=True)
+            logger.exception(f"File list refresh error: {e}")
+
+    def _load_selected_case(self):
+        """Load the selected case and file."""
+        try:
+            workdir = self.case_workdir_entry.get().strip()
+
+            if not workdir:
+                self._set_load_case_status("⚠️ Please enter a workdir", error=True)
+                return
+
+            if not self._available_files:
+                self._set_load_case_status("⚠️ No files available. Click Refresh first.", error=True)
+                return
+
+            # Get the first available file (user can select later)
+            file_hash = list(self._available_files.keys())[0]
+
+            # Validate workdir structure
+            workdir_path = Path(workdir)
+            analysis_dir = workdir_path / "analysis"
+
+            if not analysis_dir.exists():
+                self._set_load_case_status("⚠️ Invalid case structure: missing analysis directory", error=True)
+                return
+
+            # Load the case and file
+            self._loaded_case_workdir = str(workdir_path)
+            self.case_path = str(workdir_path)
+            self.file_hash = file_hash
+            self._standalone_mode = True
+
+            # Hide load case UI
+            self.load_case_frame.grid_remove()
+
+            # Show results UI
+            self.results_container.grid()
+
+            # Load and display results
+            try:
+                self.load(self.case_path, self.file_hash)
+                self._set_load_case_status(f"✅ Loaded: {file_hash[:16]}...", error=False)
+                logger.info(f"Standalone mode: Loaded case {self.case_path}, file {file_hash[:16]}...")
+            except Exception as load_err:
+                self._set_load_case_status(f"❌ Failed to load results: {load_err}", error=True)
+                logger.exception(f"Results load error: {load_err}")
+                # Show the load case UI again on error
+                self.results_container.grid_remove()
+                self.load_case_frame.grid()
+
+        except Exception as e:
+            self._set_load_case_status(f"❌ Load error: {e}", error=True)
+            logger.exception(f"Case load error: {e}")
+
+    def _set_load_case_status(self, message: str, error: bool = False):
+        """Update load case status label."""
+        try:
+            color = "#f88" if error else "#8f8"
+            self.load_case_status.configure(text=message, text_color=color)
+        except Exception:
+            pass
