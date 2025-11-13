@@ -64,7 +64,10 @@ def signature_heuristic(ghidra_export: Dict, metadata: Dict, static_artifacts: D
                                 "prototype": proto,
                                 "function_hash": func_hash,
                                 "name": name,
+                                "match_type": "function_prototype",
+                                "keyword_matched": kw,
                             },
+                            "evidence_snippet": f"Function '{name}' matches {kw} signature. Prototype: {proto if proto else 'N/A'}",
                         }
 
                         # Extract location data from Ghidra
@@ -143,14 +146,35 @@ def signature_heuristic(ghidra_export: Dict, metadata: Dict, static_artifacts: D
                 seen.add(key)
                 fid = _make_id("sig", s + kw)
                 confidence = 0.6 if len(s) >= 8 else 0.4
-                findings.append(
-                    {
-                        "id": fid,
-                        "type": "signature",
-                        "name": kw,
-                        "confidence": confidence,
-                        "reason_tags": ["string_keyword", kw.lower()],
-                        "evidence_snippet": s[:200],
-                    }
-                )
+
+                # Richer finding structure for consistency
+                finding = {
+                    "id": fid,
+                    "type": "signature",
+                    "name": kw,
+                    "confidence": confidence,
+                    "reason_tags": ["string_keyword", kw.lower()],
+                    "evidence_snippet": s[:200],
+                    "evidence": {
+                        "match_type": "string_constant",
+                        "keyword_matched": kw,
+                        "matched_string": s,
+                        "string_length": len(s),
+                    },
+                    "count": 1,
+                }
+
+                # Try to extract location info from string metadata if available
+                try:
+                    if isinstance(static_artifacts.get("__preproc_dir__"), str):
+                        # Location info would be populated by phase 1 enrichment
+                        # For now, mark that this is from string analysis
+                        finding["additional_data"] = {
+                            "source": "string_constant_analysis",
+                            "match_location": "binary_string_section",
+                        }
+                except Exception:
+                    pass
+
+                findings.append(finding)
     return findings

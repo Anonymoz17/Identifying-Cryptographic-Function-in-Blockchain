@@ -323,8 +323,27 @@ class StaticTab(ctk.CTkFrame):
         conf_label.pack(anchor="w", padx=0, pady=4)
 
         # ====== LOCATION SECTION ======
-        # Address
-        if finding.address:
+        location_data = finding.additional_data.get('address_or_range') if finding.additional_data else None
+        section_name = finding.additional_data.get('section') if finding.additional_data else None
+        function_name = finding.additional_data.get('function_name') if finding.additional_data else None
+
+        # Show location header if we have any location data
+        if finding.address or location_data or section_name or function_name:
+            location_header = ctk.CTkLabel(
+                details_content,
+                text="Location:",
+                font=("Roboto", 10, "bold"),
+                text_color=COLORS['text_secondary']
+            )
+            location_header.pack(anchor="w", padx=0, pady=(8, 4))
+
+        # Address (prefer finding.address, fallback to location_data)
+        display_address = finding.address
+        if not display_address and location_data:
+            if isinstance(location_data, dict):
+                display_address = location_data.get('start')
+
+        if display_address:
             addr_frame = ctk.CTkFrame(details_content, fg_color="transparent")
             addr_frame.pack(fill="x", padx=0, pady=4)
             addr_frame.grid_columnconfigure(1, weight=1)
@@ -339,7 +358,7 @@ class StaticTab(ctk.CTkFrame):
 
             addr_value = ctk.CTkLabel(
                 addr_frame,
-                text=finding.address,
+                text=display_address,
                 font=("Roboto", 10),
                 text_color=COLORS['primary'],
                 wraplength=180
@@ -350,11 +369,84 @@ class StaticTab(ctk.CTkFrame):
             copy_btn = CopyButton(
                 addr_frame,
                 text="Copy",
-                copy_text=finding.address,
+                copy_text=display_address,
                 width=50,
                 height=24
             )
             copy_btn.grid(row=0, column=2, sticky="e", padx=(4, 0))
+
+        # Address range (end address) if available
+        if location_data and isinstance(location_data, dict):
+            end_addr = location_data.get('end')
+            if end_addr and end_addr != display_address:
+                range_frame = ctk.CTkFrame(details_content, fg_color="transparent")
+                range_frame.pack(fill="x", padx=0, pady=4)
+
+                range_label = ctk.CTkLabel(
+                    range_frame,
+                    text=f"Range: {display_address} → {end_addr}",
+                    font=("Roboto", 9),
+                    text_color=COLORS['text'],
+                    wraplength=250
+                )
+                range_label.pack(anchor="w", padx=0, pady=2)
+
+            # Size if available
+            size = location_data.get('size')
+            if size:
+                size_frame = ctk.CTkFrame(details_content, fg_color="transparent")
+                size_frame.pack(fill="x", padx=0, pady=4)
+
+                size_label = ctk.CTkLabel(
+                    size_frame,
+                    text=f"Size: {size} bytes",
+                    font=("Roboto", 9),
+                    text_color=COLORS['text'],
+                )
+                size_label.pack(anchor="w", padx=0, pady=2)
+
+        # Section name
+        if section_name:
+            section_frame = ctk.CTkFrame(details_content, fg_color="transparent")
+            section_frame.pack(fill="x", padx=0, pady=4)
+
+            section_label = ctk.CTkLabel(
+                section_frame,
+                text="Section:",
+                font=("Roboto", 10, "bold"),
+                text_color=COLORS['text_secondary']
+            )
+            section_label.pack(side="left")
+
+            section_value = ctk.CTkLabel(
+                section_frame,
+                text=section_name,
+                font=("Roboto", 10),
+                text_color=COLORS['primary'],
+            )
+            section_value.pack(side="left", padx=(4, 0))
+
+        # Function name
+        if function_name:
+            fn_frame = ctk.CTkFrame(details_content, fg_color="transparent")
+            fn_frame.pack(fill="x", padx=0, pady=4)
+
+            fn_label = ctk.CTkLabel(
+                fn_frame,
+                text="Function:",
+                font=("Roboto", 10, "bold"),
+                text_color=COLORS['text_secondary']
+            )
+            fn_label.pack(side="left")
+
+            fn_value = ctk.CTkLabel(
+                fn_frame,
+                text=function_name,
+                font=("Roboto", 10),
+                text_color=COLORS['primary'],
+                wraplength=180
+            )
+            fn_value.pack(side="left", padx=(4, 0), fill="x", expand=True)
 
         # Detection metadata section
         # Show reason tags and evidence tags if available
@@ -395,6 +487,60 @@ class StaticTab(ctk.CTkFrame):
                     justify="left"
                 )
                 ev_label.pack(anchor="w", padx=0, pady=2)
+
+        # ====== PHASE 2: CONTEXT ENRICHMENT SECTION ======
+        # Display callers, callees, and call chain if available (Phase 2)
+        callers = finding.additional_data.get('callers', []) if finding.additional_data else []
+        callees = finding.additional_data.get('callees', []) if finding.additional_data else []
+        call_chain = finding.additional_data.get('call_chain', []) if finding.additional_data else []
+
+        if callers or callees or call_chain:
+            context_header = ctk.CTkLabel(
+                details_content,
+                text="Context (Phase 2):",
+                font=("Roboto", 10, "bold"),
+                text_color=COLORS['primary']
+            )
+            context_header.pack(anchor="w", padx=0, pady=(8, 4))
+
+            # Show callers (who calls this function)
+            if callers:
+                callers_str = ", ".join(callers) if isinstance(callers, list) else str(callers)
+                callers_label = ctk.CTkLabel(
+                    details_content,
+                    text=f"Called By: {callers_str}",
+                    font=("Roboto", 9),
+                    text_color=COLORS['text'],
+                    wraplength=250,
+                    justify="left"
+                )
+                callers_label.pack(anchor="w", padx=0, pady=2)
+
+            # Show callees (what this function calls)
+            if callees:
+                callees_str = ", ".join(callees) if isinstance(callees, list) else str(callees)
+                callees_label = ctk.CTkLabel(
+                    details_content,
+                    text=f"Calls: {callees_str}",
+                    font=("Roboto", 9),
+                    text_color=COLORS['text'],
+                    wraplength=250,
+                    justify="left"
+                )
+                callees_label.pack(anchor="w", padx=0, pady=2)
+
+            # Show call chain (path from main to this function)
+            if call_chain:
+                chain_str = " → ".join(call_chain) if isinstance(call_chain, list) else str(call_chain)
+                chain_label = ctk.CTkLabel(
+                    details_content,
+                    text=f"Call Chain: {chain_str}",
+                    font=("Roboto", 9),
+                    text_color=COLORS['text'],
+                    wraplength=250,
+                    justify="left"
+                )
+                chain_label.pack(anchor="w", padx=0, pady=2)
 
         # Separator
         sep = ctk.CTkFrame(details_content, height=1, fg_color=COLORS['border'])
@@ -443,7 +589,11 @@ class StaticTab(ctk.CTkFrame):
             fix_text.pack(anchor="w", padx=0, pady=(0, 8))
 
         # Additional data (if any remaining - exclude location/metadata fields already shown)
-        fields_to_exclude = ['reason_tags', 'evidence_tags', 'evidence_snippet', 'evidence', 'offset', 'function', 'section', 'file_offset', 'virtual_address', 'module', 'address']
+        fields_to_exclude = [
+            'reason_tags', 'evidence_tags', 'evidence_snippet', 'evidence', 'offset', 'function',
+            'section', 'file_offset', 'virtual_address', 'module', 'address', 'address_or_range',
+            'function_name', 'callers', 'callees', 'call_chain', 'source', 'match_location'
+        ]
         other_data = {k: v for k, v in (finding.additional_data or {}).items()
                       if k not in fields_to_exclude}
 
@@ -474,14 +624,82 @@ class StaticTab(ctk.CTkFrame):
                 info_text.pack(anchor="w", padx=0, pady=2)
 
     def _get_fix_suggestion(self, finding: 'Finding') -> Optional[str]:
-        """Get actionable fix suggestion based on finding type."""
+        """Get actionable fix suggestion based on finding type and data."""
+        # Extract contextual info for smarter suggestions
+        name = finding.name or ""
+        confidence = finding.confidence
+        additional_data = finding.additional_data or {}
+        function_name = additional_data.get('function_name', '')
+        callers = additional_data.get('callers', [])
+
+        # Build data-driven suggestions
         suggestions = {
-            'constant_table': 'This location contains a constant table. Analyze the constants against known cryptographic algorithm values to identify the specific crypto function.',
-            'signature_pattern': 'This location matches a known cryptographic signature. Replace with standard library implementations or apply cryptographic best practices.',
-            'instruction_pattern': 'This location contains cryptographic-like instructions. Ensure proper key management and use established crypto libraries instead of custom implementations.',
-            'api_call': 'This location contains crypto API calls. Verify usage is correct and keys are properly managed.',
+            'constant_table': self._suggest_for_constant_table(name, confidence, additional_data),
+            'sbox_table': self._suggest_for_sbox(name, confidence),
+            'known_crypto_constant': self._suggest_for_known_constant(name, confidence),
+            'signature': self._suggest_for_signature(name, function_name, confidence),
+            'signature_pattern': self._suggest_for_signature(name, function_name, confidence),
+            'instruction_pattern': self._suggest_for_instruction_pattern(confidence, additional_data),
+            'high_entropy_region': self._suggest_for_entropy(confidence, additional_data),
         }
-        return suggestions.get(finding.type, None)
+
+        default_suggestion = f"Review this {finding.type} finding and verify it aligns with your cryptographic implementation requirements."
+        return suggestions.get(finding.type, default_suggestion)
+
+    def _suggest_for_constant_table(self, name: str, confidence: float, data: dict) -> str:
+        """Suggestion for constant table findings."""
+        if confidence >= 0.9:
+            return f"High-confidence constant table detected ({name}). Replace with standard library implementations of {name.split('_')[0]} if possible."
+        elif confidence >= 0.7:
+            return f"Likely {name} constant table. Verify by cross-referencing against known {name.split('_')[0]} values and consider using established crypto libraries."
+        else:
+            return f"Potential {name} constant detected. Analyze pattern context and review against known algorithm specifications."
+
+    def _suggest_for_sbox(self, name: str, confidence: float) -> str:
+        """Suggestion for S-box table findings."""
+        if confidence >= 0.85:
+            return "S-box table detected with high confidence. Verify algorithm family and consider using vetted cryptographic library implementations."
+        else:
+            return "Potential S-box or lookup table detected. Cross-reference bytes against known substitution patterns and algorithm specifications."
+
+    def _suggest_for_known_constant(self, name: str, confidence: float) -> str:
+        """Suggestion for known crypto constant findings."""
+        algo = name.split('_')[0] if '_' in name else name
+        return f"Known {algo} constant detected ({name}). Part of algorithm initialization. Review usage context to ensure correct implementation."
+
+    def _suggest_for_signature(self, name: str, function_name: str, confidence: float) -> str:
+        """Suggestion for signature findings."""
+        if confidence >= 0.85:
+            if function_name and function_name not in ["Unknown", ""]:
+                return f"Function '{function_name}' matches {name} signature with high confidence. Consider replacing with standard {name} implementation from OpenSSL, libsodium, or similar."
+            else:
+                return f"High-confidence {name} function signature detected. Replace with vetted cryptographic library implementation if possible."
+        else:
+            return f"Potential {name} function detected. Verify implementation and consider using established cryptographic libraries."
+
+    def _suggest_for_instruction_pattern(self, confidence: float, data: dict) -> str:
+        """Suggestion for instruction pattern findings."""
+        function_name = data.get('function_name', '')
+        if confidence >= 0.8:
+            msg = "Strong cryptographic instruction pattern detected (XOR, shifts, rotations)."
+            if function_name:
+                msg += f" The function '{function_name}' likely implements crypto operations."
+            msg += " Ensure proper key management and consider using established libraries for better security."
+            return msg
+        elif confidence >= 0.5:
+            return "Cryptographic instruction patterns detected. Verify context and ensure secure key handling practices are followed."
+        else:
+            return "Potential cryptographic instructions detected. Review function context to determine actual crypto usage and security implications."
+
+    def _suggest_for_entropy(self, confidence: float, data: dict) -> str:
+        """Suggestion for entropy findings."""
+        size = data.get('size', 'unknown')
+        if confidence >= 0.75:
+            return f"High entropy region detected (likely crypto key or ciphertext). Size: {size}. Ensure proper handling of sensitive cryptographic material."
+        elif confidence >= 0.5:
+            return f"Moderate entropy region detected. Could be compressed data, encrypted data, or random material. Size: {size}. Investigate context."
+        else:
+            return f"Low-confidence entropy anomaly. Size: {size}. Verify it's not a false positive from compressed or obfuscated code."
 
     @staticmethod
     def _get_confidence_color(confidence: float) -> str:
