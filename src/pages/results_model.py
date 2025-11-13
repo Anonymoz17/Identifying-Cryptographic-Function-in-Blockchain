@@ -199,14 +199,41 @@ class ResultsDataModel:
                     evidence_str = finding_data.get('evidence', {}).get('snippet', '')
 
                 # Build additional_data from available fields
-                # Include reason_tags and other metadata
+                # Include location data, reason_tags and other metadata
                 additional_data = {
                     'reason_tags': finding_data.get('reason_tags', []),
                     'evidence_tags': finding_data.get('evidence', {}).get('reason_tags', []) if isinstance(finding_data.get('evidence'), dict) else [],
                 }
 
+                # Extract location-specific fields from nested additional_data
+                if isinstance(finding_data.get('additional_data'), dict):
+                    additional_data.update(finding_data.get('additional_data', {}))
+
+                # Extract address/range information from multiple possible sources
+                address = finding_data.get('address')
+
+                # Check for address_or_range in additional_data (new format)
+                if not address and isinstance(finding_data.get('additional_data'), dict):
+                    addr_or_range = finding_data['additional_data'].get('address_or_range')
+                    if addr_or_range:
+                        if isinstance(addr_or_range, dict):
+                            # Extract start address from range
+                            address = addr_or_range.get('start')
+                        else:
+                            address = str(addr_or_range)
+
+                # Check top-level address_or_range field (from entropy analysis)
+                if not address and isinstance(finding_data.get('address_or_range'), dict):
+                    address = finding_data['address_or_range'].get('start')
+
+                # Fall back to top-level address_or_range if it's a string/hex
+                if not address and finding_data.get('address_or_range'):
+                    addr_range = finding_data.get('address_or_range')
+                    if isinstance(addr_range, str):
+                        address = addr_range
+
                 # Add any other fields from the finding that aren't standard
-                standard_fields = {'id', 'type', 'name', 'confidence', 'score', 'count', 'address', 'evidence', 'evidence_snippet', 'reason_tags'}
+                standard_fields = {'id', 'type', 'name', 'confidence', 'score', 'count', 'address', 'evidence', 'evidence_snippet', 'reason_tags', 'additional_data', 'address_or_range'}
                 for key, value in finding_data.items():
                     if key not in standard_fields and key not in additional_data:
                         additional_data[key] = value
@@ -214,7 +241,7 @@ class ResultsDataModel:
                 finding = Finding(
                     id=finding_data.get('id', f"static_{len(self.static_findings)}"),
                     type=finding_data.get('type', 'unknown'),
-                    address=finding_data.get('address'),  # May be None, that's OK
+                    address=address,  # May be None, that's OK
                     confidence=float(finding_data.get('confidence', 0.5)),
                     score=finding_data.get('score'),
                     name=finding_data.get('name', ''),

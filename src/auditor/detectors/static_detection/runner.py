@@ -146,6 +146,10 @@ class StaticRunner:
             preproc_out = os.path.join(analysis_dir, "preproc")
             static_artifacts = static_preproc.generate_static_preproc(preproc_dir=preproc_dir_to_use, out_dir=preproc_out, profile=ctx.profile)
 
+            # Add preproc and binary paths to static_artifacts for location enrichment
+            static_artifacts["__preproc_dir__"] = preproc_dir_to_use
+            static_artifacts["__input_path__"] = preproc.input_path
+
             # 2) ensure ghidra export (stub or real implementation)
             ghidra_out = os.path.join(analysis_dir, "ghidra-export")
             

@@ -22,6 +22,11 @@ def signature_heuristic(ghidra_export: Dict, metadata: Dict, static_artifacts: D
     exporter) when present. It searches function `name` and `prototype` fields
     for known crypto keywords and emits findings with prototype and function
     identifiers as evidence.
+
+    Enhancements:
+    - Extracts function addresses and sizes from Ghidra metadata
+    - Creates address ranges using function boundaries
+    - Populates location data in additional_data field
     """
     findings: List[Dict] = []
 
@@ -38,6 +43,7 @@ def signature_heuristic(ghidra_export: Dict, metadata: Dict, static_artifacts: D
                 proto = str(fn.get("prototype", ""))
                 func_hash = fn.get("function_hash") or fn.get("id")
                 address = fn.get("address") or fn.get("addr") or fn.get("entry_point")
+                function_size = fn.get("size") or fn.get("length")
 
                 combined = f"{name} {proto}"
                 for kw in keywords:
@@ -60,8 +66,49 @@ def signature_heuristic(ghidra_export: Dict, metadata: Dict, static_artifacts: D
                                 "name": name,
                             },
                         }
-                        if address:
-                            finding["address_or_range"] = address
+
+                        # Extract location data from Ghidra
+                        if address or function_size:
+                            additional_data = {}
+
+                            # Convert address to hex format and create address range
+                            if address:
+                                try:
+                                    # Handle various address formats (int, string, hex string)
+                                    if isinstance(address, str):
+                                        if address.startswith("0x") or address.startswith("0X"):
+                                            addr_int = int(address, 16)
+                                        else:
+                                            addr_int = int(address)
+                                    else:
+                                        addr_int = int(address)
+
+                                    start_hex = hex(addr_int)
+                                    if function_size:
+                                        try:
+                                            size_int = int(function_size) if isinstance(function_size, str) else function_size
+                                            end_hex = hex(addr_int + size_int)
+                                        except (ValueError, TypeError):
+                                            end_hex = start_hex
+                                    else:
+                                        end_hex = start_hex
+
+                                    additional_data["address_or_range"] = {
+                                        "start": start_hex,
+                                        "end": end_hex,
+                                    }
+                                    if function_size:
+                                        additional_data["address_or_range"]["size"] = function_size
+                                except (ValueError, TypeError):
+                                    pass
+
+                            # Add function name as location context
+                            if name and name not in ["", "Unknown"]:
+                                additional_data["function_name"] = name
+
+                            if additional_data:
+                                finding["additional_data"] = additional_data
+
                         findings.append(finding)
             # If we found things from ghidra functions, return them (higher signal)
             if findings:
