@@ -6,20 +6,22 @@ Shows detailed static analysis findings with:
 - Finding type checkboxes
 - Detailed finding view on selection
 - Copy-to-clipboard functionality
+- Sortable table columns
+- Pagination for large datasets
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, List
 import customtkinter as ctk
 from ui.results_components import (
     FilterPanel, SectionHeader, FindingsTable, CopyButton, COLORS
 )
 
 if TYPE_CHECKING:
-    from pages.results_model import ResultsDataModel
+    from pages.results_model import ResultsDataModel, Finding
 
 
 class StaticTab(ctk.CTkFrame):
-    """Tab showing static analysis findings with filtering and pagination."""
+    """Tab showing static analysis findings with filtering, sorting, and pagination."""
 
     # Pagination settings
     FINDINGS_PER_PAGE = 50
@@ -34,6 +36,10 @@ class StaticTab(ctk.CTkFrame):
         self.current_page = 1
         self.total_pages = 1
         self.all_findings = []  # Cache all filtered findings
+
+        # Sorting state
+        self.sort_column = None  # 'confidence', 'name', etc.
+        self.sort_ascending = True
 
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -133,11 +139,43 @@ class StaticTab(ctk.CTkFrame):
         self._display_current_page()
         self._update_pagination_controls()
 
+    def _sort_findings(self, column: str):
+        """Sort findings by a column. Clicking same column toggles ascending/descending."""
+        # Toggle sort direction if clicking the same column
+        if self.sort_column == column:
+            self.sort_ascending = not self.sort_ascending
+        else:
+            self.sort_column = column
+            self.sort_ascending = False  # Default to descending for confidence (shows high first)
+            if column in ['name', 'type']:
+                self.sort_ascending = True  # Alphabetical ascending
+
+        # Sort the findings list
+        if column == 'confidence':
+            self.all_findings.sort(
+                key=lambda f: f.confidence,
+                reverse=not self.sort_ascending
+            )
+        elif column == 'name':
+            self.all_findings.sort(
+                key=lambda f: (f.name or f.type).lower(),
+                reverse=not self.sort_ascending
+            )
+        elif column == 'type':
+            self.all_findings.sort(
+                key=lambda f: f.type.lower(),
+                reverse=not self.sort_ascending
+            )
+
+        # Reset to page 1 and redisplay
+        self.current_page = 1
+        self._display_current_page()
+        self._update_pagination_controls()
+
     def _display_current_page(self):
-        """Display findings for the current page."""
+        """Display findings for the current page (efficiently creates only visible rows)."""
         # Clear table
-        for widget in self.findings_table.scroll_frame.winfo_children():
-            widget.destroy()
+        self.findings_table.clear_table()
 
         if not self.all_findings:
             no_results = ctk.CTkLabel(
@@ -153,13 +191,14 @@ class StaticTab(ctk.CTkFrame):
         start_idx = (self.current_page - 1) * self.FINDINGS_PER_PAGE
         end_idx = min(start_idx + self.FINDINGS_PER_PAGE, len(self.all_findings))
 
-        # Display findings for current page
+        # Display findings for current page (only 50 widgets created at a time)
         for finding in self.all_findings[start_idx:end_idx]:
             self.findings_table.add_finding(
                 finding_id=finding.id,
                 name=finding.name or finding.type,
                 confidence=finding.confidence,
                 finding_type=finding.type,
+                address=finding.address,  # Pass address for location info
                 on_click=lambda f=finding: self._show_finding_details(f)
             )
 
@@ -224,8 +263,8 @@ class StaticTab(ctk.CTkFrame):
             self._display_current_page()
             self._update_pagination_controls()
 
-    def _show_finding_details(self, finding):
-        """Show details for selected finding."""
+    def _show_finding_details(self, finding: 'Finding'):
+        """Show detailed information for a selected finding."""
         self.selected_finding = finding
 
         # Clear previous details
@@ -237,10 +276,11 @@ class StaticTab(ctk.CTkFrame):
         details_content.pack(fill="x", padx=0, pady=0)
         details_content.grid_columnconfigure(0, weight=1)
 
+        # ====== HEADER SECTION ======
         # Finding ID
         id_frame = ctk.CTkFrame(details_content, fg_color="transparent")
         id_frame.pack(fill="x", padx=0, pady=4)
-        id_frame.grid_columnconfigure(0, weight=1)
+        id_frame.grid_columnconfigure(1, weight=1)
 
         id_label = ctk.CTkLabel(
             id_frame,
@@ -277,11 +317,12 @@ class StaticTab(ctk.CTkFrame):
         )
         conf_label.pack(anchor="w", padx=0, pady=4)
 
+        # ====== LOCATION SECTION ======
         # Address
         if finding.address:
             addr_frame = ctk.CTkFrame(details_content, fg_color="transparent")
             addr_frame.pack(fill="x", padx=0, pady=4)
-            addr_frame.grid_columnconfigure(0, weight=1)
+            addr_frame.grid_columnconfigure(1, weight=1)
 
             addr_label = ctk.CTkLabel(
                 addr_frame,
@@ -295,7 +336,8 @@ class StaticTab(ctk.CTkFrame):
                 addr_frame,
                 text=finding.address,
                 font=("Roboto", 10),
-                text_color=COLORS['primary']
+                text_color=COLORS['primary'],
+                wraplength=180
             )
             addr_value.grid(row=0, column=1, sticky="ew", padx=(4, 0))
 
@@ -309,15 +351,40 @@ class StaticTab(ctk.CTkFrame):
             )
             copy_btn.grid(row=0, column=2, sticky="e", padx=(4, 0))
 
+        # Location info from additional data
+        if finding.additional_data and any(k in finding.additional_data for k in ['offset', 'function', 'section', 'file_offset']):
+            location_header = ctk.CTkLabel(
+                details_content,
+                text="Location Info:",
+                font=("Roboto", 10, "bold"),
+                text_color=COLORS['text_secondary']
+            )
+            location_header.pack(anchor="w", padx=0, pady=(8, 4))
+
+            # Display relevant location fields
+            location_fields = ['offset', 'function', 'section', 'file_offset', 'virtual_address', 'module']
+            for field in location_fields:
+                if field in finding.additional_data:
+                    value = finding.additional_data[field]
+                    loc_text = ctk.CTkLabel(
+                        details_content,
+                        text=f"{field.replace('_', ' ').title()}: {value}",
+                        font=("Roboto", 9),
+                        text_color=COLORS['text'],
+                        wraplength=250,
+                        justify="left"
+                    )
+                    loc_text.pack(anchor="w", padx=0, pady=2)
+
         # Separator
         sep = ctk.CTkFrame(details_content, height=1, fg_color=COLORS['border'])
         sep.pack(fill="x", padx=0, pady=8)
 
-        # Evidence
+        # ====== EVIDENCE SECTION ======
         if finding.evidence:
             evidence_label = ctk.CTkLabel(
                 details_content,
-                text="Evidence:",
+                text="Why Flagged (Evidence):",
                 font=("Roboto", 10, "bold"),
                 text_color=COLORS['text_secondary']
             )
@@ -333,8 +400,32 @@ class StaticTab(ctk.CTkFrame):
             )
             evidence_text.pack(anchor="w", padx=0, pady=(0, 8))
 
-        # Additional data
-        if finding.additional_data:
+        # ====== ACTION SECTION ======
+        # Show how to fix based on type
+        fix_info = self._get_fix_suggestion(finding)
+        if fix_info:
+            fix_label = ctk.CTkLabel(
+                details_content,
+                text="How to Fix:",
+                font=("Roboto", 10, "bold"),
+                text_color=COLORS['success']
+            )
+            fix_label.pack(anchor="w", padx=0, pady=(8, 4))
+
+            fix_text = ctk.CTkLabel(
+                details_content,
+                text=fix_info,
+                font=("Roboto", 9),
+                text_color=COLORS['text'],
+                justify="left",
+                wraplength=250
+            )
+            fix_text.pack(anchor="w", padx=0, pady=(0, 8))
+
+        # Additional data (if any remaining)
+        other_data = {k: v for k, v in (finding.additional_data or {}).items()
+                      if k not in ['offset', 'function', 'section', 'file_offset', 'virtual_address', 'module']}
+        if other_data:
             additional_label = ctk.CTkLabel(
                 details_content,
                 text="Additional Info:",
@@ -343,7 +434,7 @@ class StaticTab(ctk.CTkFrame):
             )
             additional_label.pack(anchor="w", padx=0, pady=(8, 4))
 
-            for key, value in finding.additional_data.items():
+            for key, value in other_data.items():
                 info_text = ctk.CTkLabel(
                     details_content,
                     text=f"{key}: {value}",
@@ -353,6 +444,16 @@ class StaticTab(ctk.CTkFrame):
                     justify="left"
                 )
                 info_text.pack(anchor="w", padx=0, pady=2)
+
+    def _get_fix_suggestion(self, finding: 'Finding') -> Optional[str]:
+        """Get actionable fix suggestion based on finding type."""
+        suggestions = {
+            'constant_table': 'This location contains a constant table. Analyze the constants against known cryptographic algorithm values to identify the specific crypto function.',
+            'signature_pattern': 'This location matches a known cryptographic signature. Replace with standard library implementations or apply cryptographic best practices.',
+            'instruction_pattern': 'This location contains cryptographic-like instructions. Ensure proper key management and use established crypto libraries instead of custom implementations.',
+            'api_call': 'This location contains crypto API calls. Verify usage is correct and keys are properly managed.',
+        }
+        return suggestions.get(finding.type, None)
 
     @staticmethod
     def _get_confidence_color(confidence: float) -> str:

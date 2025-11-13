@@ -310,6 +310,9 @@ class FilterPanel(ctk.CTkFrame):
         filters.pack(fill="x", padx=10, pady=10)
     """
 
+    # Debounce settings (milliseconds)
+    SLIDER_DEBOUNCE_MS = 300
+
     def __init__(
         self,
         master,
@@ -334,6 +337,7 @@ class FilterPanel(ctk.CTkFrame):
 
         self.on_change = on_change
         self.finding_types = finding_types or []
+        self._debounce_timer = None  # Timer for debounced slider changes
 
         # Confidence slider
         conf_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -354,7 +358,7 @@ class FilterPanel(ctk.CTkFrame):
             from_=0.0,
             to=1.0,
             variable=self.conf_var,
-            command=self._on_filter_change,
+            command=self._on_slider_change,  # Changed to debounced handler
             progress_color=COLORS['primary']
         )
         conf_slider.grid(row=0, column=1, sticky="ew", padx=8)
@@ -367,14 +371,29 @@ class FilterPanel(ctk.CTkFrame):
         )
         self.conf_label.grid(row=0, column=2, padx=(8, 0))
 
-    def _on_filter_change(self, value=None):
-        """Handle filter change."""
+    def _on_slider_change(self, value=None):
+        """Handle slider movement with debouncing (prevents page reset on drag)."""
+        # Update label immediately for visual feedback
+        self.conf_label.configure(text=f"{int(self.conf_var.get() * 100)}%")
+
+        # Cancel previous debounce timer if still pending
+        if self._debounce_timer:
+            self.after_cancel(self._debounce_timer)
+
+        # Schedule the actual filter change after user stops dragging
+        self._debounce_timer = self.after(
+            self.SLIDER_DEBOUNCE_MS,
+            self._on_filter_change
+        )
+
+    def _on_filter_change(self):
+        """Handle filter change (called after debounce)."""
         if self.on_change:
             filters = {
                 'min_confidence': self.conf_var.get(),
             }
-            self.conf_label.configure(text=f"{int(self.conf_var.get() * 100)}%")
             self.on_change(filters)
+        self._debounce_timer = None  # Clear timer reference
 
     def get_filters(self) -> dict:
         """Get current filter values."""
@@ -387,6 +406,11 @@ class FilterPanel(ctk.CTkFrame):
 class FindingsTable(ctk.CTkFrame):
     """
     Display findings in a table-like format (scrollable frame with rows).
+
+    Features:
+    - Clickable rows with visual selection feedback
+    - Sortable columns (click header to sort)
+    - Current selection tracking
 
     Example:
         table = FindingsTable(parent)
@@ -403,6 +427,14 @@ class FindingsTable(ctk.CTkFrame):
         )
 
         self.grid_columnconfigure(0, weight=1)
+
+        # Selection tracking
+        self.selected_row_frame = None  # Current selected row widget
+        self.row_frames = []  # All row frames for deselection
+
+        # Sort state
+        self.sort_column = None  # 'confidence', 'name', etc.
+        self.sort_ascending = True
 
         # Header
         header = ctk.CTkFrame(self, fg_color=COLORS['card_bg'], height=40)
@@ -439,6 +471,7 @@ class FindingsTable(ctk.CTkFrame):
         name: str,
         confidence: float,
         finding_type: str,
+        address: Optional[str] = None,
         on_click: Optional[Callable] = None
     ):
         """
@@ -449,8 +482,10 @@ class FindingsTable(ctk.CTkFrame):
             name: Finding name/description
             confidence: Confidence score (0.0-1.0)
             finding_type: Type of finding
+            address: Hex address (optional, for location info)
             on_click: Callback when row is clicked
         """
+        # Create row with background that can change for selection
         row_frame = ctk.CTkFrame(
             self.scroll_frame,
             fg_color="transparent",
@@ -459,6 +494,9 @@ class FindingsTable(ctk.CTkFrame):
         )
         row_frame.pack(fill="x", padx=8, pady=2)
         row_frame.grid_columnconfigure(1, weight=1)
+
+        # Store for selection tracking
+        self.row_frames.append(row_frame)
 
         # ID
         id_label = ctk.CTkLabel(
@@ -499,9 +537,35 @@ class FindingsTable(ctk.CTkFrame):
 
         if on_click:
             row_frame.configure(cursor="hand2")
-            row_frame.bind("<Button-1>", lambda e: on_click())
+            # Create a wrapper to handle selection
+            def on_row_click(event=None):
+                self._select_row(row_frame)
+                on_click()
+
+            row_frame.bind("<Button-1>", on_row_click)
+            # Also bind child widgets to propagate clicks
+            for child in row_frame.winfo_children():
+                child.bind("<Button-1>", on_row_click)
 
         self.row_count += 1
+
+    def _select_row(self, row_frame):
+        """Highlight a row as selected."""
+        # Deselect previous row
+        if self.selected_row_frame:
+            self.selected_row_frame.configure(fg_color="transparent")
+
+        # Select new row
+        row_frame.configure(fg_color=COLORS['primary_hover'])
+        self.selected_row_frame = row_frame
+
+    def clear_table(self):
+        """Clear all rows from the table."""
+        for widget in self.scroll_frame.winfo_children():
+            widget.destroy()
+        self.row_frames.clear()
+        self.selected_row_frame = None
+        self.row_count = 0
 
     @staticmethod
     def _get_confidence_color(confidence: float) -> str:
