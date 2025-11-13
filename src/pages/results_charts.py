@@ -235,24 +235,24 @@ class VisualizationEngine:
 
     @staticmethod
     def create_execution_timeline(dynamic_calls: List[Any], width: int = 450, height: int = 340) -> Optional[Image.Image]:
-        """Create execution timeline chart for dynamic analysis.
+        """Create execution timeline chart for static analysis.
 
         Args:
-            dynamic_calls: List of DynamicCall objects with timestamps
+            static_calls: List of DynamicCall objects with timestamps
             width: Image width (optimized for 450px)
             height: Image height (optimized for 340px)
 
         Returns:
             PIL Image or None if no data
         """
-        if not dynamic_calls:
+        if not static_calls:
             return None
 
         VisualizationEngine._setup_style()
 
         # Count calls by type
         by_type = {}
-        for call in dynamic_calls:
+        for call in static_calls:
             call_type = getattr(call, 'call_type', 'unknown')
             by_type[call_type] = by_type.get(call_type, 0) + 1
 

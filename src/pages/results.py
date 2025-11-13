@@ -19,7 +19,7 @@ import customtkinter as ctk
 
 from pages.results_model import ResultsDataModel
 from pages.results_tabs import (
-    OverviewTab, StaticTab, DynamicTab, ExportTab
+    OverviewTab, StaticTab, ExportTab
 )
 from pages.results_charts import VisualizationPanel
 from ui.results_components import (
@@ -48,13 +48,12 @@ class ResultsPage(ctk.CTkFrame):
     - Center (50%): Tabbed content area
     - Right (30%): Metrics and visualizations
 
-    Supports free users (static only) and premium users (static + dynamic).
+    Displays static analysis results.
     """
 
     TAB_NAMES = {
         'overview': ('Overview', False),
         'static': ('Static Analysis', False),
-        'dynamic': ('Dynamic Analysis', False),  # All tabs free for now
         'export': ('Export & Reports', False),
     }
 
@@ -341,13 +340,6 @@ class ResultsPage(ctk.CTkFrame):
         )
         self.static_status.grid(row=1, column=0, sticky="ew", padx=8, pady=4)
 
-        # Dynamic status
-        self.dynamic_status = StatusIndicator(
-            card,
-            status='pending',
-            label='Dynamic Analysis'
-        )
-        self.dynamic_status.grid(row=2, column=0, sticky="ew", padx=8, pady=4)
 
         # Analysis date
         self.analysis_date_label = ctk.CTkLabel(
@@ -424,14 +416,8 @@ class ResultsPage(ctk.CTkFrame):
         self.tabs = {
             'overview': OverviewTab(self.tab_content),
             'static': StaticTab(self.tab_content),
-            'dynamic': DynamicTab(self.tab_content, on_continue_analysis=self._continue_dynamic_analysis),
             'export': ExportTab(self.tab_content),
         }
-
-    def _continue_dynamic_analysis(self):
-        """Handle continue dynamic analysis button click."""
-        # Switch back to detectors page to run analysis again
-        logger.info("User clicked continue dynamic analysis button")
         self.switch_page("detectors")
 
     # ======== Tab Management ========
@@ -610,8 +596,6 @@ class ResultsPage(ctk.CTkFrame):
         )
         # Update status indicator (would need to recreate or enhance)
 
-        # Dynamic status
-        dynamic_status = 'completed' if self.data_model.has_dynamic_results() else 'pending'
 
         # Analysis date
         date_str = self.data_model.metadata.analysis_date or "-"
@@ -737,7 +721,7 @@ class ResultsPage(ctk.CTkFrame):
                 self._set_load_case_status(f"⚠️ Workdir not found: {workdir}", error=True)
                 return
 
-            # Look for analysis/static and analysis/dynamic directories
+            # Look for analysis/static directory
             analysis_dir = workdir_path / "analysis"
             if not analysis_dir.exists():
                 self._set_load_case_status("⚠️ No analysis directory found", error=True)
@@ -758,29 +742,9 @@ class ResultsPage(ctk.CTkFrame):
                             self._available_files[file_hash] = {
                                 "workdir": str(workdir_path),
                                 "has_static": True,
-                                "has_dynamic": False
                             }
                             files_found.append(f"📄 {file_hash[:16]}... (static)")
 
-            # Check dynamic results
-            dynamic_dir = analysis_dir / "dynamic"
-            if dynamic_dir.exists():
-                for hash_dir in dynamic_dir.iterdir():
-                    if hash_dir.is_dir():
-                        file_hash = hash_dir.name
-                        results_file = hash_dir / "dynamic_results.json"
-                        if results_file.exists():
-                            if file_hash in self._available_files:
-                                self._available_files[file_hash]["has_dynamic"] = True
-                                # Update display
-                                files_found = [f.replace("(static)", "(static+dynamic)") if file_hash in f else f for f in files_found]
-                            else:
-                                self._available_files[file_hash] = {
-                                    "workdir": str(workdir_path),
-                                    "has_static": False,
-                                    "has_dynamic": True
-                                }
-                                files_found.append(f"📄 {file_hash[:16]}... (dynamic)")
 
             # Update files listbox
             self.files_listbox.configure(state="normal")

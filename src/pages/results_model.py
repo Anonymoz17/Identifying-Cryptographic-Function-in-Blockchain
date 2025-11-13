@@ -1,7 +1,7 @@
 """Data model for Results Page.
 
 Handles loading and managing analysis results from the case folder structure.
-Supports both static and dynamic analysis results with caching and statistics.
+Supports static analysis results with caching and statistics.
 
 Case Structure:
 case/
@@ -96,9 +96,7 @@ class AnalysisMetadata:
     file_size: Optional[int] = None
     analysis_date: Optional[str] = None
     static_status: str = "unknown"  # unknown, pending, completed, failed
-    dynamic_status: str = "unknown"
     static_findings_count: int = 0
-    dynamic_events_count: int = 0
     analysis_duration_seconds: Optional[float] = None
 
     def to_dict(self) -> dict:
@@ -109,9 +107,7 @@ class AnalysisMetadata:
             'file_size': self.file_size,
             'analysis_date': self.analysis_date,
             'static_status': self.static_status,
-            'dynamic_status': self.dynamic_status,
             'static_findings_count': self.static_findings_count,
-            'dynamic_events_count': self.dynamic_events_count,
             'analysis_duration_seconds': self.analysis_duration_seconds
         }
 
@@ -137,7 +133,6 @@ class ResultsDataModel:
 
         # Result data
         self.static_findings: List[Finding] = []
-        self.dynamic_calls: List[DynamicCall] = []
         self.metadata = AnalysisMetadata(file_hash=file_hash)
 
         # Cache for statistics
@@ -158,25 +153,7 @@ class ResultsDataModel:
         return (
             self.case_path
             / "analysis" / "static" / self.file_hash / "hints.json"
-        )
-
-    def _get_dynamic_results_path(self) -> Path:
-        """Get path to dynamic_results.json."""
-        return (
-            self.case_path
-            / "analysis" / "dynamic" / self.file_hash / "dynamic_results.json"
-        )
-
-    def _get_trace_path(self) -> Path:
-        """Get path to trace.ndjson."""
-        return (
-            self.case_path
-            / "analysis" / "dynamic" / self.file_hash / "trace.ndjson"
-        )
-
-    # ======== Loading Methods ========
-
-    def load_static_results(self) -> bool:
+        )    def load_static_results(self) -> bool:
         """
         Load static analysis results from JSON file.
 
@@ -275,70 +252,16 @@ class ResultsDataModel:
             self.metadata.static_status = "failed"
             return False
 
-    def load_dynamic_results(self) -> bool:
-        """
-        Load dynamic analysis results from JSON file.
-
-        Returns:
-            True if loaded successfully, False if file not found or error
-        """
-        path = self._get_dynamic_results_path()
-
-        if not path.exists():
-            logger.warning(f"Dynamic results file not found: {path}")
-            self.metadata.dynamic_status = "not_found"
-            return False
-
-        try:
-            with open(path, 'r') as f:
-                data = json.load(f)
-
-            # Parse findings from dynamic results
-            self.dynamic_calls = []
-            for finding_data in data.get('findings', []):
-                # Convert dynamic findings to DynamicCall objects
-                call = DynamicCall(
-                    timestamp=finding_data.get('timestamp', 0.0),
-                    event_type=finding_data.get('type', 'unknown'),
-                    function_name=finding_data.get('function'),
-                    module_name=finding_data.get('module'),
-                    address=finding_data.get('address'),
-                    confidence=float(finding_data.get('confidence', 0.5)),
-                    details=finding_data
-                )
-                self.dynamic_calls.append(call)
-
-            # Update metadata from summary
-            summary = data.get('summary', {})
-            self.metadata.dynamic_status = "completed"
-            self.metadata.dynamic_events_count = len(self.dynamic_calls)
-            self.metadata.analysis_date = data.get('timestamp')
-
-            logger.info(
-                f"Loaded {len(self.dynamic_calls)} dynamic calls from {path}"
-            )
-            self._invalidate_cache()
-            return True
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse dynamic results JSON: {e}")
-            self.metadata.dynamic_status = "failed"
-            return False
-        except Exception as e:
-            logger.error(f"Error loading dynamic results: {e}")
-            self.metadata.dynamic_status = "failed"
-            return False
 
     def load_all(self) -> bool:
         """
-        Load both static and dynamic results.
+        Load static analysis results.
 
         Returns:
             True if at least one type loaded successfully
         """
         static_ok = self.load_static_results()
-        dynamic_ok = self.load_dynamic_results()
-        return static_ok or dynamic_ok
+        return static_ok
 
     # ======== Filtering Methods ========
 
@@ -385,14 +308,6 @@ class ResultsDataModel:
 
         return results
 
-    def get_dynamic_calls_by_function(self, function_name: str) -> List[DynamicCall]:
-        """Get all dynamic calls for a specific function."""
-        return [
-            call for call in self.dynamic_calls
-            if call.function_name == function_name
-        ]
-
-    # ======== Statistics ========
 
     def calculate_statistics(self) -> Dict[str, Any]:
         """
@@ -417,9 +332,7 @@ class ResultsDataModel:
                 'max_confidence': 0.0,
                 'min_confidence': 1.0,
             },
-            'dynamic': {
-                'total_calls': len(self.dynamic_calls),
-                'by_type': {},
+
                 'unique_functions': set(),
                 'average_confidence': 0.0,
             },
@@ -486,9 +399,6 @@ class ResultsDataModel:
         """Check if static results are available."""
         return self.metadata.static_status == "completed" and len(self.static_findings) > 0
 
-    def has_dynamic_results(self) -> bool:
-        """Check if dynamic results are available."""
-        return self.metadata.dynamic_status == "completed" and len(self.dynamic_calls) > 0
 
     def get_status_summary(self) -> str:
         """Get human-readable status summary."""

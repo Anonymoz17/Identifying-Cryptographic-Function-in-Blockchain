@@ -4,7 +4,7 @@ Shows high-level summary of analysis results including:
 - Key statistics (findings count, confidence levels)
 - Analysis status and timestamps
 - Quick action buttons
-- Summary cards for static and dynamic analysis
+- Summary cards for static analysis
 """
 
 from typing import TYPE_CHECKING
@@ -13,7 +13,6 @@ from ui.results_components import MetricsCard, StatusIndicator, SectionHeader, C
 
 if TYPE_CHECKING:
     from pages.results_model import ResultsDataModel
-
 
 class OverviewTab(ctk.CTkFrame):
     """Overview tab showing high-level analysis summary."""
@@ -33,7 +32,6 @@ class OverviewTab(ctk.CTkFrame):
         # Build UI structure
         self._build_header()
         self._build_static_section()
-        self._build_dynamic_section()
         self._build_summary_section()
 
     def _build_header(self):
@@ -72,16 +70,6 @@ class OverviewTab(ctk.CTkFrame):
             icon="📈"
         )
         self.avg_confidence_card.grid(row=0, column=1, padx=4, pady=4, sticky="ew")
-
-        self.dynamic_calls_card = MetricsCard(
-            stats_frame,
-            label="Crypto Calls",
-            value="0",
-            unit="",
-            icon="📞",
-            color=COLORS['success']
-        )
-        self.dynamic_calls_card.grid(row=0, column=2, padx=4, pady=4, sticky="ew")
 
         self.unique_functions_card = MetricsCard(
             stats_frame,
@@ -166,80 +154,6 @@ class OverviewTab(ctk.CTkFrame):
             wraplength=400
         )
         self.types_text.pack(anchor="w", padx=12, pady=(0, 12))
-
-    def _build_dynamic_section(self):
-        """Build dynamic analysis results section."""
-        section = ctk.CTkFrame(self.scroll_frame, fg_color="transparent")
-        section.pack(fill="x", padx=16, pady=12)
-        section.grid_columnconfigure(0, weight=1)
-
-        # Section header
-        header = SectionHeader(
-            section,
-            title="📞 Dynamic Analysis Results"
-        )
-        header.pack(fill="x", padx=0, pady=(0, 12))
-
-        # Dynamic results card
-        card = ctk.CTkFrame(section, fg_color=COLORS['card_bg'], corner_radius=8)
-        card.pack(fill="x", padx=0, pady=0)
-        card.grid_columnconfigure(0, weight=1)
-
-        # Status row
-        self.dynamic_status = StatusIndicator(
-            card,
-            status='pending',
-            label='Status: No dynamic analysis data'
-        )
-        self.dynamic_status.pack(anchor="w", padx=12, pady=(12, 8))
-
-        # Events summary
-        summary_frame = ctk.CTkFrame(card, fg_color="transparent")
-        summary_frame.pack(fill="x", padx=12, pady=8)
-        summary_frame.grid_columnconfigure((0, 1, 2), weight=1)
-
-        self.total_events_label = ctk.CTkLabel(
-            summary_frame,
-            text="Total Events: 0",
-            font=("Roboto", 11),
-            text_color=COLORS['text']
-        )
-        self.total_events_label.grid(row=0, column=0, sticky="w", padx=4, pady=4)
-
-        self.crypto_ops_label = ctk.CTkLabel(
-            summary_frame,
-            text="Crypto Operations: 0",
-            font=("Roboto", 11),
-            text_color=COLORS['text']
-        )
-        self.crypto_ops_label.grid(row=0, column=1, sticky="w", padx=4, pady=4)
-
-        self.unique_funcs_label = ctk.CTkLabel(
-            summary_frame,
-            text="Unique Functions: 0",
-            font=("Roboto", 11),
-            text_color=COLORS['text']
-        )
-        self.unique_funcs_label.grid(row=0, column=2, sticky="w", padx=4, pady=4)
-
-        # Event types
-        types_label = ctk.CTkLabel(
-            card,
-            text="Event Types:",
-            font=("Roboto", 10, "bold"),
-            text_color=COLORS['text_secondary']
-        )
-        types_label.pack(anchor="w", padx=12, pady=(8, 4))
-
-        self.dyn_types_text = ctk.CTkLabel(
-            card,
-            text="None yet",
-            font=("Roboto", 10),
-            text_color=COLORS['text'],
-            justify="left",
-            wraplength=400
-        )
-        self.dyn_types_text.pack(anchor="w", padx=12, pady=(0, 12))
 
     def _build_summary_section(self):
         """Build overall summary section."""
@@ -330,47 +244,6 @@ class OverviewTab(ctk.CTkFrame):
             status_text = "⏳ Static analysis not yet performed"
             self.types_text.configure(text="None")
 
-        # Update dynamic section (with safe defaults)
-        if self.data_model.has_dynamic_results():
-            dynamic_status = "✓ Dynamic analysis completed"
-            self.total_events_label.configure(
-                text=f"Total Events: {dyn_stats.get('total_calls', 0)}"
-            )
-            self.unique_funcs_label.configure(
-                text=f"Unique Functions: {dyn_stats.get('unique_functions', 0)}"
-            )
-
-            # Event types (safe handling)
-            dyn_by_type = dyn_stats.get('by_type', {})
-            types_str = ", ".join(
-                f"{etype} ({count})"
-                for etype, count in dyn_by_type.items()
-            ) or "None"
-            self.dyn_types_text.configure(text=types_str)
-        else:
-            dynamic_status = "⏳ Dynamic analysis not available"
-            self.dyn_types_text.configure(text="None")
-
-        # Update metadata (with safe defaults)
-        try:
-            meta = self.data_model.metadata
-            analysis_date = getattr(meta, 'analysis_date', 'Unknown') or 'Unknown'
-            file_hash = self.data_model.file_hash[:32] if self.data_model.file_hash else 'Unknown'
-            static_status = getattr(meta, 'static_status', 'Unknown')
-            if static_status:
-                static_status = static_status.title()
-            else:
-                static_status = 'Unknown'
-            dynamic_status = getattr(meta, 'dynamic_status', 'Unknown')
-            if dynamic_status:
-                dynamic_status = dynamic_status.title()
-            else:
-                dynamic_status = 'Unknown'
-
-            metadata_info = f"""Analysis Date: {analysis_date}
-File Hash: {file_hash}...
-Static Status: {static_status}
-Dynamic Status: {dynamic_status}
 """
         except Exception as e:
             logger.warning(f"Failed to update metadata: {e}")
