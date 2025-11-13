@@ -1679,41 +1679,77 @@ class DetectorsPage(ctk.CTkFrame):
 
     def _batch_analysis_thread(self):
         """Background thread for batch static analysis of all binaries."""
+        import time
+        import logging
+        import sys
+        from pathlib import Path
+
         try:
             from auditor.detectors.static_detection.runner import StaticRunner
             from auditor.detectors.static_detection.context import RunContext, ToolVersions
 
+            # Setup comprehensive logging
+            log_file = Path(self._case_workdir) / "static_detection_debug.log"
+            logging.basicConfig(
+                level=logging.DEBUG,
+                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                handlers=[
+                    logging.FileHandler(log_file),
+                    logging.StreamHandler(sys.stdout)
+                ],
+                force=True
+            )
+            logger = logging.getLogger(__name__)
+
+            logger.info("="*80)
+            logger.info("STATIC DETECTION BATCH ANALYSIS START")
+            logger.info("="*80)
+
             # Initialize batch results
             self._batch_results = {}
             self._current_batch_index = 0
-            
+
             profile = self.profile_var.get()
             force = self.force_var.get()
-            
+
             total_files = len(self._all_file_hashes)
-            
+
+            logger.info(f"Total files to process: {total_files}")
+            logger.info(f"Profile: {profile}, Force: {force}")
+            logger.info(f"Case workdir: {self._case_workdir}")
+
             self.after(0, self._log_console, f"Starting batch analysis of {total_files} binaries...")
             self.after(0, self._log_console, f"Profile: {profile}, Force: {force}")
+            self.after(0, self._log_console, f"Debug log: {log_file}")
 
             # Create runner once (reuse for all files)
             runner = StaticRunner()
+            logger.info("StaticRunner created")
 
             # Process each file hash
             for index, file_hash in enumerate(self._all_file_hashes, 1):
+                file_start_time = time.time()
+
                 # Check for cancellation
                 if self._cancel_event and self._cancel_event.is_set():
+                    logger.info(f"Cancellation requested at file {index}/{total_files}")
                     self.after(0, self._on_batch_cancelled, index - 1, total_files)
                     return
 
                 self._current_batch_index = index
-                
+
                 # Update progress
                 progress = (index - 0.5) / total_files
                 self.after(0, self.progress_bar.set, progress)
                 self.after(0, self._update_batch_progress, index, total_files, file_hash)
-                
+
+                logger.info(f"\n{'='*80}")
+                logger.info(f"[{index}/{total_files}] Starting analysis of {file_hash}")
+                logger.info(f"{'='*80}")
+
                 try:
                     # Build context for this specific file
+                    logger.debug(f"[{index}] Creating RunContext...")
                     ctx = RunContext(
                         file_hash=file_hash,
                         preproc_dir=self._case_workdir,
@@ -1722,27 +1758,49 @@ class DetectorsPage(ctk.CTkFrame):
                         force=force,
                         tool_versions=ToolVersions()
                     )
+                    logger.debug(f"[{index}] RunContext created")
 
                     # Run analysis for this file
+                    logger.debug(f"[{index}] Calling runner.run()...")
+                    run_start = time.time()
                     result = runner.run(ctx)
-                    
+                    run_elapsed = time.time() - run_start
+                    logger.info(f"[{index}] runner.run() completed in {run_elapsed:.2f}s")
+
                     # Store result
                     self._batch_results[file_hash] = result
-                    
+                    logger.debug(f"[{index}] Result stored")
+
                     # Log completion
                     status = "✓ Cached" if result.cached else "✓ Analyzed"
-                    self.after(0, self._log_console, f"{status} [{index}/{total_files}] {file_hash[:16]}...")
-                    
+                    file_elapsed = time.time() - file_start_time
+                    log_msg = f"{status} [{index}/{total_files}] {file_hash[:16]}... ({file_elapsed:.2f}s)"
+                    logger.info(log_msg)
+                    self.after(0, self._log_console, log_msg)
+
+                except TimeoutError as e:
+                    elapsed = time.time() - file_start_time
+                    logger.error(f"[{index}] TIMEOUT after {elapsed:.2f}s: {e}", exc_info=True)
+                    self._batch_results[file_hash] = {"error": str(e), "error_type": "timeout"}
+                    self.after(0, self._log_console, f"✗ TIMEOUT [{index}/{total_files}] {file_hash[:16]}... after {elapsed:.2f}s")
+
                 except Exception as e:
-                    # Log error but continue with next file
-                    self._batch_results[file_hash] = {"error": str(e)}
-                    self.after(0, self._log_console, f"✗ Error [{index}/{total_files}] {file_hash[:16]}...: {e}")
+                    elapsed = time.time() - file_start_time
+                    logger.error(f"[{index}] ERROR after {elapsed:.2f}s: {type(e).__name__}: {e}", exc_info=True)
+                    self._batch_results[file_hash] = {"error": str(e), "error_type": type(e).__name__}
+                    self.after(0, self._log_console, f"✗ Error [{index}/{total_files}] {file_hash[:16]}...: {type(e).__name__}")
 
             # All files processed
+            total_elapsed = time.time() - file_start_time
+            logger.info(f"\n{'='*80}")
+            logger.info(f"BATCH ANALYSIS COMPLETE - Total time: {total_elapsed:.2f}s")
+            logger.info(f"{'='*80}")
+
             self.after(0, self.progress_bar.set, 1.0)
             self.after(0, self._on_batch_complete, total_files)
 
         except Exception as e:
+            logger.error(f"FATAL ERROR in batch thread: {type(e).__name__}: {e}", exc_info=True)
             self.after(0, self._on_analysis_error, str(e))
 
     def _update_batch_progress(self, current: int, total: int, file_hash: str):

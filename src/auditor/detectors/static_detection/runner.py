@@ -162,32 +162,45 @@ class StaticRunner:
             if elapsed > pipeline_timeout:
                 raise TimeoutError(f"Static detection pipeline exceeded timeout ({elapsed:.1f}s > {pipeline_timeout}s)")
 
-            # 1) generate lightweight static preproc artifacts (profile-aware)
+            # STAGE 1: Generate lightweight static preproc artifacts
+            logger.info(f"[STAGE 1] Starting static preprocessing...")
             preproc_out = os.path.join(analysis_dir, "preproc")
             # Calculate per-stage timeout based on elapsed time
             remaining_time = pipeline_timeout - elapsed
             preproc_timeout = min(DEFAULT_PREPROC_TIMEOUT, max(10.0, remaining_time * 0.2))  # Use 20% of remaining time, minimum 10s
-            logger.debug(f"Starting static_preproc with timeout {preproc_timeout:.1f}s (remaining: {remaining_time:.1f}s)")
-            static_artifacts = static_preproc.generate_static_preproc(
-                preproc_dir=preproc_dir_to_use,
-                out_dir=preproc_out,
-                profile=ctx.profile,
-                timeout_sec=preproc_timeout
-            )
+            logger.info(f"[STAGE 1] timeout={preproc_timeout:.1f}s, remaining={remaining_time:.1f}s")
+
+            stage1_start = time.time()
+            try:
+                static_artifacts = static_preproc.generate_static_preproc(
+                    preproc_dir=preproc_dir_to_use,
+                    out_dir=preproc_out,
+                    profile=ctx.profile,
+                    timeout_sec=preproc_timeout
+                )
+                stage1_elapsed = time.time() - stage1_start
+                logger.info(f"[STAGE 1] Completed in {stage1_elapsed:.2f}s")
+            except Exception as e:
+                stage1_elapsed = time.time() - stage1_start
+                logger.error(f"[STAGE 1] FAILED after {stage1_elapsed:.2f}s: {type(e).__name__}: {e}", exc_info=True)
+                raise
 
             # Add preproc and binary paths to static_artifacts for location enrichment
             static_artifacts["__preproc_dir__"] = preproc_dir_to_use
             static_artifacts["__input_path__"] = preproc.input_path
+            logger.debug(f"[STAGE 1] Static artifacts enriched with paths")
 
-            # 2) ensure ghidra export (stub or real implementation)
+            # STAGE 2: Ghidra export
+            logger.info(f"[STAGE 2] Starting Ghidra analysis decision...")
             ghidra_out = os.path.join(analysis_dir, "ghidra-export")
-            
+
             # Check if Ghidra should run based on policy and file type/size
             from . import ghidra_policy, config
-            
+
             # Get the configured policy: 'auto' (default), 'always', or 'never'
             policy = config.get_ghidra_run_policy()
-            
+            logger.info(f"[STAGE 2] Ghidra policy: {policy}")
+
             if policy == "never":
                 should_run = False
                 reason = "User policy: never run Ghidra"
@@ -196,30 +209,55 @@ class StaticRunner:
                 reason = "User policy: always run Ghidra"
             else:  # policy == "auto"
                 should_run, reason = ghidra_policy.should_run_ghidra(preproc.metadata)
-            
+
+            logger.info(f"[STAGE 2] Decision: should_run={should_run}, reason={reason}")
             ghidra_policy.log_ghidra_decision(preproc.file_hash, should_run, reason)
-            
+
             ghidra_export_path = None
             ghidra_export = []
-            
+
             if should_run:
-                # Resolve Ghidra automatically (ctx.ghidra_options -> persisted -> env -> PATH)
-                resolved = ghidra_adapter.resolve_ghidra(getattr(ctx, "ghidra_options", {}) or {})
-                gh_opts = dict(getattr(ctx, "ghidra_options", {}) or {})
-                if resolved:
-                    gh_opts.setdefault("install_dir", os.path.dirname(os.path.dirname(resolved)))
-                    # annotate tool_versions if available
-                    try:
-                        ver = ghidra_adapter.verify_ghidra(resolved)
-                        if ver:
-                            ctx.tool_versions.ghidra = ver
-                    except Exception:
-                        pass
-                # propagate top-level runner force into ghidra adapter
-                gh_opts.setdefault("force", bool(getattr(ctx, "force", False)))
-                ghidra_export_path = ghidra_adapter.ensure_ghidra_export(preproc.input_path, ghidra_out, preproc.file_hash, options=gh_opts)
-                ghidra_export = ghidra_adapter.read_ghidra_functions(ghidra_export_path)
+                logger.info(f"[STAGE 2] Running Ghidra analysis...")
+                stage2_start = time.time()
+                try:
+                    # Resolve Ghidra automatically (ctx.ghidra_options -> persisted -> env -> PATH)
+                    resolved = ghidra_adapter.resolve_ghidra(getattr(ctx, "ghidra_options", {}) or {})
+                    gh_opts = dict(getattr(ctx, "ghidra_options", {}) or {})
+                    logger.debug(f"[STAGE 2] Ghidra resolved: {resolved}")
+                    if resolved:
+                        gh_opts.setdefault("install_dir", os.path.dirname(os.path.dirname(resolved)))
+                        # annotate tool_versions if available
+                        try:
+                            ver = ghidra_adapter.verify_ghidra(resolved)
+                            if ver:
+                                ctx.tool_versions.ghidra = ver
+                                logger.info(f"[STAGE 2] Ghidra version: {ver}")
+                        except Exception as e:
+                            logger.debug(f"[STAGE 2] Failed to get version: {e}")
+                            pass
+                    # propagate top-level runner force into ghidra adapter
+                    gh_opts.setdefault("force", bool(getattr(ctx, "force", False)))
+
+                    logger.info(f"[STAGE 2] Calling ensure_ghidra_export...")
+                    ghidra_start = time.time()
+                    ghidra_export_path = ghidra_adapter.ensure_ghidra_export(
+                        preproc.input_path, ghidra_out, preproc.file_hash, options=gh_opts
+                    )
+                    ghidra_elapsed = time.time() - ghidra_start
+                    logger.info(f"[STAGE 2] ensure_ghidra_export completed in {ghidra_elapsed:.2f}s, path={ghidra_export_path}")
+
+                    logger.info(f"[STAGE 2] Reading Ghidra functions...")
+                    ghidra_export = ghidra_adapter.read_ghidra_functions(ghidra_export_path)
+                    logger.info(f"[STAGE 2] Read {len(ghidra_export)} functions from Ghidra")
+
+                    stage2_elapsed = time.time() - stage2_start
+                    logger.info(f"[STAGE 2] Completed in {stage2_elapsed:.2f}s")
+                except Exception as e:
+                    stage2_elapsed = time.time() - stage2_start
+                    logger.error(f"[STAGE 2] FAILED after {stage2_elapsed:.2f}s: {type(e).__name__}: {e}", exc_info=True)
+                    raise
             else:
+                logger.info(f"[STAGE 2] Skipping Ghidra (reason: {reason})")
                 # Create empty ghidra-export directory for consistency
                 os.makedirs(ghidra_out, exist_ok=True)
                 # Write a skip marker file explaining why Ghidra was skipped
@@ -237,37 +275,55 @@ class StaticRunner:
             if elapsed > pipeline_timeout:
                 raise TimeoutError(f"Static detection pipeline exceeded timeout before heuristics ({elapsed:.1f}s > {pipeline_timeout}s)")
 
-            # 3) run heuristics
+            # STAGE 3: Run heuristics
+            logger.info(f"[STAGE 3] Loading heuristics...")
             # collect heuristic callables from heuristics package
             heuristics = []
             try:
                 from .heuristics.signature import signature_heuristic
                 heuristics.append(signature_heuristic)
-            except Exception:
+                logger.debug(f"[STAGE 3] Loaded signature_heuristic")
+            except Exception as e:
+                logger.warning(f"[STAGE 3] Failed to load signature_heuristic: {e}")
                 pass
             try:
                 from .heuristics.instruction_patterns import instruction_patterns_heuristic
                 heuristics.append(instruction_patterns_heuristic)
-            except Exception:
+                logger.debug(f"[STAGE 3] Loaded instruction_patterns_heuristic")
+            except Exception as e:
+                logger.warning(f"[STAGE 3] Failed to load instruction_patterns_heuristic: {e}")
                 pass
             try:
                 from .heuristics.constants import constants_heuristic
                 heuristics.append(constants_heuristic)
-            except Exception:
+                logger.debug(f"[STAGE 3] Loaded constants_heuristic")
+            except Exception as e:
+                logger.warning(f"[STAGE 3] Failed to load constants_heuristic: {e}")
                 pass
+
+            logger.info(f"[STAGE 3] Loaded {len(heuristics)} heuristics: {[h.__name__ for h in heuristics]}")
 
             # Calculate heuristics timeout from remaining time
             remaining_time = pipeline_timeout - elapsed
             heuristics_timeout = min(DEFAULT_HEURISTICS_TIMEOUT, max(10.0, remaining_time * 0.4))  # Use 40% of remaining
-            logger.debug(f"Running heuristics with timeout {heuristics_timeout:.1f}s (remaining: {remaining_time:.1f}s)")
+            logger.info(f"[STAGE 3] timeout={heuristics_timeout:.1f}s, remaining={remaining_time:.1f}s")
 
-            findings = heuristics_manager.run_heuristics(
-                ghidra_export,
-                preproc.metadata,
-                heuristics,
-                static_artifacts=static_artifacts,
-                timeout_sec=heuristics_timeout
-            )
+            logger.info(f"[STAGE 3] Starting heuristics execution...")
+            stage3_start = time.time()
+            try:
+                findings = heuristics_manager.run_heuristics(
+                    ghidra_export,
+                    preproc.metadata,
+                    heuristics,
+                    static_artifacts=static_artifacts,
+                    timeout_sec=heuristics_timeout
+                )
+                stage3_elapsed = time.time() - stage3_start
+                logger.info(f"[STAGE 3] Completed in {stage3_elapsed:.2f}s, found {len(findings)} findings")
+            except Exception as e:
+                stage3_elapsed = time.time() - stage3_start
+                logger.error(f"[STAGE 3] FAILED after {stage3_elapsed:.2f}s: {type(e).__name__}: {e}", exc_info=True)
+                raise
 
             # 4) PHASE 2: Enrich findings with Ghidra context (function call graph, signatures)
             if ghidra_export:
