@@ -78,13 +78,13 @@ class VisualizationEngine:
         return img
 
     @staticmethod
-    def create_confidence_histogram(findings: List[Any], width: int = 400, height: int = 300) -> Optional[Image.Image]:
+    def create_confidence_histogram(findings: List[Any], width: int = 450, height: int = 340) -> Optional[Image.Image]:
         """Create histogram of finding confidence scores.
 
         Args:
             findings: List of Finding objects with confidence attribute
-            width: Image width
-            height: Image height
+            width: Image width (optimized for 450px)
+            height: Image height (optimized for 340px)
 
         Returns:
             PIL Image or None if no findings
@@ -96,7 +96,7 @@ class VisualizationEngine:
 
         confidences = [f.confidence * 100 for f in findings]
 
-        fig, ax = plt.subplots(figsize=(5, 4), dpi=80)
+        fig, ax = plt.subplots(figsize=(6, 4.5), dpi=80)
         bars = ax.hist(confidences, bins=10, color=CHART_STYLE['primary_color'],
                        edgecolor=CHART_STYLE['chart_edge'], alpha=0.85, linewidth=1.5)
 
@@ -110,7 +110,7 @@ class VisualizationEngine:
         ax.spines['left'].set_color(CHART_STYLE['grid_color'])
         ax.spines['bottom'].set_color(CHART_STYLE['grid_color'])
 
-        fig.subplots_adjust(left=0.1, right=0.95, top=0.9, bottom=0.1)
+        fig.subplots_adjust(left=0.1, right=0.95, top=0.88, bottom=0.12)
 
         img = VisualizationEngine.figure_to_image(fig, width, height)
         plt.close(fig)
@@ -118,13 +118,13 @@ class VisualizationEngine:
         return img
 
     @staticmethod
-    def create_finding_types_pie(stats: Dict[str, Any], width: int = 400, height: int = 300) -> Optional[Image.Image]:
+    def create_finding_types_pie(stats: Dict[str, Any], width: int = 450, height: int = 340) -> Optional[Image.Image]:
         """Create pie chart of finding types.
 
         Args:
             stats: Statistics dict containing 'static' -> 'by_type' data
-            width: Image width
-            height: Image height
+            width: Image width (optimized for 450px)
+            height: Image height (optimized for 340px)
 
         Returns:
             PIL Image or None if no data
@@ -181,14 +181,14 @@ class VisualizationEngine:
         return img
 
     @staticmethod
-    def create_top_patterns_bar(stats: Dict[str, Any], top_n: int = 8, width: int = 400, height: int = 300) -> Optional[Image.Image]:
+    def create_top_patterns_bar(stats: Dict[str, Any], top_n: int = 8, width: int = 450, height: int = 340) -> Optional[Image.Image]:
         """Create bar chart of top finding patterns.
 
         Args:
             stats: Statistics dict containing 'static' -> 'by_type' data
             top_n: Number of top patterns to show
-            width: Image width
-            height: Image height
+            width: Image width (optimized for 450px)
+            height: Image height (optimized for 340px)
 
         Returns:
             PIL Image or None if no data
@@ -207,7 +207,7 @@ class VisualizationEngine:
         types = [t[0] for t in sorted_types]
         counts = [t[1] for t in sorted_types]
 
-        fig, ax = plt.subplots(figsize=(5, 4), dpi=80)
+        fig, ax = plt.subplots(figsize=(6, 4.5), dpi=80)
         bars = ax.barh(types, counts, color=CHART_STYLE['success_color'],
                        edgecolor=CHART_STYLE['chart_edge'], alpha=0.85, linewidth=1.5)
 
@@ -226,7 +226,7 @@ class VisualizationEngine:
         ax.spines['bottom'].set_color(CHART_STYLE['grid_color'])
         ax.invert_yaxis()
 
-        fig.subplots_adjust(left=0.2, right=0.95, top=0.9, bottom=0.1)
+        fig.subplots_adjust(left=0.2, right=0.95, top=0.88, bottom=0.12)
 
         img = VisualizationEngine.figure_to_image(fig, width, height)
         plt.close(fig)
@@ -234,13 +234,13 @@ class VisualizationEngine:
         return img
 
     @staticmethod
-    def create_execution_timeline(dynamic_calls: List[Any], width: int = 400, height: int = 300) -> Optional[Image.Image]:
+    def create_execution_timeline(dynamic_calls: List[Any], width: int = 450, height: int = 340) -> Optional[Image.Image]:
         """Create execution timeline chart for dynamic analysis.
 
         Args:
             dynamic_calls: List of DynamicCall objects with timestamps
-            width: Image width
-            height: Image height
+            width: Image width (optimized for 450px)
+            height: Image height (optimized for 340px)
 
         Returns:
             PIL Image or None if no data
@@ -259,7 +259,7 @@ class VisualizationEngine:
         types = list(by_type.keys())
         counts = list(by_type.values())
 
-        fig, ax = plt.subplots(figsize=(5, 4), dpi=80)
+        fig, ax = plt.subplots(figsize=(6, 4.5), dpi=80)
 
         if len(types) > 0:
             bars = ax.bar(range(len(types)), counts, color=CHART_STYLE['primary_color'],
@@ -284,7 +284,7 @@ class VisualizationEngine:
         ax.spines['left'].set_color(CHART_STYLE['grid_color'])
         ax.spines['bottom'].set_color(CHART_STYLE['grid_color'])
 
-        fig.subplots_adjust(left=0.1, right=0.95, top=0.9, bottom=0.15)
+        fig.subplots_adjust(left=0.1, right=0.95, top=0.88, bottom=0.15)
 
         img = VisualizationEngine.figure_to_image(fig, width, height)
         plt.close(fig)
@@ -295,17 +295,23 @@ class VisualizationEngine:
 class ChartPanel(ctk.CTkFrame):
     """Frame that displays a chart image with title."""
 
-    def __init__(self, master, title: str = "", **kwargs):
+    def __init__(self, master, title: str = "", width: int = 420, height: int = 320, **kwargs):
         """Initialize chart panel.
 
         Args:
             master: Parent widget
             title: Chart title
+            width: Chart display width (default 420px for better visibility)
+            height: Chart display height (default 320px for better visibility)
         """
         super().__init__(master, fg_color='#1E2631', corner_radius=8, border_width=1, border_color='#30363D', **kwargs)
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
+
+        # Store dimensions for responsive sizing
+        self.chart_width = width
+        self.chart_height = height
 
         # Title with icon
         title_label = ctk.CTkLabel(
@@ -316,7 +322,7 @@ class ChartPanel(ctk.CTkFrame):
         )
         title_label.grid(row=0, column=0, sticky='ew', padx=12, pady=(10, 6))
 
-        # Image label
+        # Image label with padding for better visibility
         self.image_label = ctk.CTkLabel(
             self,
             text='',
@@ -334,8 +340,8 @@ class ChartPanel(ctk.CTkFrame):
         if pil_image is None:
             self.image_label.configure(text='No data available', text_color='#8A94A6')
         else:
-            # Convert PIL image to CTK image
-            ctk_image = ctk.CTkImage(pil_image, size=(380, 280))
+            # Convert PIL image to CTK image with responsive sizing
+            ctk_image = ctk.CTkImage(pil_image, size=(self.chart_width, self.chart_height))
             self.image_label.configure(image=ctk_image, text='')
             # Keep reference to prevent garbage collection
             self.image_label.ctk_image = ctk_image
@@ -364,30 +370,41 @@ class VisualizationPanel(ctk.CTkFrame):
         )
         header_label.pack(side='left', padx=0, pady=0)
 
-        # Scrollable frame for charts
+        # Scrollable frame for charts with better padding
         self.scroll_frame = ctk.CTkScrollableFrame(
             self,
             fg_color='#0F1117'
         )
-        self.scroll_frame.pack(fill='both', expand=True, padx=8, pady=(0, 8))
+        self.scroll_frame.pack(fill='both', expand=True, padx=6, pady=(0, 8))
         self.scroll_frame.grid_columnconfigure(0, weight=1)
 
-        # Create chart panels with slight spacing
+        # Chart sizes optimized for visibility (increased from 380x280)
+        # These sizes are now responsive and better utilize the panel space
+        chart_width = 450
+        chart_height = 340
+
+        # Create chart panels with better spacing and visibility
         self.confidence_chart = ChartPanel(
             self.scroll_frame,
-            title='📈 Confidence Distribution'
+            title='📈 Confidence Distribution',
+            width=chart_width,
+            height=chart_height
         )
-        self.confidence_chart.pack(fill='x', padx=0, pady=(0, 10))
+        self.confidence_chart.pack(fill='x', padx=0, pady=(0, 12))
 
         self.types_chart = ChartPanel(
             self.scroll_frame,
-            title='🎯 Finding Types Breakdown'
+            title='🎯 Finding Types Breakdown',
+            width=chart_width,
+            height=chart_height
         )
-        self.types_chart.pack(fill='x', padx=0, pady=(0, 10))
+        self.types_chart.pack(fill='x', padx=0, pady=(0, 12))
 
         self.patterns_chart = ChartPanel(
             self.scroll_frame,
-            title='⭐ Top Finding Types'
+            title='⭐ Top Finding Types',
+            width=chart_width,
+            height=chart_height
         )
         self.patterns_chart.pack(fill='x', padx=0, pady=0)
 
@@ -403,7 +420,7 @@ class VisualizationPanel(ctk.CTkFrame):
         # Get filtered findings for confidence chart
         findings = data_model.get_static_findings()
         if findings:
-            conf_img = VisualizationEngine.create_confidence_histogram(findings, width=380, height=280)
+            conf_img = VisualizationEngine.create_confidence_histogram(findings, width=450, height=340)
             self.confidence_chart.set_image(conf_img)
         else:
             self.confidence_chart.set_image(None)
@@ -411,10 +428,10 @@ class VisualizationPanel(ctk.CTkFrame):
         # Get statistics for pie and bar charts
         stats = data_model.get_statistics()
         if stats:
-            types_img = VisualizationEngine.create_finding_types_pie(stats, width=380, height=280)
+            types_img = VisualizationEngine.create_finding_types_pie(stats, width=450, height=340)
             self.types_chart.set_image(types_img)
 
-            patterns_img = VisualizationEngine.create_top_patterns_bar(stats, width=380, height=280)
+            patterns_img = VisualizationEngine.create_top_patterns_bar(stats, width=450, height=340)
             self.patterns_chart.set_image(patterns_img)
         else:
             self.types_chart.set_image(None)
