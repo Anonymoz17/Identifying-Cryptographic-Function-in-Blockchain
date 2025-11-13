@@ -53,22 +53,28 @@ DEFAULT_ALLOWED_EXTS = {
     ".yaml",
     ".yml",
     ".toml",
+    # compiled binaries (for dynamic analysis support)
+    ".exe",     # Windows executables
+    ".dll",     # Windows libraries (DLL)
+    ".so",      # Linux shared objects
+    ".dylib",   # macOS dynamic libraries
+    ".elf",     # ELF executables (Linux)
+    ".bin",     # Generic binary files
 }
 
 
 DEFAULT_DENY_BIN_EXTS = {
-    ".so",
-    ".dll",
-    ".dylib",
-    ".o",
-    ".obj",
-    ".a",
-    ".lib",
-    ".class",
-    ".jar",
-    ".pyc",
-    ".pyo",
-    ".rlib",
+    # Note: .so, .dll, .dylib are now allowed for dynamic analysis support
+    # They are handled by the allow_binary_libs config flag if needed
+    ".o",      # Object files (intermediate compilation artifacts)
+    ".obj",    # Object files (Windows)
+    ".a",      # Static libraries (Unix)
+    ".lib",    # Static libraries (Windows)
+    ".class",  # Java compiled classes
+    ".jar",    # Java archives
+    ".pyc",    # Python compiled bytecode
+    ".pyo",    # Python optimized bytecode
+    ".rlib",   # Rust libraries
 }
 
 

@@ -5,6 +5,12 @@ ruff>=0.1.12
 pre-commit>=3.4.0
 pytest>=7.0.0
 
+# Core UI and visualization dependencies (required for Results Page and analysis display)
+customtkinter>=5.0.0
+matplotlib>=3.8.0
+Pillow>=10.0.0
+reportlab>=4.0.0
+
 # Optional helpers
 pip-tools>=6.14.0
 jsonschema>=4.0.0

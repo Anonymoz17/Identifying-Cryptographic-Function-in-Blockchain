@@ -33,9 +33,19 @@ dist/
 nul
 *.log
 
+.bitcoin/
+*bitcoin/
+.okiedokie/
+*okiedokie/
+
 # Test outputs and temporary documentation
 test_*.py
 *_output.log
+
+# Temporary documentation/analysis files (generated during development)
+*.md
+
+# Specific documentation entries kept for reference (can be removed)
 BEFORE_AFTER_COMPARISON.md
 DYNAMIC_ADVANCED_OPTIONS_MODAL.md
 DYNAMIC_ANALYSIS_E2E_TEST_REPORT.md

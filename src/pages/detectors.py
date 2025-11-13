@@ -382,7 +382,6 @@ class DynamicAdvancedOptionsModal(ctk.CTkToplevel):
 
         # Load from pending settings if available
         if self._pending_settings:
-            self.attach_pid_var.set(str(self._pending_settings.get('attach_pid', '')))
             self.timeout_var.set(self._pending_settings.get('timeout', self.DEFAULTS[mode]['timeout']))
             self.memory_limit_var.set(str(self._pending_settings.get('memory_limit', self.DEFAULTS[mode]['memory_limit'])))
             self.force_var.set(self._pending_settings.get('force', False))
@@ -411,14 +410,6 @@ class DynamicAdvancedOptionsModal(ctk.CTkToplevel):
         # Update memory limit to default for new mode
         self.memory_limit_var.set(str(self.DEFAULTS[new_mode]['memory_limit']))
 
-        # Show/hide PID field based on mode
-        if new_mode == "attach":
-            self.pid_label.grid()
-            self.pid_entry.grid()
-        else:
-            self.pid_label.grid_remove()
-            self.pid_entry.grid_remove()
-
         # Update parent's mode var
         self.parent_mode_var.set(new_mode)
 
@@ -446,33 +437,9 @@ class DynamicAdvancedOptionsModal(ctk.CTkToplevel):
         timeout = self.timeout_var.get()
         memory_limit = int(self.memory_limit_var.get())
 
-        # Validate PID for attach mode
-        if mode == "attach":
-            pid_str = self.attach_pid_var.get().strip()
-            if not pid_str:
-                self._validation_errors.append("ERROR: Process ID is required for Attach mode")
-            else:
-                try:
-                    pid = int(pid_str)
-                    if pid <= 0:
-                        self._validation_errors.append("ERROR: Process ID must be positive")
-                    else:
-                        # Try to validate PID exists using psutil if available
-                        try:
-                            import psutil
-                            if not psutil.pid_exists(pid):
-                                self._validation_warnings.append(f"WARNING: Process ID {pid} does not exist on system")
-                        except ImportError:
-                            # psutil not available, skip validation
-                            pass
-                except ValueError:
-                    self._validation_errors.append("ERROR: Process ID must be a valid integer")
-
         # Validate timeout
-        if mode == "spawn" and timeout < 30:
-            self._validation_warnings.append("WARNING: Timeout < 30s for spawn mode may be insufficient")
-        elif mode == "attach" and timeout < 10:
-            self._validation_warnings.append("WARNING: Timeout < 10s for attach mode may be insufficient")
+        if timeout < 30:
+            self._validation_warnings.append("WARNING: Timeout < 30s may be insufficient")
 
         # Validate memory with crypto_ops
         if memory_limit < 256 and self.crypto_ops_var.get():
@@ -517,7 +484,6 @@ class DynamicAdvancedOptionsModal(ctk.CTkToplevel):
 
         self.timeout_var.set(defaults['timeout'])
         self.memory_limit_var.set(str(defaults['memory_limit']))
-        self.attach_pid_var.set("")
         self.force_var.set(False)
 
         self._validate_all()
@@ -539,17 +505,9 @@ class DynamicAdvancedOptionsModal(ctk.CTkToplevel):
             'crypto_ops': self.crypto_ops_var.get(),
             'memory_scan': self.memory_scan_var.get(),
             'call_graph': self.call_graph_var.get(),
-            'force': self.force_var.get()
+            'force': self.force_var.get(),
+            'attach_pid': None  # Always None (spawn mode only)
         }
-
-        # Add attach_pid if in attach mode
-        if mode == 'attach':
-            try:
-                settings['attach_pid'] = int(self.attach_pid_var.get().strip())
-            except ValueError:
-                settings['attach_pid'] = None
-        else:
-            settings['attach_pid'] = None
 
         # Store as last applied
         self._last_applied_settings = settings.copy()
@@ -808,13 +766,26 @@ class DetectorsPage(ctk.CTkFrame):
 
         self.open_results_btn = ctk.CTkButton(
             action_frame,
-            text="� Open Results",
+            text="📁 Open Results",
             command=self._open_results_folder,
             width=160,
             height=40,
             state="disabled"
         )
         self.open_results_btn.pack(side="left", padx=10)
+
+        # View Results in App button (new - navigates to Results page)
+        self.view_results_btn = ctk.CTkButton(
+            action_frame,
+            text="→ View Results",
+            command=self._view_results_in_app,
+            width=160,
+            height=40,
+            state="disabled",
+            fg_color="#0066CC",
+            hover_color="#0052A3"
+        )
+        self.view_results_btn.pack(side="left", padx=10)
 
         # Progress section
         progress_frame = ctk.CTkFrame(action_frame, fg_color="transparent")
@@ -883,13 +854,14 @@ class DetectorsPage(ctk.CTkFrame):
         """Build the simplified dynamic analysis UI.
 
         Main panel shows only essential controls:
-        - Mode selection (Spawn/Attach)
-        - PID input (for Attach mode)
+        - Mode selection (Spawn only - UI simplified)
         - Advanced Options button
         - Action buttons and progress
 
         All advanced settings (timeout, memory, instrumenters, force re-analysis)
         are accessible via the Advanced Options modal.
+
+        Note: Attach mode has been removed from the UI to simplify user experience.
         """
         parent.grid_columnconfigure(0, weight=1)
         parent.grid_rowconfigure(2, weight=1)
@@ -936,31 +908,6 @@ class DetectorsPage(ctk.CTkFrame):
             command=self._on_dynamic_mode_changed
         )
         spawn_radio.pack(side="left", padx=(0, 20))
-
-        attach_radio = ctk.CTkRadioButton(
-            mode_frame,
-            text="Attach (Hook running process by PID)",
-            variable=self.dynamic_mode_var,
-            value="attach",
-            command=self._on_dynamic_mode_changed
-        )
-        attach_radio.pack(side="left")
-
-        # PID input for attach mode
-        ctk.CTkLabel(
-            config_frame,
-            text="Process ID (for Attach):",
-            font=("Roboto", 12, "bold")
-        ).grid(row=0, column=2, sticky="w", padx=(20, 0), pady=5)
-
-        self.dynamic_attach_pid_var = tk.StringVar(value="")
-        pid_entry = ctk.CTkEntry(
-            config_frame,
-            textvariable=self.dynamic_attach_pid_var,
-            placeholder_text="Enter PID (required for Attach mode)",
-            width=200
-        )
-        pid_entry.grid(row=0, column=3, sticky="ew", padx=(10, 0), pady=5)
 
         # Advanced Options button - positioned after mode selection
         advanced_btn_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
@@ -1095,13 +1042,9 @@ class DetectorsPage(ctk.CTkFrame):
         self._dynamic_batch_results = {}
 
     def _on_dynamic_mode_changed(self):
-        """Handle dynamic mode change between spawn and attach."""
+        """Handle dynamic mode change."""
         try:
-            mode = self.dynamic_mode_var.get()
-            if mode == "attach":
-                self._log_dynamic_console("ℹ️ Attach mode selected: Enter the PID of the process to attach to")
-            else:
-                self._log_dynamic_console("ℹ️ Spawn mode selected: Binary will be launched with Frida instrumentation")
+            self._log_dynamic_console("ℹ️ Spawn mode selected: Binary will be launched with Frida instrumentation")
         except Exception:
             pass
 
@@ -1293,19 +1236,7 @@ class DetectorsPage(ctk.CTkFrame):
                         self._case_workdir, 'analysis', 'static', file_hash, 'hints.json'
                     )
 
-                    # Get attach_pid if in attach mode
-                    attach_pid = None
-                    if mode == 'attach':
-                        try:
-                            pid_str = self.dynamic_attach_pid_var.get().strip()
-                            if not pid_str:
-                                self.after(0, self._log_dynamic_console, f"❌ Attach mode requires Process ID")
-                                continue
-                            attach_pid = int(pid_str)
-                        except ValueError:
-                            self.after(0, self._log_dynamic_console, f"❌ Invalid PID: {pid_str}")
-                            continue
-
+                    # Always use spawn mode (attach_pid always None)
                     ctx = DynamicContext(
                         file_hash=file_hash,
                         preproc_dir=os.path.join(self._case_workdir, 'preproc', file_hash),
@@ -1314,7 +1245,7 @@ class DetectorsPage(ctk.CTkFrame):
                         mode=mode,
                         timeout=timeout,
                         memory_limit=memory_limit,
-                        attach_pid=attach_pid,
+                        attach_pid=None,
                         instrumenters={
                             'crypto_ops': self.crypto_ops_var.get(),
                             'memory_scan': self.memory_scan_var.get(),
@@ -1735,6 +1666,7 @@ class DetectorsPage(ctk.CTkFrame):
         self.run_static_btn.configure(state="disabled")
         self.cancel_static_btn.configure(state="normal")
         self.open_results_btn.configure(state="disabled")
+        self.view_results_btn.configure(state="disabled")
         self.progress_bar.set(0)
         self._clear_results()
         self._log_console("Starting static analysis...")
@@ -1836,6 +1768,7 @@ class DetectorsPage(ctk.CTkFrame):
             self.run_static_btn.configure(state="normal")
             self.cancel_static_btn.configure(state="disabled")
             self.open_results_btn.configure(state="normal")
+            self.view_results_btn.configure(state="normal")
             self.progress_bar.set(1.0)
 
             if result.errors:
@@ -1875,6 +1808,7 @@ class DetectorsPage(ctk.CTkFrame):
             self.run_static_btn.configure(state="normal")
             self.cancel_static_btn.configure(state="disabled")
             self.open_results_btn.configure(state="normal")
+            self.view_results_btn.configure(state="normal")
             self.progress_bar.set(1.0)
             self.progress_label.configure(text=f"Completed {total_files}/{total_files}")
 
@@ -2129,6 +2063,71 @@ class DetectorsPage(ctk.CTkFrame):
 
         except Exception as e:
             self._set_status(f"❌ Failed to open folder: {e}", error=True)
+
+    def _view_results_in_app(self):
+        """Navigate to Results page to view analysis results."""
+        try:
+            workdir = self._case_workdir or self._loaded_case_workdir
+            if not workdir:
+                self._set_status("❌ No case loaded", error=True)
+                return
+
+            # Get the first file hash to display results for
+            # (In future: could let user select which file)
+            if not self._all_file_hashes:
+                self._set_status("❌ No binaries analyzed yet", error=True)
+                return
+
+            file_hash = self._all_file_hashes[0]
+
+            # Check if results exist
+            results_path = Path(workdir) / "analysis" / "static" / file_hash / "static_results.json"
+            if not results_path.exists():
+                self._set_status(
+                    "❌ No results found for this binary. Run analysis first.",
+                    error=True
+                )
+                return
+
+            # Load the Results page and navigate to it
+            from pages import ResultsPage
+
+            # Access the results page from parent app
+            results_page = None
+            if hasattr(self, 'master') and hasattr(self.master, '_pages'):
+                results_page = self.master._pages.get("results")
+            elif hasattr(self, '_pages'):
+                results_page = self._pages.get("results")
+
+            if results_page is None:
+                self._set_status("❌ Results page not available in app", error=True)
+                return
+
+            # Verify it's the right type
+            if type(results_page).__name__ == '_MissingPage':
+                self._set_status("❌ Results page failed to load (missing dependency)", error=True)
+                return
+
+            if not hasattr(results_page, 'load'):
+                self._set_status(f"❌ Results page missing load method ({type(results_page).__name__})", error=True)
+                return
+
+            # Load and display results
+            try:
+                results_page.load(workdir, file_hash)
+                self.switch_page("results")
+                self._set_status(f"✓ Viewing results for {file_hash[:16]}...", error=False)
+                self._log_console(f"Switched to Results page for {file_hash}")
+            except Exception as load_err:
+                self._set_status(f"❌ Failed to load results: {load_err}", error=True)
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.exception(f"Results load error: {load_err}")
+
+        except Exception as e:
+            self._set_status(f"❌ Failed to access results page: {e}", error=True)
+            import traceback
+            traceback.print_exc()
 
     def _clear_results(self):
         """Clear all result displays."""

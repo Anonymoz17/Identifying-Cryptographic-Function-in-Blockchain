@@ -28,13 +28,16 @@ class DynamicContext:
     This dataclass encapsulates all configuration and paths needed
     to perform a dynamic analysis run. No global state is used.
 
+    Note: UI currently only supports 'spawn' mode. Attach mode is preserved
+    in the backend for future use but is not exposed in the UI.
+
     Attributes:
         file_hash: SHA256 hash of the binary being analyzed
         preproc_dir: Path to preprocessing artifacts (preproc/<hash>/)
         hints_path: Path to hints.json from static analysis
         analysis_base: Base directory for analysis outputs
         mode: Execution mode - 'spawn' (launch) or 'attach' (hook running process)
-        attach_pid: Process ID for attach mode (required if mode='attach')
+        attach_pid: Process ID for attach mode (kept for backward compatibility)
         timeout: Wall-clock timeout in seconds (default: 500)
         memory_limit: Memory limit in MB (default: 512)
         force: Bypass cache and force re-analysis
@@ -65,9 +68,6 @@ class DynamicContext:
         """Validate context after initialization."""
         if self.mode not in ['spawn', 'attach']:
             raise ValueError(f"Invalid mode: {self.mode}. Must be 'spawn' or 'attach'")
-
-        if self.mode == 'attach' and self.attach_pid is None:
-            raise ValueError("attach_pid required when mode='attach'")
 
         if self.timeout <= 0:
             raise ValueError(f"Invalid timeout: {self.timeout}. Must be positive")

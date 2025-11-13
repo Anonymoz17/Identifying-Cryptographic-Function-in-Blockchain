@@ -7,6 +7,10 @@ timeout management, and graceful cleanup.
 
 import time
 import threading
+import os
+import sys
+import platform
+import traceback
 from typing import List, Dict, Any, Optional, Callable
 from .sandbox import Sandbox
 from .input_feeder import InputConfig
@@ -169,6 +173,9 @@ class FridaHarness:
         Raises:
             FridaHarnessError: If instrumentation fails
         """
+        # DEBUG: Log system information and prerequisites
+        self._log_debug_info(target, scripts)
+
         frida = self._import_frida()
 
         try:
@@ -180,6 +187,8 @@ class FridaHarness:
                 raise FridaHarnessError(f"Invalid mode: {self.mode}")
 
         except Exception as e:
+            # DEBUG: Capture detailed error information
+            self._log_exception_details(e)
             self.traces.add_error(f"Harness error: {e}")
             self.traces.mark_incomplete("error")
             raise FridaHarnessError(f"Instrumentation failed: {e}")
@@ -216,43 +225,64 @@ class FridaHarness:
         spawn_options = sandbox.get_spawn_options(binary_path, spawn_args[1:] if len(spawn_args) > 1 else [])
 
         try:
+            # DEBUG: Validate binary before spawn
+            self._validate_binary_path(binary_path)
+
             # Spawn process (suspended)
             # Frida spawn() signature: spawn(program, args=[], **options)
             # Extract program from argv and pass separately
             program = spawn_options.pop('argv')[0] if 'argv' in spawn_options else binary_path
             argv = spawn_options.pop('argv', [])
-            
+
             print(f"[Harness] Spawning: {' '.join([program] + argv)}")
+            print(f"[Harness] Spawn options: {spawn_options}")
+
+            # DEBUG: Log before spawn attempt
+            print(f"[Harness] DEBUG: Attempting spawn...")
             pid = frida.spawn(program, argv=argv, **spawn_options)
             print(f"[Harness] Spawned PID: {pid}")
+            print(f"[Harness] DEBUG: Spawn successful")
 
             # Attach to spawned process
+            print(f"[Harness] DEBUG: Attempting attach to PID {pid}...")
             self.session = frida.attach(pid)
             print(f"[Harness] Attached to PID: {pid}")
+            print(f"[Harness] DEBUG: Attach successful")
 
             # Load scripts
+            print(f"[Harness] DEBUG: Loading {len(scripts)} scripts...")
             self._load_scripts(scripts)
+            print(f"[Harness] DEBUG: All scripts loaded")
 
             # Start timeout timer
             self._start_timeout_timer(pid)
 
             # Resume process
+            print(f"[Harness] DEBUG: Resuming PID {pid}...")
             frida.resume(pid)
             print(f"[Harness] Resumed PID: {pid}")
+            print(f"[Harness] DEBUG: Process resumed, waiting for execution...")
 
             # Wait for completion or timeout
             remaining_time = sandbox.get_remaining_time()
             if remaining_time > 0:
+                print(f"[Harness] DEBUG: Waiting up to {remaining_time}s for execution...")
                 time.sleep(min(remaining_time, self.timeout))
 
             # Check if timeout occurred
             if sandbox.is_timeout_exceeded():
                 print(f"[Harness] Timeout exceeded ({self.timeout}s)")
                 self.traces.mark_incomplete("timeout")
+            else:
+                print(f"[Harness] DEBUG: Execution completed normally")
 
         except Exception as e:
+            # DEBUG: Enhanced error logging
             print(f"[Harness] Spawn mode error: {e}")
-            self.traces.add_error(f"Spawn mode error: {e}")
+            print(f"[Harness] ERROR TYPE: {type(e).__name__}")
+            print(f"[Harness] TRACEBACK:\n{traceback.format_exc()}")
+
+            self.traces.add_error(f"Spawn mode error ({type(e).__name__}): {e}")
             self.traces.mark_incomplete("error")
 
         return self.traces
@@ -381,6 +411,76 @@ class FridaHarness:
         self._timeout_timer = threading.Timer(self.timeout, on_timeout)
         self._timeout_timer.daemon = True
         self._timeout_timer.start()
+
+    def _log_debug_info(self, target: str, scripts: List[str]):
+        """Log debug information at start of run."""
+        print("\n" + "=" * 80)
+        print("[DEBUG] FRIDA HARNESS DEBUG MODE - START")
+        print("=" * 80)
+        print(f"[DEBUG] Python: {sys.version}")
+        print(f"[DEBUG] Platform: {platform.system()} {platform.release()}")
+        print(f"[DEBUG] Architecture: {platform.architecture()}")
+        print(f"[DEBUG] Mode: {self.mode}")
+        print(f"[DEBUG] Timeout: {self.timeout}s")
+        print(f"[DEBUG] Target: {target}")
+        print(f"[DEBUG] Target exists: {os.path.exists(target)}")
+        if os.path.exists(target):
+            print(f"[DEBUG] Target is_file: {os.path.isfile(target)}")
+            print(f"[DEBUG] Target size: {os.path.getsize(target)} bytes")
+            print(f"[DEBUG] Target permissions: {oct(os.stat(target).st_mode)}")
+        print(f"[DEBUG] Scripts count: {len(scripts)}")
+        print("=" * 80 + "\n")
+
+    def _validate_binary_path(self, binary_path: str):
+        """Validate binary path before spawn attempt."""
+        print(f"[Harness] DEBUG: Validating binary path...")
+
+        if not binary_path:
+            raise FridaHarnessError("Binary path is empty")
+
+        # Check if file exists
+        if not os.path.exists(binary_path):
+            raise FridaHarnessError(f"Binary not found: {binary_path}")
+
+        # Check if it's a file
+        if not os.path.isfile(binary_path):
+            raise FridaHarnessError(f"Path is not a file: {binary_path}")
+
+        # Check if it's readable
+        if not os.access(binary_path, os.R_OK):
+            raise FridaHarnessError(f"Binary is not readable: {binary_path}")
+
+        # Check file size
+        size = os.path.getsize(binary_path)
+        if size == 0:
+            raise FridaHarnessError(f"Binary is empty: {binary_path}")
+
+        # Try to detect file type
+        try:
+            with open(binary_path, 'rb') as f:
+                magic = f.read(4)
+                if magic.startswith(b'MZ'):
+                    print(f"[Harness] DEBUG: Detected PE executable (size: {size} bytes)")
+                elif magic.startswith(b'\x7fELF'):
+                    print(f"[Harness] DEBUG: Detected ELF executable (size: {size} bytes)")
+                else:
+                    print(f"[Harness] DEBUG: Unknown binary format (magic: {magic.hex()}, size: {size} bytes)")
+        except Exception as e:
+            print(f"[Harness] DEBUG: Could not read binary header: {e}")
+
+        print(f"[Harness] DEBUG: Binary validation passed")
+
+    def _log_exception_details(self, exc: Exception):
+        """Log detailed exception information."""
+        print("\n" + "=" * 80)
+        print("[DEBUG] EXCEPTION DETAILS")
+        print("=" * 80)
+        print(f"Exception Type: {type(exc).__name__}")
+        print(f"Exception Message: {exc}")
+        print(f"Exception Args: {exc.args}")
+        print("Full Traceback:")
+        print(traceback.format_exc())
+        print("=" * 80 + "\n")
 
     def _cleanup(self):
         """Cleanup Frida session and scripts."""

@@ -12,7 +12,7 @@ from pages import (
     RegisterPage,
     LandingPage
 )
-from pages import SetupPage, DetectorsPage
+from pages import SetupPage, DetectorsPage, ResultsPage
 
 
 class App(ctk.CTk):
@@ -27,7 +27,7 @@ class App(ctk.CTk):
         # --- Session + scan state ---
         self.auth_token = None
         # safer default for local usage
-        self.current_user_role = "free"
+        self.current_user_role = "premium"
         self.current_user_email = None
         self.current_scan_meta = None
 
@@ -44,6 +44,7 @@ class App(ctk.CTk):
             "setup": SetupPage(self, self.switch_page),
             "detectors": DetectorsPage(self, self.switch_page),
             "auditor": AuditorPage(self, self.switch_page),
+            "results": ResultsPage(self, self.switch_page),
         }
 
         for p in self._pages.values():
@@ -51,7 +52,7 @@ class App(ctk.CTk):
             p.grid_remove()
 
         # --- Start on Login (not dashboard) ---
-        self._current_page_name = "detectors"
+        self._current_page_name = "results"
         self.switch_page(self._current_page_name)
 
         # Debounced resize handling
