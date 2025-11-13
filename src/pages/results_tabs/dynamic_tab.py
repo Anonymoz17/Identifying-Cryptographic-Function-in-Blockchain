@@ -8,6 +8,7 @@ Shows dynamic analysis execution traces including:
 - Premium-only features with gating
 """
 
+import threading
 from typing import TYPE_CHECKING
 import customtkinter as ctk
 from ui.results_components import SectionHeader, MetricsCard, COLORS, LockedFeatureView, PremiumBadge
@@ -24,6 +25,9 @@ class DynamicTab(ctk.CTkFrame):
         super().__init__(master, fg_color=COLORS['bg'], **kwargs)
         self.data_model: 'ResultsDataModel' = None
         self.on_continue_analysis = on_continue_analysis  # Callback for continue button
+
+        # Threading for chart generation
+        self.chart_thread = None
 
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -178,37 +182,64 @@ class DynamicTab(ctk.CTkFrame):
         self.chart_placeholder.pack(padx=12, pady=12)
 
     def _update_chart(self):
-        """Update the dynamic call frequency chart."""
+        """Update the dynamic call frequency chart (runs in background thread)."""
         if not self.data_model or not self.data_model.dynamic_calls:
             self.chart_placeholder.configure(text="No dynamic data available for chart")
             return
 
+        # Show loading message
+        self.chart_placeholder.configure(text="Generating chart...")
+
+        # Generate chart in background thread to prevent UI blocking
+        self.chart_thread = threading.Thread(
+            target=self._generate_chart_background,
+            daemon=True
+        )
+        self.chart_thread.start()
+
+    def _generate_chart_background(self):
+        """Generate chart in background thread (blocking operation)."""
         try:
-            # Create execution timeline chart
+            # Create execution timeline chart (this is CPU-intensive and blocks)
             chart_img = VisualizationEngine.create_execution_timeline(
                 self.data_model.dynamic_calls,
                 width=380,
                 height=280
             )
 
+            # Update UI from main thread using after()
             if chart_img:
-                # Clear placeholder
-                self.chart_placeholder.pack_forget()
-
-                # Create image label if not exists
-                if not hasattr(self, 'chart_image_label'):
-                    self.chart_image_label = ctk.CTkLabel(self.chart_card, text="")
-                    self.chart_image_label.pack(padx=12, pady=12)
-
-                # Convert to CTK image
-                ctk_img = ctk.CTkImage(chart_img, size=(380, 280))
-                self.chart_image_label.configure(image=ctk_img, text="")
-                # Keep reference to prevent garbage collection
-                self.chart_image_label.ctk_image = ctk_img
+                self.after(0, self._display_chart_image, chart_img)
             else:
-                self.chart_placeholder.configure(text="Unable to generate chart")
+                self.after(0, lambda: self.chart_placeholder.configure(text="Unable to generate chart"))
+
         except Exception as e:
-            self.chart_placeholder.configure(text=f"Chart error: {str(e)[:50]}")
+            error_msg = f"Chart error: {str(e)[:50]}"
+            self.after(0, lambda: self.chart_placeholder.configure(text=error_msg))
+
+    def _display_chart_image(self, chart_img):
+        """Display chart image in main thread (safe to update UI)."""
+        try:
+            if not self.winfo_exists():
+                return  # Widget was destroyed
+
+            # Clear placeholder
+            self.chart_placeholder.pack_forget()
+
+            # Create image label if not exists
+            if not hasattr(self, 'chart_image_label'):
+                self.chart_image_label = ctk.CTkLabel(self.chart_card, text="")
+                self.chart_image_label.pack(padx=12, pady=12)
+
+            # Convert to CTK image
+            ctk_img = ctk.CTkImage(chart_img, size=(380, 280))
+            self.chart_image_label.configure(image=ctk_img, text="")
+            # Keep reference to prevent garbage collection
+            self.chart_image_label.ctk_image = ctk_img
+        except Exception as e:
+            # Fallback error message
+            if self.chart_placeholder.winfo_exists():
+                self.chart_placeholder.configure(text=f"Display error: {str(e)[:30]}")
 
     def load_data(self, data_model: 'ResultsDataModel'):
         """Load data into the tab."""
