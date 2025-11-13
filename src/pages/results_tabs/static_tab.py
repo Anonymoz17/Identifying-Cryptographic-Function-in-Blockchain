@@ -19,13 +19,21 @@ if TYPE_CHECKING:
 
 
 class StaticTab(ctk.CTkFrame):
-    """Tab showing static analysis findings with filtering."""
+    """Tab showing static analysis findings with filtering and pagination."""
+
+    # Pagination settings
+    FINDINGS_PER_PAGE = 50
 
     def __init__(self, master, **kwargs):
         super().__init__(master, fg_color=COLORS['bg'], **kwargs)
         self.data_model: 'ResultsDataModel' = None
         self.current_filters = {}
         self.selected_finding = None
+
+        # Pagination state
+        self.current_page = 1
+        self.total_pages = 1
+        self.all_findings = []  # Cache all filtered findings
 
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -99,22 +107,39 @@ class StaticTab(ctk.CTkFrame):
     def _on_filter_changed(self, filters: dict):
         """Handle filter change."""
         self.current_filters = filters
+        self.current_page = 1  # Reset to first page on filter change
         self._refresh_findings()
 
     def _refresh_findings(self):
-        """Refresh the findings table with current filters."""
+        """Refresh the findings table with current filters (paginated)."""
         if not self.data_model:
             return
 
+        # Get all filtered findings
+        min_conf = self.current_filters.get('min_confidence', 0.0)
+        self.all_findings = self.data_model.get_static_findings(min_confidence=min_conf)
+
+        # Calculate total pages
+        if self.all_findings:
+            self.total_pages = (len(self.all_findings) + self.FINDINGS_PER_PAGE - 1) // self.FINDINGS_PER_PAGE
+        else:
+            self.total_pages = 1
+
+        # Clamp current page
+        if self.current_page > self.total_pages:
+            self.current_page = self.total_pages
+
+        # Display current page
+        self._display_current_page()
+        self._update_pagination_controls()
+
+    def _display_current_page(self):
+        """Display findings for the current page."""
         # Clear table
         for widget in self.findings_table.scroll_frame.winfo_children():
             widget.destroy()
 
-        # Get filtered findings
-        min_conf = self.current_filters.get('min_confidence', 0.0)
-        findings = self.data_model.get_static_findings(min_confidence=min_conf)
-
-        if not findings:
+        if not self.all_findings:
             no_results = ctk.CTkLabel(
                 self.findings_table.scroll_frame,
                 text="No findings match the current filters",
@@ -124,8 +149,12 @@ class StaticTab(ctk.CTkFrame):
             no_results.pack(pady=20)
             return
 
-        # Populate table
-        for finding in findings:
+        # Calculate page boundaries
+        start_idx = (self.current_page - 1) * self.FINDINGS_PER_PAGE
+        end_idx = min(start_idx + self.FINDINGS_PER_PAGE, len(self.all_findings))
+
+        # Display findings for current page
+        for finding in self.all_findings[start_idx:end_idx]:
             self.findings_table.add_finding(
                 finding_id=finding.id,
                 name=finding.name or finding.type,
@@ -133,6 +162,67 @@ class StaticTab(ctk.CTkFrame):
                 finding_type=finding.type,
                 on_click=lambda f=finding: self._show_finding_details(f)
             )
+
+    def _update_pagination_controls(self):
+        """Update pagination buttons and info."""
+        # Create pagination frame if it doesn't exist
+        if not hasattr(self, 'pagination_frame'):
+            pagination_frame = ctk.CTkFrame(self, fg_color="transparent")
+            pagination_frame.grid(row=2, column=0, sticky="ew", padx=16, pady=(12, 0))
+            pagination_frame.grid_columnconfigure(1, weight=1)
+            self.pagination_frame = pagination_frame
+
+            # Previous button
+            self.prev_btn = ctk.CTkButton(
+                pagination_frame,
+                text="← Previous",
+                width=100,
+                height=32,
+                command=self._previous_page
+            )
+            self.prev_btn.grid(row=0, column=0, sticky="w", padx=(0, 8))
+
+            # Page info label
+            self.page_info_label = ctk.CTkLabel(
+                pagination_frame,
+                text="",
+                font=("Roboto", 11),
+                text_color=COLORS['text_secondary']
+            )
+            self.page_info_label.grid(row=0, column=1, sticky="ew", padx=8)
+
+            # Next button
+            self.next_btn = ctk.CTkButton(
+                pagination_frame,
+                text="Next →",
+                width=100,
+                height=32,
+                command=self._next_page
+            )
+            self.next_btn.grid(row=0, column=2, sticky="e", padx=(8, 0))
+
+        # Update button states and labels
+        total_results = len(self.all_findings)
+        page_text = f"Page {self.current_page} of {self.total_pages} ({total_results} total findings)"
+        self.page_info_label.configure(text=page_text)
+
+        # Enable/disable navigation buttons
+        self.prev_btn.configure(state="normal" if self.current_page > 1 else "disabled")
+        self.next_btn.configure(state="normal" if self.current_page < self.total_pages else "disabled")
+
+    def _previous_page(self):
+        """Go to previous page."""
+        if self.current_page > 1:
+            self.current_page -= 1
+            self._display_current_page()
+            self._update_pagination_controls()
+
+    def _next_page(self):
+        """Go to next page."""
+        if self.current_page < self.total_pages:
+            self.current_page += 1
+            self._display_current_page()
+            self._update_pagination_controls()
 
     def _show_finding_details(self, finding):
         """Show details for selected finding."""
