@@ -326,6 +326,44 @@ class DynamicRunner:
         Returns:
             Tuple of (config, hints_data, analysis_dir)
         """
+        # Validate input availability
+        print("[Runner] Validating input files...")
+
+        # Check preproc directory structure
+        if not os.path.isdir(ctx.preproc_dir):
+            result.add_error(f"Preproc directory not found: {ctx.preproc_dir}")
+            return (None, None, None)
+
+        input_bin = os.path.join(ctx.preproc_dir, 'input.bin')
+        if not os.path.isfile(input_bin):
+            result.add_error(f"input.bin not found at: {input_bin}")
+            result.add_error("Hint: Run Setup stage first to preprocess files")
+            return (None, None, None)
+
+        # Check for hints file (output from static analysis)
+        if not os.path.isfile(ctx.hints_path):
+            result.add_error(f"Hints file not found: {ctx.hints_path}")
+            result.add_error("Hint: Run Static Detection first to generate hints.json")
+            print(f"[Runner] Missing hints at: {ctx.hints_path}")
+            print(f"[Runner] Expected location: {os.path.dirname(ctx.hints_path)}/")
+            return (None, None, None)
+
+        try:
+            import json
+            with open(ctx.hints_path) as f:
+                test_hints = json.load(f)
+            print(f"[Runner] Hints file valid: {len(test_hints.get('hints', []))} hints")
+        except Exception as e:
+            result.add_error(f"Hints file invalid or corrupted: {e}")
+            return (None, None, None)
+
+        # Check static results file (contains findings from static analysis)
+        static_results_expected = os.path.join(os.path.dirname(ctx.hints_path), 'static_results.json')
+        if not os.path.isfile(static_results_expected):
+            print(f"[Runner] Warning: static_results.json not found at {static_results_expected}")
+        else:
+            print(f"[Runner] Static analysis results available: {static_results_expected}")
+
         # Load configuration
         config = Config.load(preproc_dir=ctx.preproc_dir, config_path=ctx.config_path)
 
@@ -339,6 +377,7 @@ class DynamicRunner:
 
         # Determine analysis directory
         analysis_dir = os.path.join(ctx.analysis_base, 'analysis', 'dynamic', ctx.file_hash)
+        print(f"[Runner] Analysis directory: {analysis_dir}")
 
         return (config, hints_data, analysis_dir)
 

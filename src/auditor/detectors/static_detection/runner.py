@@ -21,6 +21,9 @@ import time
 import logging
 from datetime import datetime, timezone
 
+# Import diagnostic infrastructure
+from ...diagnostics import DiagnosticTracker
+
 logger = logging.getLogger(__name__)
 
 # Overall timeout for entire static detection pipeline (5 minutes default)
@@ -64,9 +67,15 @@ class StaticRunner:
         # Prepare result container
         result = RunResult(file_hash="", cached=False, summary={}, errors=None)
 
+        # Initialize diagnostic tracker
+        diag = DiagnosticTracker()
+        diag.log_stage_start("pipeline", "Static detection pipeline started")
+
         # Start overall pipeline timer
         pipeline_start = time.time()
         pipeline_timeout = getattr(ctx, "pipeline_timeout", DEFAULT_PIPELINE_TIMEOUT)
+
+        logger.info(f"[DIAGNOSTIC] Static detection pipeline timeout: {pipeline_timeout}s")
 
         try:
             # Resolve preproc directory according to the storage conventions in
@@ -149,13 +158,21 @@ class StaticRunner:
             # returns (bool, reason).
             static_results_path = os.path.join(analysis_dir, "static_results.json")
             hints_path = os.path.join(analysis_dir, "hints.json")
+
+            # Validate input file exists
+            diag.validate_file_exists(preproc.input_path, label="Input binary", fail_if_missing=False)
+
             use_cache, reason = cache.should_use_cache(analysis_dir, ctx)
             if use_cache:
                 result.cached = True
                 result.hints_path = hints_path if os.path.isfile(hints_path) else None
                 result.static_results_path = static_results_path
                 result.summary = {"note": f"reused cached static results ({reason})"}
+                diag.log_event("cache_hit", "pipeline", f"Reused cached results: {reason}")
+                diag.log_stage_end("pipeline", "completed", "Cache hit")
                 return result
+
+            diag.log_event("cache_miss", "pipeline", "No valid cache, proceeding with analysis")
 
             # Check overall timeout before expensive operations
             elapsed = time.time() - pipeline_start
@@ -164,6 +181,7 @@ class StaticRunner:
 
             # STAGE 1: Generate lightweight static preproc artifacts
             logger.info(f"[STAGE 1] Starting static preprocessing...")
+            diag.log_stage_start("stage_1_preproc", "Static preprocessing")
             preproc_out = os.path.join(analysis_dir, "preproc")
             # Calculate per-stage timeout based on elapsed time
             remaining_time = pipeline_timeout - elapsed
@@ -180,9 +198,14 @@ class StaticRunner:
                 )
                 stage1_elapsed = time.time() - stage1_start
                 logger.info(f"[STAGE 1] Completed in {stage1_elapsed:.2f}s")
+                diag.log_stage_end("stage_1_preproc", "completed", f"{stage1_elapsed:.2f}s")
+                # Validate stage 1 outputs
+                diag.validate_file_exists(os.path.join(preproc_out, "strings.json"), label="Stage 1: strings.json")
+                diag.validate_file_exists(os.path.join(preproc_out, "constants.json"), label="Stage 1: constants.json")
             except Exception as e:
                 stage1_elapsed = time.time() - stage1_start
                 logger.error(f"[STAGE 1] FAILED after {stage1_elapsed:.2f}s: {type(e).__name__}: {e}", exc_info=True)
+                diag.log_stage_end("stage_1_preproc", "failed", f"{stage1_elapsed:.2f}s - {type(e).__name__}: {str(e)[:100]}")
                 raise
 
             # Add preproc and binary paths to static_artifacts for location enrichment
@@ -192,6 +215,7 @@ class StaticRunner:
 
             # STAGE 2: Ghidra export
             logger.info(f"[STAGE 2] Starting Ghidra analysis decision...")
+            diag.log_stage_start("stage_2_ghidra", "Ghidra analysis decision and execution")
             ghidra_out = os.path.join(analysis_dir, "ghidra-export")
 
             # Check if Ghidra should run based on policy and file type/size
@@ -211,6 +235,7 @@ class StaticRunner:
                 should_run, reason = ghidra_policy.should_run_ghidra(preproc.metadata)
 
             logger.info(f"[STAGE 2] Decision: should_run={should_run}, reason={reason}")
+            diag.log_event("ghidra_decision", "stage_2", f"Decision: should_run={should_run}, reason={reason}")
             ghidra_policy.log_ghidra_decision(preproc.file_hash, should_run, reason)
 
             ghidra_export_path = None
@@ -232,6 +257,7 @@ class StaticRunner:
                             if ver:
                                 ctx.tool_versions.ghidra = ver
                                 logger.info(f"[STAGE 2] Ghidra version: {ver}")
+                                diag.log_event("ghidra_version", "stage_2", f"Ghidra version: {ver}")
                         except Exception as e:
                             logger.debug(f"[STAGE 2] Failed to get version: {e}")
                             pass
@@ -245,19 +271,24 @@ class StaticRunner:
                     )
                     ghidra_elapsed = time.time() - ghidra_start
                     logger.info(f"[STAGE 2] ensure_ghidra_export completed in {ghidra_elapsed:.2f}s, path={ghidra_export_path}")
+                    diag.log_event("ghidra_export", "stage_2", f"Completed in {ghidra_elapsed:.2f}s")
 
                     logger.info(f"[STAGE 2] Reading Ghidra functions...")
                     ghidra_export = ghidra_adapter.read_ghidra_functions(ghidra_export_path)
                     logger.info(f"[STAGE 2] Read {len(ghidra_export)} functions from Ghidra")
+                    diag.log_event("ghidra_read", "stage_2", f"Read {len(ghidra_export)} functions")
 
                     stage2_elapsed = time.time() - stage2_start
                     logger.info(f"[STAGE 2] Completed in {stage2_elapsed:.2f}s")
+                    diag.log_stage_end("stage_2_ghidra", "completed", f"{stage2_elapsed:.2f}s, {len(ghidra_export)} functions")
                 except Exception as e:
                     stage2_elapsed = time.time() - stage2_start
                     logger.error(f"[STAGE 2] FAILED after {stage2_elapsed:.2f}s: {type(e).__name__}: {e}", exc_info=True)
+                    diag.log_stage_end("stage_2_ghidra", "failed", f"{stage2_elapsed:.2f}s - {type(e).__name__}")
                     raise
             else:
                 logger.info(f"[STAGE 2] Skipping Ghidra (reason: {reason})")
+                diag.log_event("ghidra_skipped", "stage_2", f"Reason: {reason}")
                 # Create empty ghidra-export directory for consistency
                 os.makedirs(ghidra_out, exist_ok=True)
                 # Write a skip marker file explaining why Ghidra was skipped
@@ -269,6 +300,7 @@ class StaticRunner:
                         f.write(f"File hash: {preproc.file_hash}\n")
                 except Exception:
                     pass
+                diag.log_stage_end("stage_2_ghidra", "skipped", reason)
 
             # Check timeout before heuristics
             elapsed = time.time() - pipeline_start
@@ -277,6 +309,7 @@ class StaticRunner:
 
             # STAGE 3: Run heuristics
             logger.info(f"[STAGE 3] Loading heuristics...")
+            diag.log_stage_start("stage_3_heuristics", "Heuristics execution")
             # collect heuristic callables from heuristics package
             heuristics = []
             try:
@@ -302,6 +335,7 @@ class StaticRunner:
                 pass
 
             logger.info(f"[STAGE 3] Loaded {len(heuristics)} heuristics: {[h.__name__ for h in heuristics]}")
+            diag.log_event("heuristics_loaded", "stage_3", f"Loaded {len(heuristics)} heuristics: {', '.join(h.__name__ for h in heuristics)}")
 
             # Calculate heuristics timeout from remaining time
             remaining_time = pipeline_timeout - elapsed
@@ -316,68 +350,109 @@ class StaticRunner:
                     preproc.metadata,
                     heuristics,
                     static_artifacts=static_artifacts,
-                    timeout_sec=heuristics_timeout
+                    timeout_sec=heuristics_timeout,
+                    diag_tracker=diag  # Pass diagnostic tracker for heuristic timing
                 )
                 stage3_elapsed = time.time() - stage3_start
                 logger.info(f"[STAGE 3] Completed in {stage3_elapsed:.2f}s, found {len(findings)} findings")
+                diag.log_stage_end("stage_3_heuristics", "completed", f"{stage3_elapsed:.2f}s, {len(findings)} findings")
             except Exception as e:
                 stage3_elapsed = time.time() - stage3_start
                 logger.error(f"[STAGE 3] FAILED after {stage3_elapsed:.2f}s: {type(e).__name__}: {e}", exc_info=True)
+                diag.log_stage_end("stage_3_heuristics", "failed", f"{stage3_elapsed:.2f}s - {type(e).__name__}")
                 raise
 
             # 4) PHASE 2: Enrich findings with Ghidra context (function call graph, signatures)
+            diag.log_stage_start("stage_4_enrichment", "Findings enrichment")
             if ghidra_export:
                 try:
                     from . import ghidra_enrichment
                     findings = ghidra_enrichment.enrich_findings_with_context(findings, ghidra_export)
+                    diag.log_event("enrichment", "stage_4", "Findings enriched with Ghidra context")
                 except Exception:
                     # Enrichment is optional; continue if it fails
+                    diag.log_event("enrichment_skipped", "stage_4", "Enrichment failed, continuing")
                     pass
+            diag.log_stage_end("stage_4_enrichment", "completed", "Findings enriched")
 
             # 5) scoring aggregation
+            diag.log_stage_start("stage_5_scoring", "Scoring and aggregation")
             scored = scoring.aggregate_scores(findings)
+            diag.log_stage_end("stage_5_scoring", "completed", f"{len(scored)} findings scored")
 
             # 6) hints generation (full and public redacted)
+            diag.log_stage_start("stage_6_hints", "Hints generation")
             hints_dir = analysis_dir
             hints_path = hints_generator.generate_hints(scored, hints_dir, redact=False, file_hash=preproc.file_hash)
             hints_public_path = hints_generator.generate_hints(scored, hints_dir, redact=True, file_hash=preproc.file_hash)
+            diag.log_stage_end("stage_6_hints", "completed", f"Hints generated at {hints_path}")
 
             # 7) package results
+            diag.log_stage_start("stage_7_packaging", "Results packaging")
             meta = {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "profile": ctx.profile,
                 "tool_versions": ctx.tool_versions.__dict__ if hasattr(ctx.tool_versions, "__dict__") else {},
             }
             static_results_path = results_packager.package_results(preproc.file_hash, scored, analysis_dir, meta=meta)
+            diag.log_stage_end("stage_7_packaging", "completed", f"Results packaged at {static_results_path}")
 
             # 8) cache metadata is written by results_packager.package_results
             # which already persisted a `.cache_meta.json` next to the
             # `static_results.json`. Keep runner logic minimal here.
+
+            # Validate final outputs
+            diag.validate_file_exists(static_results_path, label="Final: static_results.json", fail_if_missing=False)
+            diag.validate_file_exists(hints_path, label="Final: hints.json", fail_if_missing=False)
 
             # populate result
             result.hints_path = hints_path
             result.static_results_path = static_results_path
             result.summary = {"findings_count": len(scored)}
             result.cached = False
+
+            # Generate diagnostic report
+            diag.log_stage_end("pipeline", "completed", f"Static detection completed with {len(scored)} findings")
+            diag_report_path = os.path.join(analysis_dir, "static_detection_diagnostic.txt")
+            diag_json_path = os.path.join(analysis_dir, "static_detection_diagnostic.json")
+            try:
+                diag.generate_report(diag_report_path)
+                diag.save_json_report(diag_json_path)
+                logger.info(f"[DIAGNOSTIC] Reports saved to {diag_report_path} and {diag_json_path}")
+            except Exception as e:
+                logger.warning(f"[DIAGNOSTIC] Failed to save diagnostic reports: {e}")
+
             return result
 
         except FileNotFoundError as exc:
             # Input file or preprocessed data not found
             error_msg = str(exc)
+            diag.log_error(error_msg)
+            diag.log_stage_end("pipeline", "failed", f"File not found: {error_msg[:100]}")
+            try:
+                diag_report_path = os.path.join(getattr(ctx, "analysis_base", "."), "analysis", "static", getattr(result, "file_hash", "unknown"), "static_detection_diagnostic.txt")
+                os.makedirs(os.path.dirname(diag_report_path), exist_ok=True)
+                diag.generate_report(diag_report_path)
+            except:
+                pass
             result.errors = [f"File not found: {error_msg}"]
             result.summary = {"error_type": "file_not_found", "message": error_msg}
             return result
-            
+
         except ValueError as exc:
             # Input validation or data format error
             error_msg = str(exc)
+            diag.log_error(error_msg)
+            diag.log_stage_end("pipeline", "failed", f"Validation error: {error_msg[:100]}")
             result.errors = [f"Validation error: {error_msg}"]
             result.summary = {"error_type": "validation_error", "message": error_msg}
             return result
-            
+
         except TimeoutError as exc:
             # Ghidra or other subprocess timeout
             error_msg = str(exc)
+            diag.log_error(error_msg)
+            diag.log_stage_end("pipeline", "timeout", f"Timeout: {error_msg[:100]}")
             result.errors = [f"Timeout: {error_msg}"]
             result.summary = {
                 "error_type": "timeout",
@@ -385,27 +460,33 @@ class StaticRunner:
                 "hint": "Consider setting policy='never' if analyzing source code only"
             }
             return result
-            
+
         except PermissionError as exc:
             # File permission issues
             error_msg = str(exc)
+            diag.log_error(error_msg)
+            diag.log_stage_end("pipeline", "failed", f"Permission denied: {error_msg[:100]}")
             result.errors = [f"Permission denied: {error_msg}"]
             result.summary = {"error_type": "permission_error", "message": error_msg}
             return result
-            
+
         except Exception as exc:
             # Catch-all for unexpected errors
             import traceback
             error_msg = str(exc)
             error_trace = traceback.format_exc()
-            
+
+            # Log diagnostics
+            diag.log_error(error_msg)
+            diag.log_stage_end("pipeline", "failed", f"{type(exc).__name__}: {error_msg[:100]}")
+
             # Log full traceback for debugging
             try:
                 import logging
                 logging.error(f"Static detection pipeline error: {error_trace}")
             except:
                 pass
-            
+
             # attempt to write a minimal static_results.json indicating failure
             try:
                 err_meta = {
@@ -416,9 +497,12 @@ class StaticRunner:
                 out_dir = os.path.abspath(os.path.join(ctx.analysis_base, "analysis", "static", getattr(result, "file_hash", "unknown")))
                 os.makedirs(out_dir, exist_ok=True)
                 results_packager.package_results(getattr(result, "file_hash", ""), [], out_dir, meta=err_meta)
+                # Save diagnostic report even on failure
+                diag_report_path = os.path.join(out_dir, "static_detection_diagnostic.txt")
+                diag.generate_report(diag_report_path)
             except Exception:
                 pass
-                
+
             result.errors = [error_msg]
             result.summary = {
                 "error_type": type(exc).__name__,

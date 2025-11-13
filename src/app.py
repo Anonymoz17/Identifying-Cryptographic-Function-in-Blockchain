@@ -52,7 +52,7 @@ class App(ctk.CTk):
             p.grid_remove()
 
         # --- Start on Login (not dashboard) ---
-        self._current_page_name = "setup"
+        self._current_page_name = "detectors"
         self.switch_page(self._current_page_name)
 
         # Debounced resize handling

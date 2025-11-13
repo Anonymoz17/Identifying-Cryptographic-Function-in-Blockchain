@@ -130,24 +130,55 @@ def _check_known_constant(pattern_hex: str) -> Tuple[bool, Dict]:
     return False, {}
 
 
-def _find_pattern_offsets(binary_data: bytes, pattern_bytes: bytes) -> List[int]:
+def _find_pattern_offsets(binary_data: bytes, pattern_bytes: bytes,
+                          timeout_sec: float = 5.0, start_time=None) -> List[int]:
     """Find all offsets where pattern occurs in binary.
+
+    OPTIMIZED: Includes timeout protection to prevent hangs on large binaries
+    with many pattern matches. If timeout is exceeded, returns partial results.
 
     Args:
         binary_data: The binary content to search
         pattern_bytes: The pattern to find
+        timeout_sec: Maximum time to spend searching (default 5 seconds)
+        start_time: Shared timeout start time (for batch operations)
 
     Returns:
-        List of offsets where pattern is found
+        List of offsets where pattern is found (may be partial if timeout exceeded)
     """
+    import time
+
+    if start_time is None:
+        start_time = time.time()
+
     offsets = []
     pos = 0
+    iterations = 0
+    timeout_triggered = False
+
     while True:
+        # Periodic timeout check (every 1000 iterations to minimize overhead)
+        if iterations % 1000 == 0:
+            elapsed = time.time() - start_time
+            if elapsed > timeout_sec:
+                timeout_triggered = True
+                break
+
+        iterations += 1
         pos = binary_data.find(pattern_bytes, pos)
         if pos == -1:
             break
         offsets.append(pos)
         pos += 1
+
+    if timeout_triggered and offsets:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.debug(
+            f"[CONSTANTS] Pattern search timeout after {time.time() - start_time:.2f}s "
+            f"({iterations} iterations, {len(offsets)} matches found, partial results)"
+        )
+
     return offsets
 
 

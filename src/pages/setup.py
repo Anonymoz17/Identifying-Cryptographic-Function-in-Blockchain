@@ -565,15 +565,63 @@ class SetupPage(ctk.CTkFrame):
                 self.after(0, self._set_status, "Preprocessing cancelled")
             else:
                 self.after(0, self._set_status, "Preprocessing completed")
-                # enable Continue button and store current scan meta
+                # Validate that Setup output files exist
                 try:
-                    self.master.current_scan_meta = {
-                        "workdir": str(ctx.case_dir),
-                        "case_id": case_id,
-                    }
-                    self.after(0, partial(self.continue_btn.configure, state="normal"))
-                except Exception:
-                    pass
+                    import os
+                    from pathlib import Path
+
+                    case_dir = Path(ctx.case_dir)
+                    preproc_dir = case_dir / "preproc"
+
+                    # Validation: check if preproc directory was created
+                    files_valid = False
+                    validation_msg = ""
+
+                    if preproc_dir.exists() and preproc_dir.is_dir():
+                        # Count files in preproc directory
+                        preproc_contents = list(preproc_dir.iterdir())
+                        if len(preproc_contents) > 0:
+                            files_valid = True
+                            validation_msg = f"✓ Setup validated: {len(preproc_contents)} file(s) in preproc/"
+                        else:
+                            validation_msg = "⚠ Warning: preproc/ directory is empty"
+                    else:
+                        validation_msg = "⚠ Warning: preproc/ directory not found"
+
+                    # Log validation result
+                    try:
+                        notifier.info(validation_msg)
+                    except:
+                        pass
+
+                    if files_valid:
+                        # enable Continue button and store current scan meta
+                        self.master.current_scan_meta = {
+                            "workdir": str(ctx.case_dir),
+                            "case_id": case_id,
+                        }
+                        self.after(0, partial(self.continue_btn.configure, state="normal"))
+                    else:
+                        # Files not valid - don't enable continue button
+                        try:
+                            notifier.error("Setup validation failed: No files found in preproc/")
+                        except:
+                            pass
+                except Exception as val_err:
+                    # Validation error - log but still allow continue (graceful degradation)
+                    try:
+                        notifier.warn(f"Could not validate setup outputs: {val_err}")
+                    except:
+                        pass
+                    # Allow continue anyway
+                    try:
+                        self.master.current_scan_meta = {
+                            "workdir": str(ctx.case_dir),
+                            "case_id": case_id,
+                        }
+                        self.after(0, partial(self.continue_btn.configure, state="normal"))
+                    except Exception:
+                        pass
             # mark progress complete
             self.after(0, self.progress.set, 1.0)
         except Exception:

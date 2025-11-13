@@ -1726,6 +1726,59 @@ class DetectorsPage(ctk.CTkFrame):
             runner = StaticRunner()
             logger.info("StaticRunner created")
 
+            # Validate file availability before batch analysis
+            logger.info("="*80)
+            logger.info("PRE-BATCH FILE VALIDATION")
+            logger.info("="*80)
+            try:
+                import os
+                from pathlib import Path
+
+                preproc_base = Path(self._case_workdir) / "preproc"
+                if not preproc_base.exists():
+                    logger.error(f"✗ CRITICAL: preproc/ directory not found at {preproc_base}")
+                    self.after(0, self._log_console, "✗ ERROR: preproc/ directory not found. Aborting batch analysis.")
+                    self.after(0, self._on_batch_error, "File validation failed: preproc/ directory missing")
+                    return
+
+                # Validate that each file hash has a corresponding preproc directory
+                missing_files = []
+                for file_hash in self._all_file_hashes:
+                    file_preproc = preproc_base / file_hash / "input.bin"
+                    if not file_preproc.exists():
+                        missing_files.append(file_hash)
+                        logger.warning(f"⚠ Missing: {file_hash}/input.bin")
+                    else:
+                        try:
+                            size = os.path.getsize(file_preproc)
+                            logger.debug(f"✓ Found: {file_hash}/input.bin ({size} bytes)")
+                        except Exception as e:
+                            logger.warning(f"⚠ Could not get size for {file_hash}: {e}")
+
+                if missing_files:
+                    logger.error(f"✗ Missing {len(missing_files)} file(s) in preproc/")
+                    for mf in missing_files[:10]:  # Show first 10
+                        logger.error(f"  - {mf}")
+                    self.after(0, self._log_console, f"✗ ERROR: {len(missing_files)} file(s) missing in preproc/")
+                    self.after(0, self._on_batch_error, f"File validation failed: {len(missing_files)} file(s) missing")
+                    return
+                else:
+                    logger.info(f"✓ All {len(self._all_file_hashes)} files validated successfully in preproc/")
+                    self.after(0, self._log_console, f"✓ File validation passed: {len(self._all_file_hashes)} file(s) ready")
+
+            except Exception as val_err:
+                logger.error(f"✗ File validation error: {val_err}", exc_info=True)
+                self.after(0, self._log_console, f"✗ ERROR: File validation error: {val_err}")
+                self.after(0, self._on_batch_error, f"File validation error: {val_err}")
+                return
+
+            logger.info("="*80)
+
+            # Progress update throttling: update UI every N files instead of every file
+            # This prevents excessive UI thread calls that can cause freezing
+            UI_UPDATE_FREQUENCY = 10  # Update UI every 10 files
+            last_ui_update = 0
+
             # Process each file hash
             for index, file_hash in enumerate(self._all_file_hashes, 1):
                 file_start_time = time.time()
@@ -1738,10 +1791,15 @@ class DetectorsPage(ctk.CTkFrame):
 
                 self._current_batch_index = index
 
-                # Update progress
-                progress = (index - 0.5) / total_files
-                self.after(0, self.progress_bar.set, progress)
-                self.after(0, self._update_batch_progress, index, total_files, file_hash)
+                # Throttle UI updates: only update every N files
+                # This dramatically reduces UI thread work and prevents freezing
+                should_update_ui = (index % UI_UPDATE_FREQUENCY == 0) or (index == total_files)
+
+                if should_update_ui:
+                    progress = (index - 0.5) / total_files
+                    self.after(0, self.progress_bar.set, progress)
+                    self.after(0, self._update_batch_progress, index, total_files, file_hash)
+                    logger.debug(f"[UI UPDATE] Progress: {index}/{total_files}")
 
                 logger.info(f"\n{'='*80}")
                 logger.info(f"[{index}/{total_files}] Starting analysis of {file_hash}")

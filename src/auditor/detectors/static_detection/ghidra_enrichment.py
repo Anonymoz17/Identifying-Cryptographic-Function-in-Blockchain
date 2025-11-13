@@ -13,6 +13,10 @@ the complete context and data flow.
 
 from typing import Dict, List, Set, Tuple, Optional, Any
 import hashlib
+import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _make_id(prefix: str, text: str) -> str:
@@ -57,33 +61,69 @@ class CallGraph:
             # Extract calls from disassembly (simple heuristic: look for function names in disasm)
             self._extract_calls_from_disasm()
 
-    def _extract_calls_from_disasm(self):
-        """Extract function calls from disassembly snippets using simple heuristic."""
-        for fn_name, fn_data in self.functions.items():
+    def _extract_calls_from_disasm(self, timeout_sec: float = 30.0):
+        """Extract function calls from disassembly snippets using simple heuristic.
+
+        OPTIMIZED: Uses timeout protection and pre-computed lowercase names to prevent
+        O(N²) hangs on binaries with many functions (e.g., 500+ functions = 250K iterations).
+
+        Args:
+            timeout_sec: Maximum time to spend on call graph extraction (default 30s)
+        """
+        start_time = time.time()
+
+        # Pre-compute lowercase function names to avoid repeated .lower() calls
+        # This is a key optimization for large function lists
+        function_names_lower = {name: name.lower() for name in self.functions.keys()}
+
+        # Track statistics
+        total_iterations = 0
+        calls_found = 0
+        timeout_triggered = False
+
+        for fn_idx, (fn_name, fn_data) in enumerate(self.functions.items()):
+            # Periodic timeout check (every 50 functions checked)
+            if fn_idx % 50 == 0:
+                elapsed = time.time() - start_time
+                if elapsed > timeout_sec:
+                    logger.warning(
+                        f"[GHIDRA ENRICHMENT] Call graph extraction timeout after {elapsed:.1f}s "
+                        f"({fn_idx}/{len(self.functions)} functions, {calls_found} calls found). "
+                        f"Partial call graph will be used."
+                    )
+                    timeout_triggered = True
+                    break
+
             disasm = fn_data.get("disasm", "")
             if not disasm:
                 continue
 
-            # Simple heuristic: look for other function names in the disasm
-            # This is a best-effort approach; not all calls are visible in short snippets
+            # Pre-convert disasm once per function (not once per comparison)
             disasm_lower = disasm.lower()
 
-            for other_name, other_data in self.functions.items():
+            for other_name in self.functions.keys():
+                total_iterations += 1
+
                 if other_name == fn_name:
                     continue
 
-                # Check if this function name appears in disasm
-                # Use word boundaries to avoid partial matches
-                other_name_lower = other_name.lower()
-
                 # Skip very generic names to reduce false positives
+                other_name_lower = function_names_lower[other_name]
                 if len(other_name_lower) < 3:
                     continue
 
-                # Simple substring check (can be enhanced with regex word boundaries)
+                # Simple substring check
                 if other_name_lower in disasm_lower:
                     self.call_graph[fn_name].add(other_name)
                     self.called_by[other_name].add(fn_name)
+                    calls_found += 1
+
+        elapsed = time.time() - start_time
+        if not timeout_triggered:
+            logger.debug(
+                f"[GHIDRA ENRICHMENT] Call graph extracted in {elapsed:.2f}s "
+                f"({total_iterations} iterations, {calls_found} calls found)"
+            )
 
     def get_callers(self, function_name: str) -> List[str]:
         """Get functions that call this function."""

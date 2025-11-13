@@ -150,9 +150,14 @@ def generate_static_preproc(preproc_dir: str, out_dir: str, profile: str = "quic
 
             seen = {}
             for i in range(0, len(sample) - 4 + 1):
-                # Periodic timeout check for very large samples
-                if i % 100000 == 0 and time.time() - start_time > timeout_sec:
-                    logger.warning(f"Constants detection timeout, partial results")
+                # OPTIMIZED: Periodic timeout check (every 10k iterations instead of 100k)
+                # This gives more responsive timeout handling for large files
+                if i % 10000 == 0 and time.time() - start_time > timeout_sec:
+                    logger.warning(
+                        f"[STATIC PREPROC] Constants detection timeout after "
+                        f"{time.time() - start_time:.1f}s ({i}/{len(sample)} bytes processed, "
+                        f"{len(seen)} unique patterns, partial results)"
+                    )
                     break
                 chunk = sample[i : i + 4]
                 seen.setdefault(chunk, 0)
