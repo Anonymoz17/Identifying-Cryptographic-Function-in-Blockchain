@@ -183,10 +183,7 @@ function Nav({ onOpenAuth }) {
         <div className="hidden md:flex items-center gap-3">
           {!user ? (
             <>
-              <Button onClick={() => onOpenAuth("signin")} className="border border-white/15 text-white/90 hover:bg-white/5">Sign in</Button>
-              <Button onClick={() => onOpenAuth("signup")} className="bg-gradient-to-r from-emerald-400 to-cyan-500 text-black">
-                Sign up <ChevronRight className="h-4 w-4" />
-              </Button>
+              
             </>
           ) : (
             <>
