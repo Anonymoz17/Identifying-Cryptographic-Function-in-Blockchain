@@ -146,12 +146,6 @@ class ExportEngine:
                 ["Finding Types", str(len(stats['static']['by_type']))],
             ]
 
-            if data_model.has_dynamic_results():
-                summary_data.extend([
-                    ["Dynamic Calls", str(stats['dynamic']['total_calls'])],
-                    ["Unique Functions", str(stats['dynamic']['unique_functions'])],
-                ])
-
             summary_table = Table(summary_data, colWidths=[3 * inch, 3 * inch])
             summary_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0066CC')),
@@ -275,7 +269,6 @@ class ExportEngine:
                 "file_metadata": data_model.metadata.to_dict(),
                 "statistics": data_model.get_statistics(),
                 "static_findings": [f.to_dict() for f in data_model.static_findings],
-                "dynamic_calls": [c.to_dict() for c in data_model.dynamic_calls],
             }
 
             # Add chart images as base64
@@ -360,10 +353,6 @@ class ExportEngine:
             lines.append(f"- **Average Confidence:** {stats['static']['average_confidence']:.0%}")
             lines.append(f"- **Finding Types:** {len(stats['static']['by_type'])}")
 
-            if data_model.has_dynamic_results():
-                lines.append(f"- **Dynamic Calls:** {stats['dynamic']['total_calls']}")
-                lines.append(f"- **Unique Functions:** {stats['dynamic']['unique_functions']}")
-
             lines.append("")
 
             # Findings by Type
@@ -394,25 +383,6 @@ class ExportEngine:
                 if len(data_model.static_findings) > 100:
                     lines.append(f"*... and {len(data_model.static_findings) - 100} more findings*")
                     lines.append("")
-
-            # Dynamic Analysis
-            if data_model.has_dynamic_results() and data_model.dynamic_calls:
-                lines.append("## Dynamic Analysis Results")
-                lines.append("")
-
-                # Function frequency
-                func_calls = {}
-                for call in data_model.dynamic_calls:
-                    if call.function_name:
-                        func_calls[call.function_name] = func_calls.get(call.function_name, 0) + 1
-
-                lines.append("### Most Called Functions")
-                lines.append("")
-                lines.append("| Function | Calls |")
-                lines.append("|----------|-------|")
-                for func, count in sorted(func_calls.items(), key=lambda x: x[1], reverse=True)[:20]:
-                    lines.append(f"| {func} | {count} |")
-                lines.append("")
 
             # Footer
             lines.append("---")

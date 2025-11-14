@@ -6,15 +6,10 @@ Supports static analysis results with caching and statistics.
 Case Structure:
 case/
 ├── analysis/
-│   ├── static/
-│   │   └── <file_hash>/
-│   │       ├── static_results.json
-│   │       ├── hints.json
-│   │       └── .cache_meta.json
-│   └── dynamic/
+│   └── static/
 │       └── <file_hash>/
-│           ├── dynamic_results.json
-│           ├── trace.ndjson
+│           ├── static_results.json
+│           ├── hints.json
 │           └── .cache_meta.json
 """
 
@@ -59,31 +54,6 @@ class Finding:
             'evidence': self.evidence,
             'count': self.count,
             'additional_data': self.additional_data
-        }
-
-
-@dataclass
-class DynamicCall:
-    """A single dynamic analysis function call or event."""
-
-    timestamp: float
-    event_type: str  # crypto_call, crypto_return, memory_scan, call_graph, error
-    function_name: Optional[str] = None
-    module_name: Optional[str] = None
-    address: Optional[str] = None
-    confidence: float = 1.0
-    details: Dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict:
-        """Convert to dictionary."""
-        return {
-            'timestamp': self.timestamp,
-            'event_type': self.event_type,
-            'function_name': self.function_name,
-            'module_name': self.module_name,
-            'address': self.address,
-            'confidence': self.confidence,
-            'details': self.details
         }
 
 
@@ -153,7 +123,9 @@ class ResultsDataModel:
         return (
             self.case_path
             / "analysis" / "static" / self.file_hash / "hints.json"
-        )    def load_static_results(self) -> bool:
+        )
+
+    def load_static_results(self) -> bool:
         """
         Load static analysis results from JSON file.
 
@@ -332,10 +304,6 @@ class ResultsDataModel:
                 'max_confidence': 0.0,
                 'min_confidence': 1.0,
             },
-
-                'unique_functions': set(),
-                'average_confidence': 0.0,
-            },
             'metadata': self.metadata.to_dict()
         }
 
@@ -361,23 +329,6 @@ class ResultsDataModel:
                     stats['static']['by_confidence_range']['medium'] += 1
                 else:
                     stats['static']['by_confidence_range']['low'] += 1
-
-        # Dynamic statistics
-        if self.dynamic_calls:
-            confidences = [c.confidence for c in self.dynamic_calls]
-            stats['dynamic']['average_confidence'] = sum(confidences) / len(confidences)
-
-            # Count by type
-            for call in self.dynamic_calls:
-                event_type = call.event_type
-                stats['dynamic']['by_type'][event_type] = \
-                    stats['dynamic']['by_type'].get(event_type, 0) + 1
-
-                # Track unique functions
-                if call.function_name:
-                    stats['dynamic']['unique_functions'].add(call.function_name)
-
-            stats['dynamic']['unique_functions'] = len(stats['dynamic']['unique_functions'])
 
         self._stats_cache = stats
         self._cache_valid = True
@@ -408,10 +359,5 @@ class ResultsDataModel:
             parts.append(f"Static: {self.metadata.static_findings_count} findings")
         else:
             parts.append(f"Static: {self.metadata.static_status}")
-
-        if self.metadata.dynamic_status == "completed":
-            parts.append(f"Dynamic: {self.metadata.dynamic_events_count} events")
-        else:
-            parts.append(f"Dynamic: {self.metadata.dynamic_status}")
 
         return " | ".join(parts) if parts else "No analysis available"

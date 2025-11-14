@@ -233,64 +233,6 @@ class VisualizationEngine:
 
         return img
 
-    @staticmethod
-    def create_execution_timeline(dynamic_calls: List[Any], width: int = 450, height: int = 340) -> Optional[Image.Image]:
-        """Create execution timeline chart for static analysis.
-
-        Args:
-            static_calls: List of DynamicCall objects with timestamps
-            width: Image width (optimized for 450px)
-            height: Image height (optimized for 340px)
-
-        Returns:
-            PIL Image or None if no data
-        """
-        if not static_calls:
-            return None
-
-        VisualizationEngine._setup_style()
-
-        # Count calls by type
-        by_type = {}
-        for call in static_calls:
-            call_type = getattr(call, 'call_type', 'unknown')
-            by_type[call_type] = by_type.get(call_type, 0) + 1
-
-        types = list(by_type.keys())
-        counts = list(by_type.values())
-
-        fig, ax = plt.subplots(figsize=(6, 4.5), dpi=80)
-
-        if len(types) > 0:
-            bars = ax.bar(range(len(types)), counts, color=CHART_STYLE['primary_color'],
-                         edgecolor=CHART_STYLE['chart_edge'], alpha=0.85, linewidth=1.5)
-
-            # Add value labels on bars
-            for bar, count in zip(bars, counts):
-                height = bar.get_height()
-                if height > 0:
-                    ax.text(bar.get_x() + bar.get_width() / 2., height + 0.1,
-                           str(int(count)), ha='center', va='bottom',
-                           color=CHART_STYLE['primary_color'], fontsize=9, fontweight='bold')
-
-        ax.set_xticks(range(len(types)) if types else [])
-        ax.set_xticklabels(types, rotation=45, ha='right', fontsize=9)
-        ax.set_ylabel('Count', color=CHART_STYLE['text_color'], fontsize=10)
-        ax.set_title('Dynamic Call Types Frequency', color=CHART_STYLE['text_color'],
-                    fontsize=12, fontweight='bold', pad=15)
-        ax.grid(True, alpha=0.25, axis='y', color=CHART_STYLE['grid_color'], linestyle='--', linewidth=0.5)
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.spines['left'].set_color(CHART_STYLE['grid_color'])
-        ax.spines['bottom'].set_color(CHART_STYLE['grid_color'])
-
-        fig.subplots_adjust(left=0.1, right=0.95, top=0.88, bottom=0.15)
-
-        img = VisualizationEngine.figure_to_image(fig, width, height)
-        plt.close(fig)
-
-        return img
-
 
 class ChartPanel(ctk.CTkFrame):
     """Frame that displays a chart image with title."""
