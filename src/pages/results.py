@@ -8,12 +8,11 @@ Provides a professional three-column layout showing:
 Supports role-based access control (free vs premium users).
 """
 
-import os
+from enum import Enum
 import logging
 import threading
 from pathlib import Path
 from typing import Optional, Callable
-from enum import Enum
 
 import customtkinter as ctk
 
@@ -26,6 +25,7 @@ from ui.results_components import (
     MetricsCard, StatusIndicator, PremiumBadge,
     LockedFeatureView, SectionHeader, COLORS
 )
+from ui.account_bubble import AccountBubble
 
 logger = logging.getLogger(__name__)
 
@@ -93,10 +93,17 @@ class ResultsPage(ctk.CTkFrame):
         try:
             self._create_layout()
             self._create_tabs()
+
+            # Account bubble (top-right, same pattern as Setup page)
+            self._acct = AccountBubble(self)
+            self._acct.mount(top_right_of=self)
+
             logger.info("ResultsPage initialized successfully")
         except Exception as e:
             logger.exception(f"Failed to initialize ResultsPage: {e}")
             raise
+
+
 
     # ======== Layout Creation ========
 
@@ -259,8 +266,8 @@ class ResultsPage(ctk.CTkFrame):
         # Back button
         back_btn = ctk.CTkButton(
             self.left_panel,
-            text="← Back to Detectors",
-            command=lambda: self.switch_page("detectors"),
+            text="← Back to Landing",
+            command=lambda: self.switch_page("landing"),
             fg_color=COLORS['primary'],
             hover_color=COLORS['primary_hover'],
             height=36
@@ -683,6 +690,31 @@ class ResultsPage(ctk.CTkFrame):
                 pass
 
             logger.info("Standalone mode: No active case. Please load a case and select a file.")
+                    # (keep your existing logger above this if you like)
+
+        # --- Refresh Account Bubble (non-fatal if anything fails) ---
+        try:
+            profile = None
+            if hasattr(self.parent, "user_overview") and self.parent.user_overview:
+                u = self.parent.user_overview or {}
+                roles_val = u.get("roles")
+                if isinstance(roles_val, (list, tuple)):
+                    roles_str = ", ".join(str(r) for r in roles_val)
+                else:
+                    roles_str = roles_val or ""
+
+                profile = {
+                    "full_name": u.get("full_name") or u.get("name") or "User",
+                    "email": u.get("email", ""),
+                    "role": roles_str or "free",
+                    "plan": u.get("plan") or getattr(self.parent, "plan", "Free"),
+                }
+
+            if hasattr(self, "_acct") and hasattr(self._acct, "refresh"):
+                self._acct.refresh(profile)
+        except Exception as e:
+            logger.warning(f"AccountBubble refresh error on ResultsPage: {e}")
+
 
     def on_resize(self, width: int, height: int):
         """Called when window is resized."""

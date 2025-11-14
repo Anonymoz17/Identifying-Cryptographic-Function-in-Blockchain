@@ -158,13 +158,15 @@ class LoginPage(ctk.CTkFrame):
         )
         self.email_entry.grid(row=0, column=0, sticky="ew", pady=(2, 8))
 
+                # Password row (same width as other inputs)
         pw_row = ctk.CTkFrame(form, fg_color="transparent")
-        pw_row.grid(row=1, column=0, sticky="ew", pady=(0, 6))
+        pw_row.grid(row=1, column=0, sticky="ew", pady=(2, 2))
         pw_row.grid_columnconfigure(0, weight=1)
 
         self.password_entry = ctk.CTkEntry(
             pw_row,
             placeholder_text="Password",
+            placeholder_text_color=MUTED,
             height=38,
             corner_radius=8,
             fg_color=BG,
@@ -175,8 +177,9 @@ class LoginPage(ctk.CTkFrame):
         )
         self.password_entry.grid(row=0, column=0, sticky="ew")
 
+        # 'Show password' BELOW the password field (similar to Register page)
         show_pw = ctk.CTkCheckBox(
-            pw_row,
+            form,
             text="Show password",
             variable=self._show_password,
             command=self._toggle_password,
@@ -188,7 +191,8 @@ class LoginPage(ctk.CTkFrame):
             checkbox_width=16,
             corner_radius=4,
         )
-        show_pw.grid(row=0, column=1, padx=(10, 0))
+        show_pw.grid(row=2, column=0, sticky="w", pady=(0, 6), padx=(6, 0))
+
 
         # ---------- Social sign-in (full-width buttons) ----------
         social = ctk.CTkFrame(center, fg_color="transparent")

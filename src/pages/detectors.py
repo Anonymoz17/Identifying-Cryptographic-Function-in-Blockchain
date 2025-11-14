@@ -13,6 +13,9 @@ import tkinter as tk
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 
+# Account bubble widget
+from ui.account_bubble import AccountBubble
+
 import customtkinter as ctk
 
 # Theme
@@ -46,7 +49,7 @@ class DetectorsPage(ctk.CTkFrame):
 
         # ===== Header =====
         header_frame = ctk.CTkFrame(content, fg_color="transparent")
-        header_frame.pack(fill="x", pady=(0, 14))
+        header_frame.pack(fill="x", pady=(0, 10))
 
         header = ctk.CTkLabel(
             header_frame,
@@ -56,13 +59,10 @@ class DetectorsPage(ctk.CTkFrame):
         )
         header.pack(side="left")
 
-        # Profile menu (left untouched)
-        try:
-            from .accounts import AccountsMenu
-            acct = AccountsMenu(header_frame, on_profile_change=self._on_profile_change)
-            acct.pack(side="right")
-        except Exception:
-            pass
+        # Account bubble (top-right, same pattern as SetupPage)
+        self._acct = AccountBubble(self)
+        self._acct.mount(top_right_of=self)
+
 
         # ===== Load Case (Standalone) =====
         self.load_case_frame = ctk.CTkFrame(
@@ -153,6 +153,21 @@ class DetectorsPage(ctk.CTkFrame):
         self._total_binaries = 0
         self._cached_binaries = 0
         self._ready_binaries = 0
+
+        # Back to Landing (sticks to the bottom via the status_frame)
+        back_btn = ctk.CTkButton(
+            status_frame,
+            text="← Back to Landing",
+            width=160,
+            height=32,
+            fg_color="transparent",
+            border_width=1,
+            border_color=OUTLINE_BR,
+            hover_color=OUTLINE_H,
+            text_color=TEXT,
+            command=lambda: self.switch_page("landing"),
+        )
+        back_btn.pack(side="right", padx=8, pady=6)
 
     # ---------- Static Analysis UI ----------
     def _build_static_ui(self, parent: ctk.CTkFrame):
@@ -1144,43 +1159,89 @@ class DetectorsPage(ctk.CTkFrame):
 
     # Lifecycle
     def on_enter(self):
+        """
+        Entering Detectors page:
+        - If coming from Setup (master.current_scan_meta has workdir), load that workspace.
+        - Otherwise, show Standalone mode with 'Load Case'.
+        - Always try to refresh the account bubble (if present).
+        """
         try:
             scan_meta = getattr(self.master, "current_scan_meta", None)
+
             if scan_meta and scan_meta.get("workdir"):
+                # ----- Case loaded from Setup -----
                 workdir = scan_meta.get("workdir")
                 self._standalone_mode = False
                 self._loaded_case_workdir = workdir
                 self._case_workdir = workdir
 
+                # Show analysis UI
                 self.load_case_frame.pack_forget()
                 self.mode_frame.pack(fill="x", pady=(0, 12))
                 self.static_frame.pack(fill="both", expand=True, pady=(8, 0))
                 self.summary_container.grid()
 
+                # Refresh case list / status
                 self._scan_all_cases()
                 self._set_status(f"Ready to analyze: {workdir}")
                 self._log_console(f"Loaded workspace: {workdir}")
+
             else:
+                # ----- Standalone mode (no active case) -----
                 self._standalone_mode = True
                 self._loaded_case_workdir = None
                 self._case_workdir = None
 
+                # Hide analysis UI
                 self.mode_frame.pack_forget()
                 self.static_frame.pack_forget()
                 self.summary_container.grid_remove()
 
-                # Show load case
+                # Show 'Load Case' UI
                 self.load_case_frame.pack(fill="x", pady=(0, 12))
-
                 self._set_status("Standalone mode: Load a case to begin analysis")
                 self._log_console("Standalone mode: No active case. Please load a case.")
 
+                # Prefill default workdir if helper exists
                 try:
                     from auditor.setup_flow.output import get_default_workdir
                     default_wd = str(get_default_workdir())
                     self.case_workdir_entry.delete(0, "end")
                     self.case_workdir_entry.insert(0, default_wd)
                 except Exception:
+                    # Best-effort only; never fail UI on this
                     pass
+
+            # ----- Refresh Account Bubble (non-fatal if anything fails) -----
+            # Refresh the bubble instead of recreating it
+            # Refresh account bubble details (don't recreate it)
+            try:
+                profile = None
+                if hasattr(self.master, "user_overview") and self.master.user_overview:
+                    u = self.master.user_overview or {}
+                    roles_val = u.get("roles")
+                    if isinstance(roles_val, (list, tuple)):
+                        roles_str = ", ".join(str(r) for r in roles_val)
+                    else:
+                        roles_str = roles_val or ""
+
+                    profile = {
+                        "full_name": u.get("full_name") or u.get("name") or "User",
+                        "email": u.get("email", ""),
+                        "role": roles_str or "free",
+                        "plan": u.get("plan") or getattr(self.master, "plan", "Free"),
+                    }
+
+                if hasattr(self, "_acct") and hasattr(self._acct, "refresh"):
+                    # None → clear override and fall back to Supabase / app defaults
+                    self._acct.refresh(profile)
+                    if getattr(self._acct, "button", None) is not None:
+                        self._acct.button.lift()
+            except Exception as e:
+                print("AccountBubble refresh error:", e)
+
+
         except Exception as e:
+            # Single catch-all for the whole on_enter path
             self._set_status(f"Initialization error: {e}", error=True)
+            self._log_console(f"[error] on_enter failed: {e}")

@@ -7,6 +7,7 @@ from functools import partial
 from pathlib import Path
 from typing import Optional
 
+from ui.account_bubble import AccountBubble
 import customtkinter as ctk
 
 # ---- Theme ---------------------------------------------------------------
@@ -64,12 +65,10 @@ class SetupPage(ctk.CTkFrame):
         ).pack(side="left")
 
         # Account placeholder menu (similar to detectors page)
-        try:
-            from .accounts import AccountsMenu
-            acct = AccountsMenu(header, on_profile_change=self._on_profile_change)
-            acct.pack(side="right", padx=(8, 0))
-        except Exception:
-            pass
+        self._acct = AccountBubble(self)
+        self._acct.mount(top_right_of=self)  # pins to the page’s top-right instead
+            # sticks to header’s top-right
+
 
         # Sub-header with back button (below title)
         subheader = ctk.CTkFrame(wrapper, fg_color="transparent")
