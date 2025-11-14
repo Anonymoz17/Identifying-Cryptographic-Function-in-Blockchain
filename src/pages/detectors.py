@@ -1250,8 +1250,7 @@ class DetectorsPage(ctk.CTkFrame):
             # Show the appropriate analysis frame
             if self._current_mode == "static":
                 self.static_frame.pack(fill="both", expand=True, pady=(0, 10))
-            else:
-    
+
             # Scan all cases and update summary
             self._scan_all_cases()
 
@@ -1333,7 +1332,7 @@ class DetectorsPage(ctk.CTkFrame):
                 # Hide analysis UI completely
                 self.mode_frame.pack_forget()
                 self.static_frame.pack_forget()
-                    self.summary_container.grid_remove()
+                self.summary_container.grid_remove()
                 
                 # Show only load case UI
                 self.load_case_frame.pack(fill="x", pady=(0, 20))
