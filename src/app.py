@@ -27,7 +27,7 @@ class App(ctk.CTk):
         # --- Session + scan state ---
         self.auth_token = None
         # safer default for local usage
-        self.current_user_role = "premium"
+        #self.current_user_role = "premium"
         self.current_user_email = None
         self.current_scan_meta = None
 
@@ -99,6 +99,10 @@ class App(ctk.CTk):
         # pass the callable directly to tkinter.after (no args)
         self.after(10, blur_cb)
 
+        AccountBubble(header, app=self.winfo_toplevel()).grid(
+        row=0, column=1, rowspan=2, sticky="ne", padx=(8, 0), pady=(0, 0)
+    )
+
     # ---------- Resize (debounced) ----------
     def _on_configure(self, event):
         # Ignore noisy events triggered during closing
@@ -134,6 +138,22 @@ class App(ctk.CTk):
                 pass
             self._resize_job = None
         self.destroy()
+
+    def fetch_user_profile(self):
+        """
+        Return dict: {full_name, email, role, plan}.
+        Prefer self.user_overview if already loaded from Supabase.
+        """
+        try:
+            u = getattr(self, "user_overview", None) or {}
+            return {
+                "full_name": u.get("full_name") or u.get("name") or "User",
+                "email": u.get("email", ""),
+                "role": (", ".join(u["roles"]) if isinstance(u.get("roles"), (list, tuple)) else (u.get("roles") or "Free")),
+                "plan": u.get("plan") or getattr(self, "plan", "Free"),
+            }
+        except Exception:
+            return {"full_name": "User", "email": "", "role": "Free", "plan": "Free"}
 
 
 if __name__ == "__main__":
