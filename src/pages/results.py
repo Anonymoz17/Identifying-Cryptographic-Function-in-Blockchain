@@ -224,7 +224,7 @@ class ResultsPage(ctk.CTkFrame):
         )
         refresh_btn.grid(row=1, column=0, pady=(5, 10))
 
-        # Action buttons
+            # Action buttons
         action_frame = ctk.CTkFrame(parent, fg_color="transparent")
         action_frame.grid(row=3, column=0, sticky="ew", padx=15, pady=(0, 15))
 
@@ -236,7 +236,7 @@ class ResultsPage(ctk.CTkFrame):
             font=("Roboto", 14, "bold"),
             fg_color="#4a9eff",
             hover_color="#357abd",
-            command=self._load_selected_case
+            command=self._load_selected_case,
         )
         self.load_case_btn.pack(side="left", padx=5)
 
@@ -244,9 +244,25 @@ class ResultsPage(ctk.CTkFrame):
         self.load_case_status = ctk.CTkLabel(
             action_frame,
             text="",
-            font=("Roboto", 11)
+            font=("Roboto", 11),
         )
         self.load_case_status.pack(side="left", padx=15)
+
+        # Back to Landing (standalone Results, similar to standalone Detectors)
+        back_btn = ctk.CTkButton(
+            action_frame,
+            text="← Back to Landing",
+            width=160,
+            height=32,
+            fg_color="transparent",
+            border_width=1,
+            border_color=COLORS["border"],
+            hover_color=COLORS["card_bg"],
+            text_color=COLORS["text"],
+            command=lambda: self.switch_page("landing"),
+        )
+        back_btn.pack(side="right", padx=5)
+
 
     def _create_left_panel(self):
         """Create left panel with navigation and info."""
@@ -643,6 +659,31 @@ class ResultsPage(ctk.CTkFrame):
         """Open upgrade/premium page (placeholder)."""
         logger.info("Upgrade clicked - would open premium page")
         # In future: self.switch_page("premium")
+
+    def reset_pipeline_state(self):
+        """
+        Clear previous pipeline results so that the next entry opens
+        in standalone 'Load Analysis Results' mode.
+        """
+        try:
+            # Drop pipeline identifiers
+            self.case_path = None
+            self.file_hash = None
+            self.data_model = None
+
+            # Force standalone semantics
+            self._standalone_mode = True
+            self._loaded_case_workdir = None
+            self._available_files = {}
+            self._selected_file_hash = None
+
+            # Tabs will be lazily reloaded
+            with self._tabs_lock:
+                self._tabs_loaded.clear()
+            self.current_tab = "overview"
+        except Exception:
+            pass
+
 
     # ======== On Page Enter ========
 

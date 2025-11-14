@@ -1157,6 +1157,42 @@ class DetectorsPage(ctk.CTkFrame):
         except Exception:
             pass
 
+    def reset_pipeline_state(self):
+        """
+        Clear any pipeline/Setup-driven state so the next on_enter()
+        behaves like a fresh standalone page.
+        """
+        try:
+            # Force standalone mode on next entry
+            self._standalone_mode = True
+            self._loaded_case_workdir = None
+            self._case_workdir = None
+
+            # Drop batch bookkeeping
+            self._all_file_hashes = []
+            self._batch_results = {}
+            self._current_batch_index = 0
+            self._total_binaries = 0
+            self._cached_binaries = 0
+            self._ready_binaries = 0
+
+            # Stop any notion of “running”
+            self._analysis_running = False
+            self._cancel_event = None
+
+            # Clear UI text safely; layout is handled in on_enter()
+            self._clear_results()
+            try:
+                self.progress_bar.set(0)
+                self.progress_label.configure(text="")
+            except Exception:
+                pass
+            self._set_status("Ready to analyze")
+        except Exception:
+            # Never let a reset crash navigation
+            pass
+
+
     # Lifecycle
     def on_enter(self):
         """

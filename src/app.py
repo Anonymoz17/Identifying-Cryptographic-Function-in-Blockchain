@@ -66,7 +66,39 @@ class App(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # -------- Navigation --------
+            # -------- Navigation --------
     def switch_page(self, name: str):
+        """Central navigation helper.
+
+        Also clears scan context when returning to the Landing page so that
+        Detectors/Results reopen in standalone mode (no stale pipeline state).
+        """
+        if name == "landing":
+            # Drop any pipeline-driven scan metadata from Setup
+            self.current_scan_meta = None
+
+            # Detectors: forget the case loaded from Setup
+            det = self._pages.get("detectors")
+            if det is not None:
+                try:
+                    # These attributes already exist on DetectorsPage
+                    det._standalone_mode = True
+                    det._loaded_case_workdir = None
+                except Exception:
+                    pass
+
+            # Results: forget the case/file loaded from Detectors
+            res = self._pages.get("results")
+            if res is not None:
+                try:
+                    # These attributes already exist on ResultsPage
+                    res.case_path = None
+                    res.file_hash = None
+                    res._standalone_mode = True
+                    res._loaded_case_workdir = None
+                except Exception:
+                    pass
+
         self._current_page_name = name
         for n, page in self._pages.items():
             if n == name:
