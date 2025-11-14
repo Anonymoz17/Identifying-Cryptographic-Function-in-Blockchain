@@ -4,8 +4,14 @@ import { supabase } from "./lib/supabase";
 const ROLES_TABLE = "user_roles";
 const PROFILES_TABLE = "profiles";
 
+// Check if Supabase is available
+function isSupabaseAvailable() {
+  return supabase !== null;
+}
+
 // Ensure a roles row exists for this user (defaults to 'free')
 async function ensureRoleRow(userId) {
+  if (!isSupabaseAvailable()) return { error: "Auth not configured" };
   const { data, error } = await supabase
     .from(ROLES_TABLE)
     .select("id, tier")
@@ -27,6 +33,7 @@ async function ensureRoleRow(userId) {
 
 // Optional: store profile info (username/full_name)
 export async function upsertProfile({ id, username, full_name }) {
+  if (!isSupabaseAvailable()) return { ok: false, error: "Auth not configured" };
   const payload = { id };
   if (typeof username === "string") payload.username = username;
   if (typeof full_name === "string") payload.full_name = full_name;
@@ -41,6 +48,7 @@ export async function upsertProfile({ id, username, full_name }) {
 
 // ── AUTH ─────────────────────────────────────────────────────
 export async function signUp({ email, password, name, username }) {
+  if (!isSupabaseAvailable()) return { error: "Authentication is not configured for this deployment" };
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
@@ -76,6 +84,7 @@ export async function signUp({ email, password, name, username }) {
 }
 
 export async function signIn({ email, password }) {
+  if (!isSupabaseAvailable()) return { error: "Authentication is not configured for this deployment" };
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) return { error: error.message };
   const user = data.user;
@@ -94,12 +103,14 @@ export async function signIn({ email, password }) {
 }
 
 export async function signOut() {
+  if (!isSupabaseAvailable()) return { error: "Auth not configured" };
   const { error } = await supabase.auth.signOut();
   if (error) return { error: error.message };
   return { ok: true };
 }
 
 export async function getCurrentUser() {
+  if (!isSupabaseAvailable()) return { user: null, plan: "free" };
   const { data: { session } } = await supabase.auth.getSession();
   const user = session?.user;
   if (!user) return { user: null, plan: "free" };
@@ -116,6 +127,7 @@ export async function getCurrentUser() {
 
 // Call this AFTER your payment succeeds (Stripe/PayNow/etc.)
 export async function upgradeUserPlan({ userId, plan }) {
+  if (!isSupabaseAvailable()) return { error: "Auth not configured" };
   // Only Free/Premium now
   if (!["free", "premium"].includes(plan)) {
     return { error: "Invalid plan" };
