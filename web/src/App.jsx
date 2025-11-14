@@ -180,20 +180,7 @@ function Nav({ onOpenAuth }) {
           <a href="#pricing" className="hover:text-white">Pricing</a>
           <a href="#faq" className="hover:text-white">FAQ</a>
         </nav>
-        <div className="hidden md:flex items-center gap-3">
-          {!user ? (
-            <>
-              
-            </>
-          ) : (
-            <>
-              <Badge>{plan === "premium" ? "Premium" : "Free"}</Badge>
-              <Button className="border border-white/15 text-white/90 hover:bg-white/5" onClick={handleSignOut}>
-                <LogOut className="h-4 w-4" /> Sign out
-              </Button>
-            </>
-          )}
-        </div>
+        
         <button className="md:hidden" onClick={() => setOpen(!open)} aria-label="Open menu">
           <div className="h-6 w-6 rounded-md border border-white/20 grid place-content-center text-white/80">≡</div>
         </button>
