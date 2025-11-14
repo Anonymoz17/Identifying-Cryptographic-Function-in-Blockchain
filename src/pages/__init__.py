@@ -45,6 +45,7 @@ AuditorPage = _safe_import("auditor", "AuditorPage")
 DashboardPage = _safe_import("dashboard", "DashboardPage")
 LoginPage = _safe_import("login", "LoginPage")
 RegisterPage = _safe_import("register", "RegisterPage")
+VerifyEmailPage = _safe_import("verify_email", "VerifyEmailPage")
 SetupPage = _safe_import("setup", "SetupPage")
 LandingPage = _safe_import("landing", "LandingPage")
 DetectorsPage = _safe_import("detectors", "DetectorsPage")
@@ -57,6 +58,7 @@ __all__ = [
     "DetectorsPage",
     "LoginPage",
     "RegisterPage",
+    "VerifyEmailPage",
     "AdvisorPage",
     "LandingPage",
     "ResultsPage",
