@@ -107,7 +107,7 @@ class DetectorsPage(ctk.CTkFrame):
 
         self.mode_description = ctk.CTkLabel(
             self.mode_frame,
-            text="Free • Analyzes binaries for crypto patterns using Ghidra",
+            text="Analyzes binaries for crypto patterns using Ghidra",
             font=BODY_FONT,
             text_color=MUTED,
         )
@@ -460,7 +460,7 @@ class DetectorsPage(ctk.CTkFrame):
         """Handle mode selection (static-only)."""
         self.static_frame.pack(fill="both", expand=True, pady=(0, 10))
         self.mode_description.configure(
-            text="🆓 Free • Analyzes binaries for crypto patterns using Ghidra",
+            text="Analyzes binaries for crypto patterns using Ghidra",
             text_color="#88b"
         )
 
@@ -516,60 +516,22 @@ class DetectorsPage(ctk.CTkFrame):
             self._batch_results = {}
             self._current_batch_index = 0
 
-            profile = getattr(self, "profile_var", tk.StringVar(value="default")).get()
-            force = self.force_var.get()
-            total_files = len(self._all_file_hashes)
-            # Setup comprehensive logging
-            log_file = Path(self._case_workdir) / "static_detection_debug.log"
-            logging.basicConfig(
-                level=logging.DEBUG,
-                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                handlers=[
-                    logging.FileHandler(log_file),
-                    logging.StreamHandler(sys.stdout)
-                ],
-                force=True
-            )
-            logger = logging.getLogger(__name__)
-
-            logger.info("="*80)
-            logger.info("STATIC DETECTION BATCH ANALYSIS START")
-            logger.info("="*80)
-
-            # Initialize batch results
-            self._batch_results = {}
-            self._current_batch_index = 0
-
             profile = self.profile_var.get()
             force = self.force_var.get()
-
             total_files = len(self._all_file_hashes)
 
-            logger.info(f"Total files to process: {total_files}")
-            logger.info(f"Profile: {profile}, Force: {force}")
-            logger.info(f"Case workdir: {self._case_workdir}")
-
             self.after(0, self._log_console, f"Starting batch analysis of {total_files} binaries...")
-            self.after(0, self._log_console, f"Profile: {profile}, Force: {force}")
-            self.after(0, self._log_console, f"Debug log: {log_file}")
-
-            self.after(0, self._log_console, f"Batch: {total_files} binaries")
             self.after(0, self._log_console, f"Profile: {profile} • Force: {force}")
 
             runner = StaticRunner()
-            logger.info("StaticRunner created")
 
             # Validate file availability before batch analysis
-            logger.info("="*80)
-            logger.info("PRE-BATCH FILE VALIDATION")
-            logger.info("="*80)
             try:
                 import os
                 from pathlib import Path
 
                 preproc_base = Path(self._case_workdir) / "preproc"
                 if not preproc_base.exists():
-                    logger.error(f"✗ CRITICAL: preproc/ directory not found at {preproc_base}")
                     self.after(0, self._log_console, "✗ ERROR: preproc/ directory not found. Aborting batch analysis.")
                     self.after(0, self._on_batch_error, "File validation failed: preproc/ directory missing")
                     return
@@ -580,32 +542,18 @@ class DetectorsPage(ctk.CTkFrame):
                     file_preproc = preproc_base / file_hash / "input.bin"
                     if not file_preproc.exists():
                         missing_files.append(file_hash)
-                        logger.warning(f"⚠ Missing: {file_hash}/input.bin")
-                    else:
-                        try:
-                            size = os.path.getsize(file_preproc)
-                            logger.debug(f"✓ Found: {file_hash}/input.bin ({size} bytes)")
-                        except Exception as e:
-                            logger.warning(f"⚠ Could not get size for {file_hash}: {e}")
 
                 if missing_files:
-                    logger.error(f"✗ Missing {len(missing_files)} file(s) in preproc/")
-                    for mf in missing_files[:10]:  # Show first 10
-                        logger.error(f"  - {mf}")
                     self.after(0, self._log_console, f"✗ ERROR: {len(missing_files)} file(s) missing in preproc/")
                     self.after(0, self._on_batch_error, f"File validation failed: {len(missing_files)} file(s) missing")
                     return
                 else:
-                    logger.info(f"✓ All {len(self._all_file_hashes)} files validated successfully in preproc/")
                     self.after(0, self._log_console, f"✓ File validation passed: {len(self._all_file_hashes)} file(s) ready")
 
             except Exception as val_err:
-                logger.error(f"✗ File validation error: {val_err}", exc_info=True)
                 self.after(0, self._log_console, f"✗ ERROR: File validation error: {val_err}")
                 self.after(0, self._on_batch_error, f"File validation error: {val_err}")
                 return
-
-            logger.info("="*80)
 
             # Progress update throttling: update UI every N files instead of every file
             # This prevents excessive UI thread calls that can cause freezing
@@ -617,7 +565,6 @@ class DetectorsPage(ctk.CTkFrame):
 
                 # Check for cancellation
                 if self._cancel_event and self._cancel_event.is_set():
-                    logger.info(f"Cancellation requested at file {index}/{total_files}")
                     self.after(0, self._on_batch_cancelled, index - 1, total_files)
                     return
 
@@ -625,8 +572,6 @@ class DetectorsPage(ctk.CTkFrame):
                 progress = (index - 0.5) / max(1, total_files)
                 self.after(0, self.progress_bar.set, progress)
                 self.after(0, self._update_batch_progress, index, total_files, file_hash)
-
-                try:
 
                 # Throttle UI updates: only update every N files
                 # This dramatically reduces UI thread work and prevents freezing
@@ -636,15 +581,9 @@ class DetectorsPage(ctk.CTkFrame):
                     progress = (index - 0.5) / total_files
                     self.after(0, self.progress_bar.set, progress)
                     self.after(0, self._update_batch_progress, index, total_files, file_hash)
-                    logger.debug(f"[UI UPDATE] Progress: {index}/{total_files}")
-
-                logger.info(f"\n{'='*80}")
-                logger.info(f"[{index}/{total_files}] Starting analysis of {file_hash}")
-                logger.info(f"{'='*80}")
 
                 try:
                     # Build context for this specific file
-                    logger.debug(f"[{index}] Creating RunContext...")
                     ctx = RunContext(
                         file_hash=file_hash,
                         preproc_dir=self._case_workdir,
@@ -657,53 +596,22 @@ class DetectorsPage(ctk.CTkFrame):
                     self._batch_results[file_hash] = result
                     status = "Cached" if getattr(result, "cached", False) else "Analyzed"
                     self.after(0, self._log_console, f"{status} [{index}/{total_files}] {file_hash[:16]}…")
-                except Exception as e:
-                    self._batch_results[file_hash] = {"error": str(e)}
-                    self.after(0, self._log_console, f"Error [{index}/{total_files}] {file_hash[:16]}…: {e}")
-
-                    logger.debug(f"[{index}] RunContext created")
-
-                    # Run analysis for this file
-                    logger.debug(f"[{index}] Calling runner.run()...")
-                    run_start = time.time()
-                    result = runner.run(ctx)
-                    run_elapsed = time.time() - run_start
-                    logger.info(f"[{index}] runner.run() completed in {run_elapsed:.2f}s")
-
-                    # Store result
-                    self._batch_results[file_hash] = result
-                    logger.debug(f"[{index}] Result stored")
-
-                    # Log completion
-                    status = "✓ Cached" if result.cached else "✓ Analyzed"
-                    file_elapsed = time.time() - file_start_time
-                    log_msg = f"{status} [{index}/{total_files}] {file_hash[:16]}... ({file_elapsed:.2f}s)"
-                    logger.info(log_msg)
-                    self.after(0, self._log_console, log_msg)
 
                 except TimeoutError as e:
                     elapsed = time.time() - file_start_time
-                    logger.error(f"[{index}] TIMEOUT after {elapsed:.2f}s: {e}", exc_info=True)
                     self._batch_results[file_hash] = {"error": str(e), "error_type": "timeout"}
                     self.after(0, self._log_console, f"✗ TIMEOUT [{index}/{total_files}] {file_hash[:16]}... after {elapsed:.2f}s")
 
                 except Exception as e:
                     elapsed = time.time() - file_start_time
-                    logger.error(f"[{index}] ERROR after {elapsed:.2f}s: {type(e).__name__}: {e}", exc_info=True)
                     self._batch_results[file_hash] = {"error": str(e), "error_type": type(e).__name__}
                     self.after(0, self._log_console, f"✗ Error [{index}/{total_files}] {file_hash[:16]}...: {type(e).__name__}")
 
             # All files processed
-            total_elapsed = time.time() - file_start_time
-            logger.info(f"\n{'='*80}")
-            logger.info(f"BATCH ANALYSIS COMPLETE - Total time: {total_elapsed:.2f}s")
-            logger.info(f"{'='*80}")
-
             self.after(0, self.progress_bar.set, 1.0)
             self.after(0, self._on_batch_complete, total_files)
 
         except Exception as e:
-            logger.error(f"FATAL ERROR in batch thread: {type(e).__name__}: {e}", exc_info=True)
             self.after(0, self._on_analysis_error, str(e))
 
     def _update_batch_progress(self, current: int, total: int, file_hash: str):
