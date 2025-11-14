@@ -130,7 +130,6 @@ class LoginPage(ctk.CTkFrame):
             fg_color=PRIMARY,
             hover_color=PRIMARY_H,
             text_color=BG,
-            text_color=BG,
             command=self._do_login,
         )
         self.login_btn.grid(row=0, column=0, sticky="w")
