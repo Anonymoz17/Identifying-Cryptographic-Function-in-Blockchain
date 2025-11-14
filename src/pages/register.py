@@ -266,7 +266,7 @@ class RegisterPage(ctk.CTkFrame):
             self._set_status(str(result), error=True)
             return
 
-        self._set_status("Registration successful! Please log in.")
-        self.after(1000, lambda: self.switch_page("login"))
+        self._set_status("Registration successful! Check your email to verify.")
+        self.after(1000, lambda: self.switch_page("verify_email"))
         self._reset_fields()
         self._busy = False

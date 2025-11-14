@@ -10,6 +10,7 @@ from pages import (
     DashboardPage,
     LoginPage,
     RegisterPage,
+    VerifyEmailPage,
     LandingPage
 )
 from pages import SetupPage, DetectorsPage, ResultsPage
@@ -39,6 +40,7 @@ class App(ctk.CTk):
         self._pages = {
             "login": LoginPage(self, self.switch_page),
             "register": RegisterPage(self, self.switch_page),
+            "verify_email": VerifyEmailPage(self, self.switch_page),
             "dashboard": DashboardPage(self, self.switch_page, self.file_handler),
             "landing": LandingPage(self, self.switch_page),  # ← NEW
             "setup": SetupPage(self, self.switch_page),
@@ -52,7 +54,7 @@ class App(ctk.CTk):
             p.grid_remove()
 
         # --- Start on Login (not dashboard) ---
-        self._current_page_name = "setup"
+        self._current_page_name = "landing"
         self.switch_page(self._current_page_name)
 
         # Debounced resize handling
