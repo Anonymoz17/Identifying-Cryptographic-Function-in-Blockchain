@@ -248,12 +248,10 @@ function Hero() {
             and provides NIST-informed scoring so you can justify findings with evidence.
           </p>
           <div className="flex flex-wrap gap-3 pt-2">
-            <Button as="a" href="#get-started" className="bg-gradient-to-r from-emerald-400 to-cyan-500 text-black">
+            <Button as="a" href="https://youtube.com" className="bg-gradient-to-r from-emerald-400 to-cyan-500 text-black">
               <Download className="h-4 w-4" /> Download (Desktop)
             </Button>
-            <Button as="a" href="#github" className="border border-white/15 text-white/90 hover:bg-white/5">
-              <Github className="h-4 w-4" /> GitHub
-            </Button>
+
           </div>
           <ul className="mt-6 grid max-w-xl grid-cols-2 gap-3 text-sm text-white/60">
             <li className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-emerald-400"/> NIST-informed scoring</li>
