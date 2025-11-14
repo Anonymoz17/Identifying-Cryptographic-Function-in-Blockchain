@@ -418,7 +418,6 @@ class ResultsPage(ctk.CTkFrame):
             'static': StaticTab(self.tab_content),
             'export': ExportTab(self.tab_content),
         }
-        self.switch_page("detectors")
 
     # ======== Tab Management ========
 
