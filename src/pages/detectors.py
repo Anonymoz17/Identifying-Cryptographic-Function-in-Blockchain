@@ -180,17 +180,6 @@ class DetectorsPage(ctk.CTkFrame):
         )
         force_check.pack(side="left", padx=(0, 20))
 
-        # Advanced options button (stub for now)
-        self.advanced_static_btn = ctk.CTkButton(
-            options_row,
-            text="⚙️ Advanced Options...",
-            command=self._open_static_advanced_options,
-            width=180,
-            height=32,
-            font=("Roboto", 12)
-        )
-        self.advanced_static_btn.pack(side="left")
-
         # Action buttons
         action_frame = ctk.CTkFrame(parent)
         action_frame.grid(row=1, column=0, sticky="ew", padx=15, pady=(0, 15))
@@ -406,25 +395,6 @@ class DetectorsPage(ctk.CTkFrame):
             font=("Roboto", 11)
         )
         self.load_case_status.pack(side="left", padx=15)
-
-    def _open_static_advanced_options(self):
-        """Open advanced options dialog for static analysis (stub)."""
-        # TODO: Implement full advanced options dialog with tabs for:
-        # - Ghidra timeout settings
-        # - Policy configuration
-        # - Cache options
-        # - Export settings
-        # For now, show a placeholder message
-        from tkinter import messagebox
-        messagebox.showinfo(
-            "Advanced Options",
-            "Advanced options configuration coming soon!\n\n"
-            "This will include:\n"
-            "• Ghidra timeout and policy settings\n"
-            "• Cache and export options\n"
-            "• Performance tuning\n"
-            "• Diagnostic controls"
-        )
 
     def _on_mode_change(self, selected_label: str):
         """Handle mode selection (static-only)."""
