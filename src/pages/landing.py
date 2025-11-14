@@ -1,28 +1,46 @@
 # src/pages/landing.py
 """
-CryptoScope Landing Page — stable resize (root-only events + debounced),
-sticky footer, centered cards, icon plates, bigger icons.
+CryptoScope Landing Page
+- Three horizontal cards: Setup, Detectors, Reports
+- Responsive: cards scale with window; icons keep readable size
+- Footer (copyright) pinned to bottom
+- Uses ui.theme for colors/typography
 """
+
 from pathlib import Path
-from typing import Optional, Dict, Tuple
+from typing import Optional, Tuple
 
 import customtkinter as ctk
 
+# Pillow for image loading (CTkImage needs PIL.Image)
 try:
     from PIL import Image
 except Exception:
     Image = None  # type: ignore
 
 from ui.theme import (
-    BG, BODY_FONT, BORDER, CARD_BG, HEADING_FONT, MUTED,
-    OUTLINE_BR, OUTLINE_H, PRIMARY, PRIMARY_H, TEXT, TITLE_FONT,
-    PLATE_BG, PLATE_BORDER,
+    BG,
+    TEXT,
+    MUTED,
+    BORDER,
+    CARD_BG,
+    OUTLINE_BR,
+    OUTLINE_H,
+    PRIMARY,
+    PRIMARY_H,
+    TITLE_FONT,
+    HEADING_FONT,
+    BODY_FONT,
 )
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
+ICON_SETUP = ASSETS_DIR / "icon_setup.png"
+ICON_DETECT = ASSETS_DIR / "icon_detectors.png"
+ICON_RESULTS = ASSETS_DIR / "icon_results.png"
 
 
 def _load_ctk_image(path: Path, size: Tuple[int, int]) -> Optional[ctk.CTkImage]:
+    """Load a CTkImage (RGBA) with graceful fallback if Pillow or the file is missing."""
     try:
         if Image is None or not path.exists():
             return None
@@ -33,232 +51,214 @@ def _load_ctk_image(path: Path, size: Tuple[int, int]) -> Optional[ctk.CTkImage]
 
 
 class LandingPage(ctk.CTkFrame):
-    """Main hub after login — gateway to Dashboard and Auditor (no resize jitter)."""
+    """Main hub after login — gateway to Setup, Detectors, Reports."""
 
     def __init__(self, master, switch_page):
         super().__init__(master, fg_color=BG)
         self.switch_page = switch_page
 
-        # --- resize state (root-only, debounced) ---
-        self._relayout_job: Optional[str] = None
-        self._img_cache: Dict[Tuple[Path, int], ctk.CTkImage] = {}  # (path, px) -> CTkImage
-        self._current_icon_px: Optional[int] = None
-        self._is_narrow: Optional[bool] = None
-        self._last_root_size: Tuple[int, int] = (0, 0)
+        # Keep refs to CTkImage objects so they don’t get GC’d
+        self._img_refs: list[ctk.CTkImage] = []
+        # Current icon size; updated on resize
+        self._icon_px = 96
 
-        # ===== Header =====
+        # ===== Root layout (grid) =====
+        # 3 rows: header (auto), content (expand), footer (auto)
+        self.grid_rowconfigure(0, weight=0)
+        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=0)
+        self.grid_columnconfigure(0, weight=1)
+
+        # ===== HEADER =====
         header = ctk.CTkFrame(self, fg_color="transparent")
-        header.pack(fill="x", padx=30, pady=(24, 10))
+        header.grid(row=0, column=0, sticky="ew", padx=24, pady=(22, 10))
+        header.grid_columnconfigure(0, weight=1)
 
-        self.title_lbl = ctk.CTkLabel(header, text="CryptoScope", font=TITLE_FONT, text_color=TEXT)
-        self.subtitle_lbl = ctk.CTkLabel(
+        title = ctk.CTkLabel(header, text="CryptoScope", font=TITLE_FONT, text_color=TEXT)
+        subtitle = ctk.CTkLabel(
             header,
             text="Identify, analyze, and audit cryptographic functions across blockchain projects.",
-            font=BODY_FONT, text_color=MUTED, wraplength=900, justify="left",
+            font=("Segoe UI", 12),
+            text_color=MUTED,
+            wraplength=900,
         )
-        self.title_lbl.grid(row=0, column=0, sticky="w")
-        self.subtitle_lbl.grid(row=1, column=0, sticky="w", pady=(4, 0))
+        title.grid(row=0, column=0, sticky="w")
+        subtitle.grid(row=1, column=0, sticky="w", pady=(4, 0))
 
         logout_btn = ctk.CTkButton(
-            header, text="Logout", width=90, height=32, corner_radius=8,
-            fg_color="transparent", border_width=1, border_color=OUTLINE_BR,
-            hover_color=OUTLINE_H, text_color=TEXT,
+            header,
+            text="Logout",
+            width=90,
+            height=32,
+            corner_radius=8,
+            fg_color="transparent",
+            border_width=1,
+            border_color=OUTLINE_BR,
+            hover_color=OUTLINE_H,
+            text_color=TEXT,
             command=lambda: self.winfo_toplevel().logout(),
         )
-        header.grid_columnconfigure(0, weight=1)
         logout_btn.grid(row=0, column=1, rowspan=2, sticky="e")
 
-        # ===== Body (fills remaining) =====
-        body = ctk.CTkFrame(self, fg_color="transparent")
-        body.pack(fill="both", expand=True, padx=20, pady=0)
+        # ===== CONTENT WRAPPER (centers, caps max width) =====
+        wrapper = ctk.CTkFrame(self, fg_color="transparent")
+        wrapper.grid(row=1, column=0, sticky="nsew")
+        wrapper.grid_rowconfigure(0, weight=1)
+        wrapper.grid_columnconfigure(0, weight=1)
 
-        # 3-column grid to center content horizontally
-        body.grid_columnconfigure(0, weight=1)
-        body.grid_columnconfigure(2, weight=1)
+        # Inner frame with a max width so cards don’t stretch too wide on large monitors
+        self._maxw = 1200  # cap center content
+        self._center = ctk.CTkFrame(wrapper, fg_color="transparent")
+        self._center.grid(row=0, column=0)
+        self._center.bind("<Configure>", lambda e: self._on_center_configure())
 
-        # centered container (width clamped in _relayout)
-        self.center = ctk.CTkFrame(body, fg_color="transparent")
-        self.center.grid(row=0, column=1, sticky="n", pady=(6, 8))
+        # Cards row
+        self.cards = ctk.CTkFrame(self._center, fg_color="transparent")
+        self.cards.pack(fill="x", padx=24, pady=10)
+        for i in range(3):
+            self.cards.grid_columnconfigure(i, weight=1, uniform="cards")
+        self.cards.grid_rowconfigure(0, weight=1)
 
-        # cards row (never recreated)
-        self.grid_frame = ctk.CTkFrame(self.center, fg_color="transparent")
-        self.grid_frame.pack(fill="x", expand=True)
-        self.grid_frame.grid_columnconfigure((0, 1), weight=1)
+        # Load initial icons
+        self._setup_icon = _load_ctk_image(ICON_SETUP, (self._icon_px, self._icon_px))
+        self._detect_icon = _load_ctk_image(ICON_DETECT, (self._icon_px, self._icon_px))
+        self._results_icon = _load_ctk_image(ICON_RESULTS, (self._icon_px, self._icon_px))
+        for ic in (self._setup_icon, self._detect_icon, self._results_icon):
+            if ic:
+                self._img_refs.append(ic)
 
-        # icons (paths; images are cached per size)
-        self.icon_analyze_path = ASSETS_DIR / "icon_analyze.png"
-        self.icon_auditor_path = ASSETS_DIR / "icon_auditor.png"
-
-        # build cards once
-        self.card_analyze = self._create_card(
-            self.grid_frame, "Analyse",
-            "Upload files or scan GitHub repositories for cryptographic analysis.",
-            "Open Dashboard", lambda: self.switch_page("dashboard"),
+        # Build the three cards
+        self._card_setup = self._create_card(
+            col=0,
+            title_text="Setup",
+            desc_text="Pick input, set workspace and case ID. Start preprocessing and watch console when needed.",
+            btn_text="Open Setup",
+            icon=self._setup_icon,
+            command=lambda: self.switch_page("setup"),
         )
-        self.card_auditor = self._create_card(
-            self.grid_frame, "Auditor",
-            "Audit compliance of blockchain projects with cryptographic standards.",
-            "Open Auditor", lambda: self.switch_page("setup"),
+        self._card_detect = self._create_card(
+            col=1,
+            title_text="Detectors",
+            desc_text="Run static detections on prepared inputs. See algorithms, libraries, locations, evidence and confidence.",
+            btn_text="Open Detectors",
+            icon=self._detect_icon,
+            command=lambda: self.switch_page("detectors"),
         )
-        self.card_analyze.grid(row=0, column=0, padx=14, pady=12, sticky="n")
-        self.card_auditor.grid(row=0, column=1, padx=14, pady=12, sticky="n")
+        self._card_results = self._create_card(
+            col=2,
+            title_text="Reports",
+            desc_text="Review findings, generate and export PDF/JSON/TXT reports for archival or sharing.",
+            btn_text="Open Reports",
+            icon=self._results_icon,
+            command=lambda: self.switch_page("results"),
+        )
 
-        # ===== Sticky footer (always at bottom) =====
+        # Resize handling to keep things neat and responsive
+        self.bind("<Configure>", self._on_resize)
+
+        # ===== FOOTER (pinned to bottom) =====
         footer = ctk.CTkFrame(self, fg_color="transparent")
-        footer.pack(side="bottom", fill="x", padx=40, pady=(0, 12))
+        footer.grid(row=2, column=0, sticky="ew", padx=24, pady=(10, 14))
         ctk.CTkLabel(
             footer,
             text="© 2025 CryptoScope — Blockchain Cryptographic Analysis Platform",
-            font=BODY_FONT, text_color=MUTED,
+            font=("Segoe UI", 10),
+            text_color=MUTED,
         ).pack(side="left")
 
-        # Bind ONLY the root window's Configure to avoid child-trigger loops
-        root = self.winfo_toplevel()
-        root.bind("<Configure>", self._on_root_configure)
-
-        # first layout
-        self._relayout()
-
-    # ---------- card factory ----------
-    def _create_card(self, parent, title_text, desc_text, button_text, command):
-        card = ctk.CTkFrame(parent, corner_radius=12, border_width=1, border_color=BORDER, fg_color=CARD_BG)
-        card.grid_propagate(False)
-
-        plate = ctk.CTkFrame(
-            card, width=116, height=116, corner_radius=18,
-            fg_color=PLATE_BG, border_width=1, border_color=PLATE_BORDER,
+    # ----- UI helpers -----
+    def _create_card(self, col: int, title_text: str, desc_text: str, btn_text: str,
+                     icon: Optional[ctk.CTkImage], command):
+        card = ctk.CTkFrame(
+            self.cards,
+            corner_radius=14,
+            border_width=1,
+            border_color=BORDER,
+            fg_color=CARD_BG,
         )
-        plate.place(x=16, y=16)
+        card.grid(row=0, column=col, padx=10, pady=6, sticky="nsew")
+        # An inner frame to control padding/content layout
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="both", expand=True, padx=18, pady=18)
 
-        icon_lbl = ctk.CTkLabel(plate, text="")  # image set later
-        icon_lbl.place(relx=0.5, rely=0.5, anchor="center")
+        # icon
+        icon_label = ctk.CTkLabel(inner, image=icon, text="")
+        icon_label.pack(anchor="center", pady=(4, 10))
 
-        content = ctk.CTkFrame(card, fg_color="transparent")
-        content.place(x=16 + 116 + 14, y=16)
+        # title
+        ctk.CTkLabel(inner, text=title_text, font=HEADING_FONT, text_color=TEXT).pack(
+            anchor="center", pady=(0, 4)
+        )
 
-        title_lbl = ctk.CTkLabel(content, text=title_text, font=HEADING_FONT, text_color=TEXT)
-        title_lbl.pack(anchor="w")
-        desc_lbl = ctk.CTkLabel(content, text=desc_text, font=BODY_FONT, text_color=MUTED,
-                                wraplength=520, justify="left")
-        desc_lbl.pack(anchor="w", pady=(2, 10))
+        # description (wrap updated on resize)
+        desc = ctk.CTkLabel(
+            inner, text=desc_text, font=BODY_FONT, text_color=MUTED, justify="center", wraplength=320
+        )
+        desc.pack(anchor="center", pady=(0, 12))
+
+        # button
         btn = ctk.CTkButton(
-            content, text=button_text, width=200, height=40, corner_radius=10,
-            fg_color=PRIMARY, hover_color=PRIMARY_H, text_color=TEXT, command=command,
+            inner,
+            text=btn_text,
+            width=160,
+            height=36,
+            corner_radius=10,
+            fg_color=PRIMARY,
+            hover_color=PRIMARY_H,
+            text_color="#041007",
+            command=command,
         )
-        btn.pack(anchor="w")
+        btn.pack(anchor="center")
 
-        # refs
-        card._plate = plate
-        card._icon_lbl = icon_lbl
-        card._content = content
-        card._desc_lbl = desc_lbl
-        card._btn = btn
+        # keep references for resize tuning
+        card._icon_label = icon_label      # type: ignore[attr-defined]
+        card._desc_label = desc            # type: ignore[attr-defined]
         return card
 
-    # ---------- root-only debounced resize ----------
-    def _on_root_configure(self, event):
-        # Ignore non-root events (paranoia) and tiny/no changes
-        if event.widget is not self.winfo_toplevel():
-            return
-        new_size = (event.width, event.height)
-        old_w, old_h = self._last_root_size
-        if abs(new_size[0] - old_w) < 2 and abs(new_size[1] - old_h) < 2:
-            return
-        self._last_root_size = new_size
-
-        # debounce
-        if self._relayout_job:
-            try:
-                self.after_cancel(self._relayout_job)
-            except Exception:
-                pass
-        self._relayout_job = self.after(80, self._relayout)
-
-    # ---------- layout / sizing ----------
-    def _relayout(self):
-        self._relayout_job = None
-
-        # current root width
+    def _on_center_configure(self):
+        # Center content and cap max width
+        # The parent (wrapper) decides where this sits; here we just ensure it's not super wide.
         try:
-            win_w = self.winfo_toplevel().winfo_width()
-        except Exception:
-            win_w = 1100
-
-        # clamp content width (keeps center neat)
-        max_w, min_w = 1200, 840
-        content_w = max(min_w, min(max_w, int(win_w * 0.92)))
-        try:
-            self.center.configure(width=content_w)
+            parent = self._center.nametowidget(self._center.winfo_parent())
+            pw = parent.winfo_width()
+            cw = min(pw, self._maxw)
+            # Place centered
+            self._center.place(relx=0.5, rely=0.5, anchor="center", width=cw)
         except Exception:
             pass
 
-        narrow = content_w < 980
-        if narrow != self._is_narrow:
-            self._is_narrow = narrow
-            # re-grid cards without recreation
-            self.card_analyze.grid_forget()
-            self.card_auditor.grid_forget()
-            if narrow:
-                self.grid_frame.grid_columnconfigure(0, weight=1)
-                self.grid_frame.grid_columnconfigure(1, weight=0)
-                self.card_analyze.grid(row=0, column=0, padx=12, pady=10, sticky="n")
-                self.card_auditor.grid(row=1, column=0, padx=12, pady=10, sticky="n")
-            else:
-                self.grid_frame.grid_columnconfigure((0, 1), weight=1)
-                self.card_analyze.grid(row=0, column=0, padx=14, pady=12, sticky="n")
-                self.card_auditor.grid(row=0, column=1, padx=14, pady=12, sticky="n")
-
-        # card sizing
-        card_width = min(760, int(content_w * (0.96 if narrow else 0.47)))
-        card_height = 190
-        left_pad = 16 + 116 + 14
-
-        for card in (self.card_analyze, self.card_auditor):
-            try:
-                card.configure(width=card_width, height=card_height)
-                card._content.place_configure(x=left_pad, y=16)
-                card._desc_lbl.configure(wraplength=max(420, card_width - left_pad - 24))
-                card._btn.configure(width=210 if not narrow else 200)
-            except Exception:
-                pass
-
-        # icon + plate (size buckets; cached images)
-        icon_px = 108 if not narrow else 96
-        plate_px = 124 if not narrow else 116
-        if self._current_icon_px != icon_px:
-            self._current_icon_px = icon_px
-            self._apply_icon(self.card_analyze, self.icon_analyze_path, plate_px, icon_px)
-            self._apply_icon(self.card_auditor, self.icon_auditor_path, plate_px, icon_px)
-
-        # subtitle wrap
+    def _on_resize(self, _event=None):
+        # Determine dynamic card width and adjust wrap + icon size.
+        # Heuristic: make three equal columns within max width.
         try:
-            self.subtitle_lbl.configure(wraplength=min(1000, int(content_w * 0.82)))
+            total_w = self.winfo_width()
+            usable = min(total_w - 48, self._maxw)  # account for side padding
+            col_w = max(300, usable // 3 - 16)      # keep each card >= 300px wide
+
+            # Update description wraplength per card so text doesn’t look cramped/wide
+            wrap = max(260, min(360, col_w - 60))
+            for card in (self._card_setup, self._card_detect, self._card_results):
+                card._desc_label.configure(wraplength=wrap)  # type: ignore[attr-defined]
+
+            # Update icon size: don’t shrink below 72 or exceed 112
+            new_icon = max(72, min(112, int(col_w * 0.28)))
+            if new_icon != self._icon_px:
+                self._icon_px = new_icon
+                self._reload_icons()
         except Exception:
             pass
 
-    def _apply_icon(self, card: ctk.CTkFrame, path: Path, plate_px: int, icon_px: int):
-        try:
-            card._plate.configure(width=plate_px, height=plate_px,
-                                  corner_radius=max(16, plate_px // 7))
-        except Exception:
-            pass
-
-        key = (path, icon_px)
-        img = self._img_cache.get(key)
-        if img is None:
-            maybe = _load_ctk_image(path, (icon_px, icon_px))
-            if maybe is not None:
-                self._img_cache[key] = maybe
-                img = maybe
-        if img is not None:
-            try:
-                card._icon_lbl.configure(image=img)
-            except Exception:
-                pass
-
-    # Router hooks intentionally do NOT call _relayout to avoid loops during window init
-    def on_enter(self):
-        pass
-
-    def on_resize(self, w, h):
-        pass
+    def _reload_icons(self):
+        # Recreate CTkImages at the new size and set them back on the labels.
+        setup_ic = _load_ctk_image(ICON_SETUP, (self._icon_px, self._icon_px))
+        detect_ic = _load_ctk_image(ICON_DETECT, (self._icon_px, self._icon_px))
+        results_ic = _load_ctk_image(ICON_RESULTS, (self._icon_px, self._icon_px))
+        fresh = [setup_ic, detect_ic, results_ic]
+        # keep references to avoid GC
+        self._img_refs = [ic for ic in fresh if ic]
+        if setup_ic:
+            self._card_setup._icon_label.configure(image=setup_ic)      # type: ignore[attr-defined]
+        if detect_ic:
+            self._card_detect._icon_label.configure(image=detect_ic)    # type: ignore[attr-defined]
+        if results_ic:
+            self._card_results._icon_label.configure(image=results_ic)  # type: ignore[attr-defined]
