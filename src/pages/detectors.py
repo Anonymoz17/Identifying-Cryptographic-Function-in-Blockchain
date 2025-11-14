@@ -1,8 +1,7 @@
-# src/pages/detectors.py
-"""
-Detectors page: static and dynamic analysis modes (themed)
-- Uses ui.theme for colors / fonts to keep visual consistency
-- Preserves all original functionality and layout logic
+"""Detectors page: static analysis mode.
+
+This page runs the complete static detection pipeline
+including Ghidra exports, heuristics, and findings generation.
 """
 
 from __future__ import annotations
@@ -12,7 +11,7 @@ import os
 import threading
 import tkinter as tk
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Callable
 
 import customtkinter as ctk
 
@@ -26,7 +25,7 @@ from ui.theme import (
 
 
 class DetectorsPage(ctk.CTkFrame):
-    """Detectors page with toggleable static/dynamic analysis modes (themed)."""
+    """Detectors page for static analysis."""
 
     def __init__(self, master, switch_page_callback):
         super().__init__(master, fg_color=BG)
@@ -96,14 +95,13 @@ class DetectorsPage(ctk.CTkFrame):
         self.mode_var = tk.StringVar(value="static")
         self.mode_toggle = ctk.CTkSegmentedButton(
             self.mode_frame,
-            values=["Static Analysis", "Dynamic Analysis"],
+            values=["Static Analysis"],
             command=self._on_mode_change,
             variable=self.mode_var,
             font=BODY_FONT,
             width=360,
             height=36,
         )
-        self._mode_map = {"Static Analysis": "static", "Dynamic Analysis": "dynamic"}
         self.mode_toggle.set("Static Analysis")
         self.mode_toggle.pack(side="left", padx=(6, 12), pady=10)
 
@@ -125,15 +123,7 @@ class DetectorsPage(ctk.CTkFrame):
         )
         self._build_static_ui(self.static_frame)
 
-        # ===== Dynamic Analysis (stub) =====
-        self.dynamic_frame = ctk.CTkFrame(
-            content,
-            corner_radius=12,
-            border_width=1,
-            border_color=BORDER,
-            fg_color=CARD_BG,
-        )
-        self._build_dynamic_ui(self.dynamic_frame)
+        # Hidden by default
 
         # ===== Status Bar =====
         status_frame = ctk.CTkFrame(
@@ -209,6 +199,10 @@ class DetectorsPage(ctk.CTkFrame):
         options_row = ctk.CTkFrame(config_frame, fg_color="transparent")
         options_row.grid(row=2, column=0, columnspan=3, sticky="w", padx=8, pady=(2, 8))
 
+        # Hidden profile variable (default to "full" for comprehensive analysis)
+        self.profile_var = tk.StringVar(value="full")
+        
+        # Force re-analysis option
         self.force_var = tk.BooleanVar(value=False)
         force_check = ctk.CTkCheckBox(
             options_row,
@@ -253,7 +247,7 @@ class DetectorsPage(ctk.CTkFrame):
 
         self.open_results_btn = ctk.CTkButton(
             action_frame,
-            text="Open Results",
+            text="📁 Open Results",
             command=self._open_results_folder,
             width=160,
             height=40,
@@ -265,6 +259,19 @@ class DetectorsPage(ctk.CTkFrame):
             text_color=TEXT,
         )
         self.open_results_btn.pack(side="left", padx=10)
+
+        # View Results in App button (new - navigates to Results page)
+        self.view_results_btn = ctk.CTkButton(
+            action_frame,
+            text="→ View Results",
+            command=self._view_results_in_app,
+            width=160,
+            height=40,
+            state="disabled",
+            fg_color="#0066CC",
+            hover_color="#0052A3"
+        )
+        self.view_results_btn.pack(side="left", padx=10)
 
         # Progress section
         progress_plate = ctk.CTkFrame(
@@ -346,64 +353,6 @@ class DetectorsPage(ctk.CTkFrame):
         console_text.pack(fill="both", expand=True, padx=6, pady=6)
         self.console_text = console_text
 
-    # ---------- Dynamic (stub) ----------
-    def _build_dynamic_ui(self, parent: ctk.CTkFrame):
-        parent.grid_columnconfigure(0, weight=1)
-        parent.grid_rowconfigure(0, weight=1)
-
-        premium_frame = ctk.CTkFrame(
-            parent,
-            corner_radius=10,
-            border_width=1,
-            border_color=BORDER,
-            fg_color=CARD_BG,
-        )
-        premium_frame.grid(row=0, column=0, sticky="nsew", padx=14, pady=14)
-
-        icon_label = ctk.CTkLabel(premium_frame, text="🔒", font=("Segoe UI", 64))
-        icon_label.pack(pady=(40, 10))
-
-        title = ctk.CTkLabel(
-            premium_frame, text="Dynamic Analysis", font=HEADING_FONT, text_color=TEXT
-        )
-        title.pack(pady=(0, 6))
-
-        subtitle = ctk.CTkLabel(
-            premium_frame,
-            text="Premium feature • Coming soon",
-            font=BODY_FONT,
-            text_color=MUTED,
-        )
-        subtitle.pack(pady=(0, 18))
-
-        description = ctk.CTkLabel(
-            premium_frame,
-            text=(
-                "Dynamic analysis uses Frida instrumentation to trace crypto operations at runtime.\n"
-                "This feature requires a premium subscription and will be available in a future update."
-            ),
-            font=BODY_FONT,
-            text_color=MUTED,
-            justify="center",
-        )
-        description.pack(pady=8)
-
-        upgrade_btn = ctk.CTkButton(
-            premium_frame,
-            text="Learn More (Soon)",
-            width=230,
-            height=40,
-            font=("Segoe UI", 13, "bold"),
-            fg_color="transparent",
-            border_width=1,
-            border_color=OUTLINE_BR,
-            hover_color=OUTLINE_H,
-            text_color=TEXT,
-            state="disabled",
-        )
-        upgrade_btn.pack(pady=20)
-
-    # ---------- Load Case (standalone) ----------
     def _build_load_case_ui(self, parent: ctk.CTkFrame):
         parent.grid_columnconfigure(0, weight=1)
 
@@ -507,40 +456,20 @@ class DetectorsPage(ctk.CTkFrame):
         )
         self.load_case_status.pack(side="left", padx=12)
 
-    # ---------- Actions / Logic (unchanged) ----------
-    def _open_static_advanced_options(self):
-        from tkinter import messagebox
-        messagebox.showinfo(
-            "Advanced Options",
-            "Advanced configuration coming soon:\n"
-            "• Ghidra timeouts & policy\n"
-            "• Cache & export options\n"
-            "• Performance tuning\n"
-            "• Diagnostics",
+    def _on_mode_change(self, selected_label: str):
+        """Handle mode selection (static-only)."""
+        self.static_frame.pack(fill="both", expand=True, pady=(0, 10))
+        self.mode_description.configure(
+            text="🆓 Free • Analyzes binaries for crypto patterns using Ghidra",
+            text_color="#88b"
         )
 
-    def _on_mode_change(self, selected_label: str):
-        mode = self._mode_map.get(selected_label, "static")
-        self._current_mode = mode
-
-        if mode == "static":
-            self.dynamic_frame.pack_forget()
-            self.static_frame.pack(fill="both", expand=True, pady=(8, 0))
-            self.mode_description.configure(
-                text="Free • Analyzes binaries for crypto patterns using Ghidra",
-                text_color=MUTED,
-            )
-            if self._standalone_mode and not self._loaded_case_workdir:
-                self.summary_container.grid_remove()
-            else:
-                self.summary_container.grid()
+        # Hide case summary in standalone mode if no case is loaded
+        if self._standalone_mode and not self._loaded_case_workdir:
+            self.summary_container.grid_remove()
         else:
-            self.static_frame.pack_forget()
-            self.dynamic_frame.pack(fill="both", expand=True, pady=(8, 0))
-            self.mode_description.configure(
-                text="Premium • Runtime instrumentation with Frida (coming soon)",
-                text_color=MUTED,
-            )
+            # Show it if coming from setup page
+            self.summary_container.grid()
 
     def _run_static_analysis(self):
         if self._analysis_running:
@@ -563,6 +492,7 @@ class DetectorsPage(ctk.CTkFrame):
         self.run_static_btn.configure(state="disabled")
         self.cancel_static_btn.configure(state="normal")
         self.open_results_btn.configure(state="disabled")
+        self.view_results_btn.configure(state="disabled")
         self.progress_bar.set(0)
         self._clear_results()
         self._log_console("Starting static analysis…")
@@ -573,6 +503,12 @@ class DetectorsPage(ctk.CTkFrame):
         t.start()
 
     def _batch_analysis_thread(self):
+        """Background thread for batch static analysis of all binaries."""
+        import time
+        import logging
+        import sys
+        from pathlib import Path
+
         try:
             from auditor.detectors.static_detection.runner import StaticRunner
             from auditor.detectors.static_detection.context import RunContext, ToolVersions
@@ -583,14 +519,105 @@ class DetectorsPage(ctk.CTkFrame):
             profile = getattr(self, "profile_var", tk.StringVar(value="default")).get()
             force = self.force_var.get()
             total_files = len(self._all_file_hashes)
+            # Setup comprehensive logging
+            log_file = Path(self._case_workdir) / "static_detection_debug.log"
+            logging.basicConfig(
+                level=logging.DEBUG,
+                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                handlers=[
+                    logging.FileHandler(log_file),
+                    logging.StreamHandler(sys.stdout)
+                ],
+                force=True
+            )
+            logger = logging.getLogger(__name__)
+
+            logger.info("="*80)
+            logger.info("STATIC DETECTION BATCH ANALYSIS START")
+            logger.info("="*80)
+
+            # Initialize batch results
+            self._batch_results = {}
+            self._current_batch_index = 0
+
+            profile = self.profile_var.get()
+            force = self.force_var.get()
+
+            total_files = len(self._all_file_hashes)
+
+            logger.info(f"Total files to process: {total_files}")
+            logger.info(f"Profile: {profile}, Force: {force}")
+            logger.info(f"Case workdir: {self._case_workdir}")
+
+            self.after(0, self._log_console, f"Starting batch analysis of {total_files} binaries...")
+            self.after(0, self._log_console, f"Profile: {profile}, Force: {force}")
+            self.after(0, self._log_console, f"Debug log: {log_file}")
 
             self.after(0, self._log_console, f"Batch: {total_files} binaries")
             self.after(0, self._log_console, f"Profile: {profile} • Force: {force}")
 
             runner = StaticRunner()
+            logger.info("StaticRunner created")
+
+            # Validate file availability before batch analysis
+            logger.info("="*80)
+            logger.info("PRE-BATCH FILE VALIDATION")
+            logger.info("="*80)
+            try:
+                import os
+                from pathlib import Path
+
+                preproc_base = Path(self._case_workdir) / "preproc"
+                if not preproc_base.exists():
+                    logger.error(f"✗ CRITICAL: preproc/ directory not found at {preproc_base}")
+                    self.after(0, self._log_console, "✗ ERROR: preproc/ directory not found. Aborting batch analysis.")
+                    self.after(0, self._on_batch_error, "File validation failed: preproc/ directory missing")
+                    return
+
+                # Validate that each file hash has a corresponding preproc directory
+                missing_files = []
+                for file_hash in self._all_file_hashes:
+                    file_preproc = preproc_base / file_hash / "input.bin"
+                    if not file_preproc.exists():
+                        missing_files.append(file_hash)
+                        logger.warning(f"⚠ Missing: {file_hash}/input.bin")
+                    else:
+                        try:
+                            size = os.path.getsize(file_preproc)
+                            logger.debug(f"✓ Found: {file_hash}/input.bin ({size} bytes)")
+                        except Exception as e:
+                            logger.warning(f"⚠ Could not get size for {file_hash}: {e}")
+
+                if missing_files:
+                    logger.error(f"✗ Missing {len(missing_files)} file(s) in preproc/")
+                    for mf in missing_files[:10]:  # Show first 10
+                        logger.error(f"  - {mf}")
+                    self.after(0, self._log_console, f"✗ ERROR: {len(missing_files)} file(s) missing in preproc/")
+                    self.after(0, self._on_batch_error, f"File validation failed: {len(missing_files)} file(s) missing")
+                    return
+                else:
+                    logger.info(f"✓ All {len(self._all_file_hashes)} files validated successfully in preproc/")
+                    self.after(0, self._log_console, f"✓ File validation passed: {len(self._all_file_hashes)} file(s) ready")
+
+            except Exception as val_err:
+                logger.error(f"✗ File validation error: {val_err}", exc_info=True)
+                self.after(0, self._log_console, f"✗ ERROR: File validation error: {val_err}")
+                self.after(0, self._on_batch_error, f"File validation error: {val_err}")
+                return
+
+            logger.info("="*80)
+
+            # Progress update throttling: update UI every N files instead of every file
+            # This prevents excessive UI thread calls that can cause freezing
+            UI_UPDATE_FREQUENCY = 10  # Update UI every 10 files
+            last_ui_update = 0
 
             for index, file_hash in enumerate(self._all_file_hashes, 1):
+                file_start_time = time.time()
+
+                # Check for cancellation
                 if self._cancel_event and self._cancel_event.is_set():
+                    logger.info(f"Cancellation requested at file {index}/{total_files}")
                     self.after(0, self._on_batch_cancelled, index - 1, total_files)
                     return
 
@@ -600,6 +627,24 @@ class DetectorsPage(ctk.CTkFrame):
                 self.after(0, self._update_batch_progress, index, total_files, file_hash)
 
                 try:
+
+                # Throttle UI updates: only update every N files
+                # This dramatically reduces UI thread work and prevents freezing
+                should_update_ui = (index % UI_UPDATE_FREQUENCY == 0) or (index == total_files)
+
+                if should_update_ui:
+                    progress = (index - 0.5) / total_files
+                    self.after(0, self.progress_bar.set, progress)
+                    self.after(0, self._update_batch_progress, index, total_files, file_hash)
+                    logger.debug(f"[UI UPDATE] Progress: {index}/{total_files}")
+
+                logger.info(f"\n{'='*80}")
+                logger.info(f"[{index}/{total_files}] Starting analysis of {file_hash}")
+                logger.info(f"{'='*80}")
+
+                try:
+                    # Build context for this specific file
+                    logger.debug(f"[{index}] Creating RunContext...")
                     ctx = RunContext(
                         file_hash=file_hash,
                         preproc_dir=self._case_workdir,
@@ -616,10 +661,49 @@ class DetectorsPage(ctk.CTkFrame):
                     self._batch_results[file_hash] = {"error": str(e)}
                     self.after(0, self._log_console, f"Error [{index}/{total_files}] {file_hash[:16]}…: {e}")
 
+                    logger.debug(f"[{index}] RunContext created")
+
+                    # Run analysis for this file
+                    logger.debug(f"[{index}] Calling runner.run()...")
+                    run_start = time.time()
+                    result = runner.run(ctx)
+                    run_elapsed = time.time() - run_start
+                    logger.info(f"[{index}] runner.run() completed in {run_elapsed:.2f}s")
+
+                    # Store result
+                    self._batch_results[file_hash] = result
+                    logger.debug(f"[{index}] Result stored")
+
+                    # Log completion
+                    status = "✓ Cached" if result.cached else "✓ Analyzed"
+                    file_elapsed = time.time() - file_start_time
+                    log_msg = f"{status} [{index}/{total_files}] {file_hash[:16]}... ({file_elapsed:.2f}s)"
+                    logger.info(log_msg)
+                    self.after(0, self._log_console, log_msg)
+
+                except TimeoutError as e:
+                    elapsed = time.time() - file_start_time
+                    logger.error(f"[{index}] TIMEOUT after {elapsed:.2f}s: {e}", exc_info=True)
+                    self._batch_results[file_hash] = {"error": str(e), "error_type": "timeout"}
+                    self.after(0, self._log_console, f"✗ TIMEOUT [{index}/{total_files}] {file_hash[:16]}... after {elapsed:.2f}s")
+
+                except Exception as e:
+                    elapsed = time.time() - file_start_time
+                    logger.error(f"[{index}] ERROR after {elapsed:.2f}s: {type(e).__name__}: {e}", exc_info=True)
+                    self._batch_results[file_hash] = {"error": str(e), "error_type": type(e).__name__}
+                    self.after(0, self._log_console, f"✗ Error [{index}/{total_files}] {file_hash[:16]}...: {type(e).__name__}")
+
+            # All files processed
+            total_elapsed = time.time() - file_start_time
+            logger.info(f"\n{'='*80}")
+            logger.info(f"BATCH ANALYSIS COMPLETE - Total time: {total_elapsed:.2f}s")
+            logger.info(f"{'='*80}")
+
             self.after(0, self.progress_bar.set, 1.0)
             self.after(0, self._on_batch_complete, total_files)
 
         except Exception as e:
+            logger.error(f"FATAL ERROR in batch thread: {type(e).__name__}: {e}", exc_info=True)
             self.after(0, self._on_analysis_error, str(e))
 
     def _update_batch_progress(self, current: int, total: int, file_hash: str):
@@ -668,12 +752,34 @@ class DetectorsPage(ctk.CTkFrame):
         self._log_console(f"Error: {error_msg}")
 
     def _on_batch_complete(self, total_files: int):
-        self._analysis_running = False
-        self.run_static_btn.configure(state="normal")
-        self.cancel_static_btn.configure(state="disabled")
-        self.open_results_btn.configure(state="normal")
-        self.progress_bar.set(1.0)
-        self.progress_label.configure(text=f"Completed {total_files}/{total_files}")
+        """Handle successful batch analysis completion."""
+        try:
+            self._analysis_running = False
+            self.run_static_btn.configure(state="normal")
+            self.cancel_static_btn.configure(state="disabled")
+            self.open_results_btn.configure(state="normal")
+            self.view_results_btn.configure(state="normal")
+            self.progress_bar.set(1.0)
+            self.progress_label.configure(text=f"Completed {total_files}/{total_files}")
+
+            # Count successes and errors
+            successes = sum(1 for r in self._batch_results.values() if not isinstance(r, dict) or "error" not in r)
+            errors = total_files - successes
+            cached = sum(1 for r in self._batch_results.values() if hasattr(r, 'cached') and r.cached)
+
+            if errors > 0:
+                self._set_status(f"⚠️ Batch completed: {successes} successful, {errors} errors", error=True)
+                self._log_console(f"Batch analysis completed with {errors} error(s)")
+            else:
+                self._set_status(f"✅ Batch completed: {successes} binaries analyzed ({cached} cached)", error=False)
+                self._log_console(f"Batch analysis completed successfully!")
+
+            # Display aggregated results
+            self._display_batch_results()
+
+        except Exception as e:
+            self._set_status(f"❌ Error displaying results: {e}", error=True)
+            self._log_console(f"Error in batch completion: {e}")
 
         successes = sum(1 for r in self._batch_results.values() if not (isinstance(r, dict) and "error" in r))
         errors = total_files - successes
@@ -863,6 +969,71 @@ class DetectorsPage(ctk.CTkFrame):
         except Exception as e:
             self._set_status(f"Open failed: {e}", error=True)
 
+    def _view_results_in_app(self):
+        """Navigate to Results page to view analysis results."""
+        try:
+            workdir = self._case_workdir or self._loaded_case_workdir
+            if not workdir:
+                self._set_status("❌ No case loaded", error=True)
+                return
+
+            # Get the first file hash to display results for
+            # (In future: could let user select which file)
+            if not self._all_file_hashes:
+                self._set_status("❌ No binaries analyzed yet", error=True)
+                return
+
+            file_hash = self._all_file_hashes[0]
+
+            # Check if results exist
+            results_path = Path(workdir) / "analysis" / "static" / file_hash / "static_results.json"
+            if not results_path.exists():
+                self._set_status(
+                    "❌ No results found for this binary. Run analysis first.",
+                    error=True
+                )
+                return
+
+            # Load the Results page and navigate to it
+            from pages import ResultsPage
+
+            # Access the results page from parent app
+            results_page = None
+            if hasattr(self, 'master') and hasattr(self.master, '_pages'):
+                results_page = self.master._pages.get("results")
+            elif hasattr(self, '_pages'):
+                results_page = self._pages.get("results")
+
+            if results_page is None:
+                self._set_status("❌ Results page not available in app", error=True)
+                return
+
+            # Verify it's the right type
+            if type(results_page).__name__ == '_MissingPage':
+                self._set_status("❌ Results page failed to load (missing dependency)", error=True)
+                return
+
+            if not hasattr(results_page, 'load'):
+                self._set_status(f"❌ Results page missing load method ({type(results_page).__name__})", error=True)
+                return
+
+            # Load and display results
+            try:
+                results_page.load(workdir, file_hash)
+                self.switch_page("results")
+                self._set_status(f"✓ Viewing results for {file_hash[:16]}...", error=False)
+                self._log_console(f"Switched to Results page for {file_hash}")
+            except Exception as load_err:
+                self._set_status(f"❌ Failed to load results: {load_err}", error=True)
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.exception(f"Results load error: {load_err}")
+
+        except Exception as e:
+            self._set_status(f"❌ Failed to access results page: {e}", error=True)
+            import traceback
+            traceback.print_exc()
+
     def _clear_results(self):
         try:
             self.summary_text.delete("1.0", "end")
@@ -1026,9 +1197,7 @@ class DetectorsPage(ctk.CTkFrame):
             self.summary_container.grid()
 
             if self._current_mode == "static":
-                self.static_frame.pack(fill="both", expand=True, pady=(8, 0))
-            else:
-                self.dynamic_frame.pack(fill="both", expand=True, pady=(8, 0))
+                self.static_frame.pack(fill="both", expand=True, pady=(0, 10))
 
             self._scan_all_cases()
             self._set_load_case_status(f"Loaded: {workdir}", error=False)
@@ -1090,7 +1259,6 @@ class DetectorsPage(ctk.CTkFrame):
 
                 self.mode_frame.pack_forget()
                 self.static_frame.pack_forget()
-                self.dynamic_frame.pack_forget()
                 self.summary_container.grid_remove()
 
                 # Show load case

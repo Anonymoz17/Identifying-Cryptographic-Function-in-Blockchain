@@ -4,41 +4,15 @@ from pathlib import Path
 
 import customtkinter as ctk
 
-# dual-mode imports: module (python -m src.app) and script (python src/app.py)
-try:
-    # when running as a package
-    from .file_handler import FileHandler
-    from .api_client_supabase import (
-        login as sb_login,
-        register_user as sb_register,
-        logout as sb_logout,
-        get_my_role as sb_get_role,
-    )
-    from .pages import (
-        LoginPage,
-        RegisterPage,
-        LandingPage,
-        DashboardPage,
-        AuditorPage,
-    )
-except ImportError:
-    # when running as a plain script
-    from file_handler import FileHandler
-    from api_client_supabase import (
-        login as sb_login,
-        register_user as sb_register,
-        logout as sb_logout,
-        get_my_role as sb_get_role,
-    )
-    from pages import (
-        LoginPage,
-        RegisterPage,
-        LandingPage,
-        DashboardPage,
-        AuditorPage,
-    )
-
-from pages import SetupPage, DetectorsPage
+from file_handler import FileHandler
+from pages import (
+    AuditorPage,
+    DashboardPage,
+    LoginPage,
+    RegisterPage,
+    LandingPage
+)
+from pages import SetupPage, DetectorsPage, ResultsPage
 
 
 class App(ctk.CTk):
@@ -53,7 +27,7 @@ class App(ctk.CTk):
         # --- Session + scan state ---
         self.auth_token = None
         # safer default for local usage
-        self.current_user_role = "free"
+        self.current_user_role = "premium"
         self.current_user_email = None
         self.current_scan_meta = None
 
@@ -70,6 +44,7 @@ class App(ctk.CTk):
             "setup": SetupPage(self, self.switch_page),
             "detectors": DetectorsPage(self, self.switch_page),
             "auditor": AuditorPage(self, self.switch_page),
+            "results": ResultsPage(self, self.switch_page),
         }
 
         for p in self._pages.values():
@@ -77,7 +52,7 @@ class App(ctk.CTk):
             p.grid_remove()
 
         # --- Start on Login (not dashboard) ---
-        self._current_page_name = "landing"
+        self._current_page_name = "login"
         self.switch_page(self._current_page_name)
 
         # Debounced resize handling

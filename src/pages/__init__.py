@@ -48,6 +48,7 @@ RegisterPage = _safe_import("register", "RegisterPage")
 SetupPage = _safe_import("setup", "SetupPage")
 LandingPage = _safe_import("landing", "LandingPage")
 DetectorsPage = _safe_import("detectors", "DetectorsPage")
+ResultsPage = _safe_import("results", "ResultsPage")
 
 __all__ = [
     "AnalysisPage",
@@ -58,4 +59,5 @@ __all__ = [
     "RegisterPage",
     "AdvisorPage",
     "LandingPage",
+    "ResultsPage",
 ]

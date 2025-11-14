@@ -134,48 +134,131 @@ def _analyze_disassembly_patterns(disasm: str, function_name: str = "") -> Tuple
     return patterns, min(confidence, 1.0)
 
 
+def _get_section_for_offset(sections_data: List[Dict], offset: int) -> str:
+    """Determine which section contains this offset.
+
+    Args:
+        sections_data: List of section dicts with 'name', 'offset', 'size'
+        offset: The offset to map to a section
+
+    Returns:
+        Section name or 'unknown'
+    """
+    if not sections_data:
+        return "unknown"
+
+    for section in sections_data:
+        sec_start = section.get("offset", 0)
+        sec_size = section.get("size", 0)
+        sec_end = sec_start + sec_size
+
+        if sec_start <= offset < sec_end:
+            return section.get("name", "unknown")
+
+    return "unknown"
+
+
+def _find_containing_function(ghidra_export: List[Dict], offset: int) -> str:
+    """Find the function that contains this offset.
+
+    Args:
+        ghidra_export: List of function dicts from Ghidra
+        offset: The offset to locate
+
+    Returns:
+        Function name or 'unknown'
+    """
+    if not isinstance(ghidra_export, list):
+        return "unknown"
+
+    for fn in ghidra_export:
+        address = fn.get("address") or fn.get("addr") or fn.get("entry_point")
+        size = fn.get("size") or fn.get("length")
+
+        if not address:
+            continue
+
+        try:
+            # Handle various address formats
+            if isinstance(address, str):
+                if address.startswith("0x") or address.startswith("0X"):
+                    addr_int = int(address, 16)
+                else:
+                    addr_int = int(address)
+            else:
+                addr_int = int(address)
+
+            if size:
+                size_int = int(size) if isinstance(size, str) else size
+                if addr_int <= offset < addr_int + size_int:
+                    return fn.get("name", "unknown")
+        except (ValueError, TypeError):
+            continue
+
+    return "unknown"
+
+
 def instruction_patterns_heuristic(ghidra_export: Dict, metadata: Dict, static_artifacts: Dict[str, Any] = None) -> List[Dict]:
     """Detect crypto-indicative instruction patterns.
-    
+
     Primary detection sources:
     1. Ghidra function disassembly (when available) - analyzes instruction sequences
     2. Entropy analysis - detects high-entropy code regions
+
+    Enhancements:
+    - Extracts function addresses and sizes from Ghidra metadata
+    - Maps entropy clusters to binary sections
+    - Finds containing functions for entropy regions
+    - Populates location data in additional_data field
     """
     findings: List[Dict] = []
-    
+
+    # Load sections data for location mapping
+    sections_data = []
+    if static_artifacts:
+        sections_path = static_artifacts.get("sections.json")
+        if sections_path:
+            try:
+                with open(sections_path, "r", encoding="utf-8") as fh:
+                    sections_doc = json.load(fh)
+                    sections_data = sections_doc.get("sections", [])
+            except Exception:
+                pass
+
     # PART 1: Analyze Ghidra function disassembly for crypto patterns
     try:
         if isinstance(ghidra_export, list) and ghidra_export:
             seen_functions = set()
-            
+
             for fn in ghidra_export:
                 name = str(fn.get("name", ""))
                 address = fn.get("address") or fn.get("addr") or fn.get("entry_point")
+                function_size = fn.get("size") or fn.get("length")
                 disasm = fn.get("disasm", "") or fn.get("disassembly", "")
                 func_hash = fn.get("function_hash") or fn.get("id")
-                
+
                 if not disasm or not name:
                     continue
-                
+
                 # Avoid duplicate analysis
                 if (name, address) in seen_functions:
                     continue
                 seen_functions.add((name, address))
-                
+
                 patterns, confidence = _analyze_disassembly_patterns(disasm, name)
-                
+
                 # Only report if we have meaningful confidence
                 if confidence >= 0.15:
                     total_patterns = sum(patterns.values())
-                    
+
                     # Build evidence snippet
                     evidence_parts = []
                     for op, count in sorted(patterns.items(), key=lambda x: -x[1]):
                         if count > 0:
                             evidence_parts.append(f"{op}:{count}")
-                    
+
                     fid = _make_id("instr-pattern", f"{name}-{address}-{total_patterns}")
-                    
+
                     finding = {
                         "id": fid,
                         "type": "instruction_pattern",
@@ -190,10 +273,52 @@ def instruction_patterns_heuristic(ghidra_export: Dict, metadata: Dict, static_a
                             "pattern_summary": ", ".join(evidence_parts[:5]),
                         },
                     }
-                    
-                    if address:
-                        finding["address_or_range"] = address
-                    
+
+                    # Extract location data
+                    additional_data = {}
+                    if address or function_size:
+                        try:
+                            if address:
+                                # Convert address to hex and create address range
+                                if isinstance(address, str):
+                                    if address.startswith("0x") or address.startswith("0X"):
+                                        addr_int = int(address, 16)
+                                    else:
+                                        addr_int = int(address)
+                                else:
+                                    addr_int = int(address)
+
+                                start_hex = hex(addr_int)
+                                if function_size:
+                                    try:
+                                        size_int = int(function_size) if isinstance(function_size, str) else function_size
+                                        end_hex = hex(addr_int + size_int)
+                                    except (ValueError, TypeError):
+                                        end_hex = start_hex
+                                else:
+                                    end_hex = start_hex
+
+                                additional_data["address_or_range"] = {
+                                    "start": start_hex,
+                                    "end": end_hex,
+                                }
+                                if function_size:
+                                    additional_data["address_or_range"]["size"] = function_size
+
+                                # Map to section
+                                section = _get_section_for_offset(sections_data, addr_int)
+                                if section != "unknown":
+                                    additional_data["section"] = section
+                        except (ValueError, TypeError):
+                            pass
+
+                    # Add function name
+                    if name and name not in ["", "Unknown"]:
+                        additional_data["function_name"] = name
+
+                    if additional_data:
+                        finding["additional_data"] = additional_data
+
                     # Enhanced evidence snippet
                     snippet_lines = []
                     snippet_lines.append(f"Function: {name}")
@@ -202,10 +327,10 @@ def instruction_patterns_heuristic(ghidra_export: Dict, metadata: Dict, static_a
                         snippet_lines.append(f"⚠️ High XOR count: {patterns['xor']} (key mixing indicator)")
                     if patterns['rol'] + patterns['ror'] > 2:
                         snippet_lines.append(f"🔄 Rotations: {patterns['rol'] + patterns['ror']} (cipher rounds indicator)")
-                    
+
                     finding["evidence_snippet"] = "; ".join(snippet_lines)
                     findings.append(finding)
-    
+
     except Exception as e:
         # Fail softly - continue to entropy analysis
         pass
@@ -246,9 +371,10 @@ def instruction_patterns_heuristic(ghidra_export: Dict, metadata: Dict, static_a
                     else:
                         confidence = 0.45
                         risk = "elevated_entropy"
-                    
+
                     fid = _make_id("entropy", f"{cluster_start}:{cluster_end}:{avg_entropy}")
-                    findings.append({
+
+                    finding = {
                         "id": fid,
                         "type": "high_entropy_region",
                         "name": "entropy_region",
@@ -256,7 +382,7 @@ def instruction_patterns_heuristic(ghidra_export: Dict, metadata: Dict, static_a
                         "reason_tags": ["entropy", risk],
                         "evidence_snippet": f"Offset 0x{cluster_start:x}-0x{cluster_end:x}: avg_entropy={avg_entropy:.2f}, max={max_entropy:.2f}",
                         "address_or_range": {
-                            "start": hex(cluster_start), 
+                            "start": hex(cluster_start),
                             "end": hex(cluster_end)
                         },
                         "evidence": {
@@ -265,7 +391,26 @@ def instruction_patterns_heuristic(ghidra_export: Dict, metadata: Dict, static_a
                             "avg_entropy": round(avg_entropy, 3),
                             "max_entropy": round(max_entropy, 3),
                         }
-                    })
+                    }
+
+                    # Extract location data
+                    additional_data = {}
+
+                    # Map to section
+                    section = _get_section_for_offset(sections_data, cluster_start)
+                    if section != "unknown":
+                        additional_data["section"] = section
+
+                    # Try to find containing function
+                    if isinstance(ghidra_export, list):
+                        func_name = _find_containing_function(ghidra_export, cluster_start)
+                        if func_name != "unknown":
+                            additional_data["function_name"] = func_name
+
+                    if additional_data:
+                        finding["additional_data"] = additional_data
+
+                    findings.append(finding)
             
             except Exception:
                 pass
