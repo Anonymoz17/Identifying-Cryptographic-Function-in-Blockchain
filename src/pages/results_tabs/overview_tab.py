@@ -207,16 +207,6 @@ class OverviewTab(ctk.CTkFrame):
             conf_text
         )
 
-        # Dynamic stats
-        dyn_stats = stats['dynamic']
-        self.dynamic_calls_card.update_value(
-            str(dyn_stats['total_calls'])
-        )
-
-        self.unique_functions_card.update_value(
-            str(dyn_stats['unique_functions'])
-        )
-
         # Update static section
         if self.data_model.has_static_results():
             self.static_status.configure(fg_color=COLORS['card_bg'])
@@ -243,10 +233,3 @@ class OverviewTab(ctk.CTkFrame):
         else:
             status_text = "⏳ Static analysis not yet performed"
             self.types_text.configure(text="None")
-
-"""
-        except Exception as e:
-            logger.warning(f"Failed to update metadata: {e}")
-            metadata_info = "Metadata unavailable"
-
-        self.metadata_text.configure(text=metadata_info)
