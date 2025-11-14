@@ -23,6 +23,14 @@ ignore = ["E501", "C901"]
 # Additional ruff ignores can be specified using an `extend-ignore` array here, for example:
 # extend-ignore = ["F401"]
 
+[tool.pytest.ini_options]
+markers = [
+    "integration: Integration tests (requires Frida, binaries)",
+    "requires_frida: Requires Frida installation",
+    "slow: Slow tests (>30s)",
+    "windows_only: Windows-specific tests",
+]
+
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"

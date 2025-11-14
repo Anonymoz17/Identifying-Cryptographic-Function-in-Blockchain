@@ -130,6 +130,82 @@ def _check_known_constant(pattern_hex: str) -> Tuple[bool, Dict]:
     return False, {}
 
 
+def _find_pattern_offsets(binary_data: bytes, pattern_bytes: bytes,
+                          timeout_sec: float = 5.0, start_time=None) -> List[int]:
+    """Find all offsets where pattern occurs in binary.
+
+    OPTIMIZED: Includes timeout protection to prevent hangs on large binaries
+    with many pattern matches. If timeout is exceeded, returns partial results.
+
+    Args:
+        binary_data: The binary content to search
+        pattern_bytes: The pattern to find
+        timeout_sec: Maximum time to spend searching (default 5 seconds)
+        start_time: Shared timeout start time (for batch operations)
+
+    Returns:
+        List of offsets where pattern is found (may be partial if timeout exceeded)
+    """
+    import time
+
+    if start_time is None:
+        start_time = time.time()
+
+    offsets = []
+    pos = 0
+    iterations = 0
+    timeout_triggered = False
+
+    while True:
+        # Periodic timeout check (every 1000 iterations to minimize overhead)
+        if iterations % 1000 == 0:
+            elapsed = time.time() - start_time
+            if elapsed > timeout_sec:
+                timeout_triggered = True
+                break
+
+        iterations += 1
+        pos = binary_data.find(pattern_bytes, pos)
+        if pos == -1:
+            break
+        offsets.append(pos)
+        pos += 1
+
+    if timeout_triggered and offsets:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.debug(
+            f"[CONSTANTS] Pattern search timeout after {time.time() - start_time:.2f}s "
+            f"({iterations} iterations, {len(offsets)} matches found, partial results)"
+        )
+
+    return offsets
+
+
+def _get_section_for_offset(sections_data: List[Dict], offset: int) -> str:
+    """Determine which section contains this offset.
+
+    Args:
+        sections_data: List of section dicts with 'name', 'offset', 'size'
+        offset: The offset to map to a section
+
+    Returns:
+        Section name or 'unknown'
+    """
+    if not sections_data:
+        return "unknown"
+
+    for section in sections_data:
+        sec_start = section.get("offset", 0)
+        sec_size = section.get("size", 0)
+        sec_end = sec_start + sec_size
+
+        if sec_start <= offset < sec_end:
+            return section.get("name", "unknown")
+
+    return "unknown"
+
+
 def _analyze_repetition_pattern(pattern_bytes: bytes, count: int) -> Dict:
     """Analyze repetition pattern for crypto indicators."""
     entropy = _calculate_entropy(pattern_bytes)
@@ -173,29 +249,55 @@ def _analyze_repetition_pattern(pattern_bytes: bytes, count: int) -> Dict:
 
 def constants_heuristic(ghidra_export: Dict, metadata: Dict, static_artifacts: Dict[str, Any] = None) -> List[Dict]:
     """Detect cryptographic constants and tables.
-    
+
     Detection strategies:
     1. Match against known crypto constants (SHA, AES, MD5, etc.)
     2. Identify S-box patterns (256-byte permutation tables)
     3. Detect repeated patterns with crypto-indicative properties
     4. Analyze high-entropy constant regions
+
+    Enhancements:
+    - Extracts offset information from binary
+    - Maps offsets to binary sections
+    - Populates address_or_range field for location tracking
     """
     findings: List[Dict] = []
-    
+
     if not static_artifacts:
         return findings
-    
+
     const_path = static_artifacts.get("constants.json")
     if not const_path:
         return findings
-    
+
     try:
         with open(const_path, "r", encoding="utf-8") as fh:
             doc = json.load(fh)
         consts = doc.get("constants", [])
     except Exception:
         return findings
-    
+
+    # Load binary file for offset extraction
+    binary_data = None
+    input_path = static_artifacts.get("__input_path__")
+    if input_path:
+        try:
+            with open(input_path, "rb") as fh:
+                binary_data = fh.read()
+        except Exception:
+            pass
+
+    # Load sections data for location mapping
+    sections_data = []
+    sections_path = static_artifacts.get("sections.json")
+    if sections_path:
+        try:
+            with open(sections_path, "r", encoding="utf-8") as fh:
+                sections_doc = json.load(fh)
+                sections_data = sections_doc.get("sections", [])
+        except Exception:
+            pass
+
     seen_patterns: Set[str] = set()
     
     for c in consts:
@@ -221,8 +323,32 @@ def constants_heuristic(ghidra_export: Dict, metadata: Dict, static_artifacts: D
         if is_known:
             fid = _make_id("known-const", pattern_hex)
             confidence = 0.95  # High confidence for known constants
-            
-            findings.append({
+
+            # Extract location data
+            section = "unknown"
+            address_or_range = None
+            if binary_data:
+                try:
+                    pattern_bytes = bytes.fromhex(pattern_hex)
+                    offsets = _find_pattern_offsets(binary_data, pattern_bytes)
+                    if offsets:
+                        # Use first occurrence
+                        first_offset = offsets[0]
+                        section = _get_section_for_offset(sections_data, first_offset)
+
+                        # Create address range
+                        if offsets:
+                            start_hex = hex(offsets[0])
+                            end_hex = hex(offsets[-1] + len(pattern_bytes))
+                            address_or_range = {
+                                "start": start_hex,
+                                "end": end_hex,
+                                "count": len(offsets)
+                            }
+                except Exception:
+                    pass
+
+            finding = {
                 "id": fid,
                 "type": "known_crypto_constant",
                 "name": known_info.get("name", "UNKNOWN"),
@@ -236,7 +362,16 @@ def constants_heuristic(ghidra_export: Dict, metadata: Dict, static_artifacts: D
                     "repeat_count": count,
                 },
                 "count": count,
-            })
+            }
+
+            # Add location data if available
+            if address_or_range:
+                finding["additional_data"] = {
+                    "address_or_range": address_or_range,
+                    "section": section,
+                }
+
+            findings.append(finding)
             continue
         
         # DETECTION 2: Check for S-box pattern (256 bytes)
@@ -244,7 +379,29 @@ def constants_heuristic(ghidra_export: Dict, metadata: Dict, static_artifacts: D
             is_sbox, sbox_confidence = _is_likely_sbox(pattern_bytes)
             if is_sbox:
                 fid = _make_id("sbox", pattern_hex[:32])
-                findings.append({
+
+                # Extract location data
+                section = "unknown"
+                address_or_range = None
+                if binary_data:
+                    try:
+                        offsets = _find_pattern_offsets(binary_data, pattern_bytes)
+                        if offsets:
+                            first_offset = offsets[0]
+                            section = _get_section_for_offset(sections_data, first_offset)
+
+                            # Create address range
+                            start_hex = hex(offsets[0])
+                            end_hex = hex(offsets[-1] + len(pattern_bytes))
+                            address_or_range = {
+                                "start": start_hex,
+                                "end": end_hex,
+                                "count": len(offsets)
+                            }
+                    except Exception:
+                        pass
+
+                finding = {
                     "id": fid,
                     "type": "sbox_table",
                     "name": "substitution_box",
@@ -258,7 +415,16 @@ def constants_heuristic(ghidra_export: Dict, metadata: Dict, static_artifacts: D
                         "unique_bytes": len(set(pattern_bytes)),
                     },
                     "count": count,
-                })
+                }
+
+                # Add location data if available
+                if address_or_range:
+                    finding["additional_data"] = {
+                        "address_or_range": address_or_range,
+                        "section": section,
+                    }
+
+                findings.append(finding)
                 continue
         
         # DETECTION 3: Analyze repetition patterns
@@ -270,24 +436,45 @@ def constants_heuristic(ghidra_export: Dict, metadata: Dict, static_artifacts: D
         
         if pattern_analysis["likely_crypto"]:
             fid = _make_id("const", pattern_hex + str(count))
-            
+
             # Base confidence from repetition count
             confidence = min(0.3 + 0.1 * (count - 1), 0.8)
-            
+
             # Boost confidence based on entropy
             if pattern_analysis["entropy"] >= 2.0:
                 confidence += 0.1
-            
+
             # Boost for specific indicators
             if "4byte_repeated_constant" in pattern_analysis["indicators"]:
                 confidence += 0.15
-            
+
             confidence = min(confidence, 0.95)
-            
+
             reason_tags = ["repeated_pattern", "constant_table"]
             reason_tags.extend(pattern_analysis["indicators"])
-            
-            findings.append({
+
+            # Extract location data
+            section = "unknown"
+            address_or_range = None
+            if binary_data:
+                try:
+                    offsets = _find_pattern_offsets(binary_data, pattern_bytes)
+                    if offsets:
+                        first_offset = offsets[0]
+                        section = _get_section_for_offset(sections_data, first_offset)
+
+                        # Create address range
+                        start_hex = hex(offsets[0])
+                        end_hex = hex(offsets[-1] + len(pattern_bytes))
+                        address_or_range = {
+                            "start": start_hex,
+                            "end": end_hex,
+                            "count": len(offsets)
+                        }
+                except Exception:
+                    pass
+
+            finding = {
                 "id": fid,
                 "type": "constant_table",
                 "name": "crypto_constant_candidate",
@@ -302,6 +489,15 @@ def constants_heuristic(ghidra_export: Dict, metadata: Dict, static_artifacts: D
                     "indicators": pattern_analysis["indicators"],
                 },
                 "count": count,
-            })
+            }
+
+            # Add location data if available
+            if address_or_range:
+                finding["additional_data"] = {
+                    "address_or_range": address_or_range,
+                    "section": section,
+                }
+
+            findings.append(finding)
     
     return findings
