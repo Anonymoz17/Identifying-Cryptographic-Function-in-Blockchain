@@ -1,18 +1,5 @@
 // src/api.js
-// If you placed supabase at src/lib/supabase.js, use:
-// import { supabase } from "./lib/supabase";
-// If you placed it at src/supabase.js, use:
 import { supabase } from "./lib/supabase";
-
-// ─────────────────────────────────────────────────────────────
-// DB CONTRACT (from your schema):
-//   public.profiles:  id (uuid PK -> auth.users.id), username, full_name, created_at
-//   public.user_roles: id (uuid PK -> auth.users.id), tier ('free'|'premium'|'admin')
-// We will:
-//   • create/ensure a row in user_roles (default 'free')
-//   • optionally upsert profiles.full_name / username
-//   • read & update tier from user_roles
-// ─────────────────────────────────────────────────────────────
 
 const ROLES_TABLE = "user_roles";
 const PROFILES_TABLE = "profiles";
@@ -53,16 +40,14 @@ export async function upsertProfile({ id, username, full_name }) {
 }
 
 // ── AUTH ─────────────────────────────────────────────────────
-
 export async function signUp({ email, password, name, username }) {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { name } }, // stored in user_metadata
+    options: { data: { name } },
   });
   if (error) return { error: error.message };
 
-  // If email confirmations are ON, user may be null here until confirmed
   const user = data.user || data.session?.user;
   if (!user) {
     return {
@@ -73,16 +58,13 @@ export async function signUp({ email, password, name, username }) {
     };
   }
 
-  // Ensure roles row and set default tier
   const { error: roleErr } = await ensureRoleRow(user.id);
   if (roleErr) return { error: roleErr.message };
 
-  // Optional: upsert profile fields
   if (name || username) {
     await upsertProfile({ id: user.id, full_name: name, username }).catch(() => {});
   }
 
-  // Read current tier
   const { data: roleRow, error: roleReadErr } = await supabase
     .from(ROLES_TABLE)
     .select("tier")
@@ -98,11 +80,9 @@ export async function signIn({ email, password }) {
   if (error) return { error: error.message };
   const user = data.user;
 
-  // Ensure role row exists
   const { error: roleErr } = await ensureRoleRow(user.id);
   if (roleErr) return { error: roleErr.message };
 
-  // Read tier
   const { data: roleRow, error: roleReadErr } = await supabase
     .from(ROLES_TABLE)
     .select("tier")
@@ -136,7 +116,8 @@ export async function getCurrentUser() {
 
 // Call this AFTER your payment succeeds (Stripe/PayNow/etc.)
 export async function upgradeUserPlan({ userId, plan }) {
-  if (!["free", "premium", "admin"].includes(plan)) {
+  // Only Free/Premium now
+  if (!["free", "premium"].includes(plan)) {
     return { error: "Invalid plan" };
   }
   const { data, error } = await supabase
