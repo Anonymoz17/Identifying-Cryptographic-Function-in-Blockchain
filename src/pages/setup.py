@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 import tkinter as tk
+from functools import partial
 from pathlib import Path
 from typing import Optional
 
@@ -62,18 +63,24 @@ class SetupPage(ctk.CTkFrame):
             font=HEADING_FONT, text_color=TEXT
         ).pack(side="left")
 
+        # Account placeholder menu (similar to detectors page)
+        try:
+            from .accounts import AccountsMenu
+            acct = AccountsMenu(header, on_profile_change=self._on_profile_change)
+            acct.pack(side="right", padx=(8, 0))
+        except Exception:
+            pass
+
+        # Sub-header with back button (below title)
+        subheader = ctk.CTkFrame(wrapper, fg_color="transparent")
+        subheader.pack(fill="x", padx=22, pady=(0, 10))
+
         ctk.CTkButton(
-            header, text="← Back to Landing", width=160,
+            subheader, text="← Back to Landing", width=160,
             fg_color="transparent", border_color=OUTLINE_BR, hover_color=OUTLINE_H,
             text_color=TEXT, border_width=1, corner_radius=8,
             command=lambda: (self._on_cancel(), self._reset_progress_ui(), self.switch_page("landing")),
-        ).pack(side="right")
-
-        ctk.CTkLabel(
-            wrapper,
-            text="Pipeline: Enumerate → Preprocess → (optional) AST / Disasm",
-            font=BODY_FONT, text_color=MUTED, wraplength=FORM_WIDTH - 64
-        ).pack(fill="x", padx=22, pady=(0, 8))
+        ).pack(side="left")
 
         # Centering container (pack this; grid inside it is OK)
         center = ctk.CTkFrame(wrapper, fg_color="transparent")
@@ -242,6 +249,10 @@ class SetupPage(ctk.CTkFrame):
         self.setup_results_box.configure(yscrollcommand=self.setup_scrollbar.set)
 
     # ----------------------------- UI helpers ------------------------------
+    def _on_profile_change(self, profile: str):
+        """Callback for profile/account changes (placeholder)."""
+        pass
+
     def _parent_win(self):
         try: return self.master.winfo_toplevel()
         except Exception: return None
@@ -294,7 +305,9 @@ class SetupPage(ctk.CTkFrame):
         """Lazy import default workdir to avoid construction-time crashes."""
         try:
             from auditor.setup_flow.output import get_default_workdir
-            cs = str(self.adv_config.get("case_subdir", "cases"))
+            # Use getattr with default in case adv_config isn't initialized yet
+            adv_cfg = getattr(self, "adv_config", {})
+            cs = str(adv_cfg.get("case_subdir", "cases"))
             return str(get_default_workdir(case_subdir=cs))
         except Exception:
             return str((Path.cwd() / "case_demo" / "cases").resolve())
@@ -476,7 +489,6 @@ class SetupPage(ctk.CTkFrame):
                 # Validate that Setup output files exist
                 try:
                     import os
-                    from pathlib import Path
 
                     case_dir = Path(ctx.case_dir)
                     preproc_dir = case_dir / "preproc"
@@ -540,9 +552,6 @@ class SetupPage(ctk.CTkFrame):
                 self.after(0, partial(self.cancel_btn.configure, state="disabled"))
             except Exception:
                 pass
-
-        try: self.after(0, _finish)
-        except Exception: _finish()
 
     # ------------------- UI callbacks for pipeline events -------------------
     def _handle_notifier_message(self, msg):
