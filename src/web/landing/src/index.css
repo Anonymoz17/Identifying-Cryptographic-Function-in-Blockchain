@@ -2,5 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: dark; }
-body { @apply bg-black text-white; }
+/* Page baseline */
+html, body, #root {
+  height: 100%;
+}
+body {
+  background: #000;
+  color: white;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Focus ring contrast on dark */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(16,185,129,0.8), 0 0 0 4px rgba(255,255,255,0.15);
+}

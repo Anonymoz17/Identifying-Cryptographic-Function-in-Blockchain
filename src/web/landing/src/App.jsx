@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { signIn, signUp, signOut, getCurrentUser, upgradeUserPlan } from "./api";
 
+// ---------- UI primitives ----------
 function Container({ className = "", children }) {
   return <div className={`mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 ${className}`}>{children}</div>;
 }
@@ -256,7 +257,7 @@ function Hero() {
           </div>
           <ul className="mt-6 grid max-w-xl grid-cols-2 gap-3 text-sm text-white/60">
             <li className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-emerald-400"/> NIST-informed scoring</li>
-            <li className="flex items-center gap-2"><Zap className="h-4 w-4 text-cyan-400"/> Static &amp; optional dynamic hints</li>
+            <li className="flex items-center gap-2"><Zap className="h-4 w-4 text-cyan-400"/> Static </li>
             <li className="flex items-center gap-2"><Lock className="h-4 w-4 text-emerald-400"/> Offline desktop mode</li>
             <li className="flex items-center gap-2"><Database className="h-4 w-4 text-cyan-400"/> JSON/NDJSON exports</li>
           </ul>
@@ -288,7 +289,7 @@ function Hero() {
 
 const features = [
   { icon: <FileSearch className="h-5 w-5" />, title: "Audit-grade discovery", desc: "Identify hashes, ciphers, KDFs and protocols across source, repos, and compiled artifacts." },
-  { icon: <Cpu className="h-5 w-5" />, title: "Static + runtime hints", desc: "Signature rules and AST analysis with optional Frida hooks for runtime confirmation." },
+  { icon: <Cpu className="h-5 w-5" />, title: "Static + runtime hints", desc: "Signature rules and AST analysis for runtime confirmation." },
   { icon: <Gauge className="h-5 w-5" />, title: "Fast evidence collection", desc: "Parallel scans with cached results for repeatable, diffable audit runs." },
   { icon: <ShieldCheck className="h-5 w-5" />, title: "NIST-informed scoring", desc: "Rank algorithms by strength, performance, and adoption to prioritize risk." },
   { icon: <Database className="h-5 w-5" />, title: "Defensible reports", desc: "Export JSON/NDJSON with locations, confidence, and context for your workpapers." },
@@ -332,7 +333,7 @@ function HowItWorks(){
         <div className="mt-12 grid gap-6 lg:grid-cols-4 sm:grid-cols-2">
           {[
             { icon: <GitFork className="h-5 w-5" />, title: "Ingest", desc: "Drop files, point to a repo, or attach build artifacts." },
-            { icon: <Cpu className="h-5 w-5" />, title: "Analyze", desc: "Static rules + AST + optional Frida hooks for runtime hints." },
+            { icon: <Cpu className="h-5 w-5" />, title: "Analyze", desc: "Static rules + AST for runtime hints." },
             { icon: <BarChart3 className="h-5 w-5" />, title: "Score", desc: "NIST-based weights and adoption metrics produce a clear ranking." },
             { icon: <Workflow className="h-5 w-5" />, title: "Report", desc: "Export NDJSON/JSON; diff audits over time; share in CI or PDFs." },
           ].map((s, i) => (
@@ -368,7 +369,7 @@ function Pricing({ onRequireAuth }) {
       price: "$0",
       tagline: "For quick checks & students",
       cta: plan === "free" ? "Current plan" : "Start Free",
-      features: ["Single-file scans", "Core ruleset", "JSON export"],
+      features: ["Single-file scans", "Pay-per file scan"],
     },
     {
       name: "Premium",
@@ -376,7 +377,7 @@ function Pricing({ onRequireAuth }) {
       tagline: "For professional audits",
       cta: plan === "premium" ? "Current plan" : "Go Premium",
       featured: true,
-      features: ["Multi-file & repo scanning", "NDJSON streaming", "Diffable audit history", "Optional dynamic hooks"],
+      features: ["Unlimited scans", "NDJSON streaming", "Diffable audit history"],
     },
   ];
 
@@ -452,7 +453,7 @@ function FAQ(){
         </div>
         <div className="mx-auto mt-10 max-w-3xl divide-y divide-white/10 rounded-2xl border border-white/10 bg-white/[0.03]">
           {[
-            { q: "What platforms are supported?", a: "Windows, macOS, and Linux for the desktop app." },
+            { q: "What platforms are supported?", a: "Windows." },
             { q: "Which languages/targets can you scan?", a: "Start with EVM/solidity sources and bytecode, common C/C++/Rust/Go/JS repos, and generic binaries. More to come." },
             { q: "How do exports work?", a: "Use JSON for single reports or NDJSON for streaming line-by-line detections." },
             { q: "Does it work offline?", a: "Yes. Premium supports full offline scanning with local rule packs." },
