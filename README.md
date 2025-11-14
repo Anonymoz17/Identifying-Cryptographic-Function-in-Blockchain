@@ -1,85 +1,75 @@
 # Identifying-Cryptographic-Function-in-Blockchain
 
-## Quick Start
+## Quick Start (Windows Only)
 
-### Dependencies
+### System Requirements
 
-- **Python 3.10–3.13**
-- **OS**: Windows / macOS / Linux
-- **Tk** (bundled with most Python installers)
-- **libmagic** (macOS/Linux only; see below)
+- **Python 3.10–3.13** (with pip)
+- **Windows** (10 or later)
+- **~2GB** free disk space (for Ghidra)
 
-### Environment
+### Step 1: Install Everything
 
-Create a `.env` file in the project root:
+Run the unified installer (it does everything automatically):
+
+```powershell
+# From project root
+.\install.ps1
+```
+
+This will:
+- ✅ Validate Python installation
+- ✅ Create virtual environment
+- ✅ Install all dependencies
+- ✅ Download and setup Ghidra (optional, skip with `-SkipGhidra`)
+- ✅ Validate complete installation
+
+### Step 2: Run the Application
+
+```powershell
+.\run.ps1
+```
+
+Or if you prefer a batch file:
+
+```powershell
+.\run.bat
+```
+
+### Setup .env (Optional)
+
+For cloud features, create a `.env` file in the project root:
 
 ```env
 SUPABASE_URL=your-project-url
 SUPABASE_ANON_KEY=your-anon-key
 ```
 
-### Installation
-
-#### Windows
-
-```powershell
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-#### macOS
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-brew install libmagic  # required by python-magic
-pip install -r requirements.txt
-```
-
-#### Ubuntu/Debian Linux
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-sudo apt-get update && sudo apt-get install -y libmagic1
-pip install -r requirements.txt
-```
-
-### Setup & Validation
-
-After installation, verify everything is configured:
-
-```powershell
-# Check if static detection pipeline is ready
-python -m src.auditor.detectors.static_detection.setup check
-
-# Run interactive setup wizard (if needed)
-python -m src.auditor.detectors.static_detection.setup wizard
-```
-
-This will check:
-
-- ✅ Python version
-- ✅ Required packages
-- ✅ Workspace structure
-- ✅ Configuration files
-- ✅ Ghidra setup (optional)
-
-### Run Application
-
-```powershell
-python src/app.py
-```
-
 ---
 
-## Documentation
+## Advanced Setup
 
-- **[Static Detection Quick Start](docs/static-detection-quickstart.md)** - Complete setup guide
-- **[Ghidra Policy](docs/ghidra-policy.md)** - Performance optimization guide
-- **[Optional Dependencies](docs/optional-deps.md)** - Advanced features
-- **[Ghidra Installation](installation/README.md)** - Ghidra setup details
+### Skip Ghidra Installation
+
+If you only want Python dependencies (no binary analysis):
+
+```powershell
+.\install.ps1 -SkipGhidra
+```
+
+### Force Reinstall
+
+To reinstall everything from scratch:
+
+```powershell
+.\install.ps1 -Force
+```
+
+### Custom Ghidra Version
+
+```powershell
+.\install.ps1 -GhidraVersion 10.0
+```
 
 ---
 
@@ -88,12 +78,21 @@ python src/app.py
 For development with optional native integrations (AST, disassembly, YARA):
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
+# Install development dependencies
+.\install.ps1           # Standard install first
 pip install -r requirements-dev.txt
 ```
 
 See `docs/optional-deps.md` for native extras installation (tree-sitter, capstone, yara-python).
+
+---
+
+## Documentation
+
+- **[Static Detection Quick Start](docs/static-detection-quickstart.md)** - Complete setup guide
+- **[Ghidra Policy](docs/ghidra-policy.md)** - Performance optimization guide
+- **[Optional Dependencies](docs/optional-deps.md)** - Advanced features
+- **[Installation Details](installation/README.md)** - Legacy installer reference
 
 ---
 
@@ -117,91 +116,50 @@ npm run landing:dev         # Start the dev server
 
 ---
 
-## Quick Reference
-
-### Setup Commands
-
-```powershell
-# Validate setup
-python -m src.auditor.detectors.static_detection.setup check
-
-# Interactive configuration
-python -m src.auditor.detectors.static_detection.setup wizard
-
-# Check Ghidra policy
-python -m src.auditor.detectors.static_detection.setup policy
-```
-
-### Configuration Options
-
-**Ghidra Execution Policy:**
-
-```python
-from src.auditor.detectors.static_detection import config
-
-# Smart filtering (default, recommended)
-config.set_ghidra_run_policy('auto')
-
-# Skip Ghidra entirely (fast, source-only)
-config.set_ghidra_run_policy('never')
-
-# Force on all files (slow, binary-only)
-config.set_ghidra_run_policy('always')
-```
-
----
-
 ## Troubleshooting
 
-### Common Issues
+### Installation Issues
 
-**"Ghidra not configured"**
+**"Python not found"**
+- Ensure Python 3.10-3.13 is installed and added to PATH
+- Test: `python --version`
 
-```powershell
-# Option 1: Run setup wizard
-python -m src.auditor.detectors.static_detection.setup wizard
+**"Failed to download Ghidra"**
+- Check internet connection
+- Ensure you have ~2GB free disk space
+- Try again: `.\install.ps1 -Force`
 
-# Option 2: Skip Ghidra (source-only mode)
-python -c "from src.auditor.detectors.static_detection import config; config.set_ghidra_run_policy('never')"
-```
+**"Can't run app"**
+- Ensure installer completed successfully
+- Run: `.\run.ps1` from project root, not from subdirectories
 
-**"Analysis is slow"**
-
-```python
-# Use auto policy for 50-100x speedup on source-heavy projects
-from src.auditor.detectors.static_detection import config
-config.set_ghidra_run_policy('auto')
-```
-
-See **[docs/static-detection-quickstart.md](docs/static-detection-quickstart.md)** for complete troubleshooting guide.
+For detailed troubleshooting, see **[docs/static-detection-quickstart.md](docs/static-detection-quickstart.md)**.
 
 ---
 
 ## Project Structure
 
 ```
+├── install.ps1                         # 👈 RUN THIS FIRST (one-step setup)
+├── run.ps1                             # 👈 RUN THIS TO START APP
+├── run.bat                             # Alternative: batch file launcher
 ├── src/
 │   ├── app.py                          # Main application
 │   ├── auditor/
 │   │   └── detectors/
 │   │       └── static_detection/       # Static analysis pipeline
-│   │           ├── setup.py            # Setup utility
-│   │           ├── runner.py           # Main orchestrator
-│   │           ├── ghidra_adapter.py   # Ghidra integration
-│   │           ├── ghidra_policy.py    # Smart filtering
-│   │           └── heuristics/         # Detection heuristics
-│   └── web/
-│       └── landing/                    # React landing page
-├── docs/
-│   ├── static-detection-quickstart.md  # Setup guide
-│   ├── ghidra-policy.md                # Performance guide
-│   └── optional-deps.md                # Advanced features
-├── installation/
-│   ├── README.md                       # Ghidra installer docs
-│   └── install-ghidra.ps1             # PowerShell installer
-├── requirements.txt                    # Core dependencies
-└── requirements-dev.txt               # Dev dependencies
+│   ├── pages/                          # UI pages
+│   └── ui/                             # UI components
+├── docs/                               # Documentation
+├── installation/                       # Legacy scripts (kept for reference)
+├── requirements.txt                    # Python dependencies
+└── requirements-dev.txt                # Development extras
 ```
+
+**Key files:**
+- `install.ps1` - Unified installer (Python + Ghidra + dependencies)
+- `run.ps1` - App launcher (activates venv and runs src/app.py)
+- `run.bat` - Alternative launcher for Command Prompt users
 
 ---
 
