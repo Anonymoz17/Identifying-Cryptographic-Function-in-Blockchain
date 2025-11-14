@@ -624,17 +624,28 @@ class SetupPage(ctk.CTkFrame):
             status = getattr(pu, "status", "")
             eta_s = getattr(pu, "eta_s", None)
             speed = getattr(pu, "speed", None)
+            phase = getattr(pu, "phase", "")
 
-            if getattr(pu, "phase", "") == "scanning":
+            if phase == "scanning":
+                # Scanning phase: processed is 0-100 (simulated animation)
                 self.status_label.configure(text=f"Scanning ({int(processed or 0)}%)")
                 self.progress.set(min(1.0, (processed or 0) / 100.0))
                 self.eta_label.configure(text=f"Elapsed: {elapsed}")
             else:
-                if total:
-                    pct_text = f"{int((percent or 0) * 100)}%" if percent is not None else ""
+                # Preprocessing phase: use actual percent if available (total files known)
+                if percent is not None:
+                    # percent is already 0.0-1.0 from ProgressReporter
+                    pct_text = f"{int(percent * 100)}%"
                     self.status_label.configure(text=f"Processed {processed}/{total} {pct_text} {status}".strip())
-                    self.progress.set(percent or 0.0)
+                    self.progress.set(percent)
+                elif total and total > 0:
+                    # Fallback: calculate from processed/total if percent not provided
+                    calc_percent = min(1.0, float(processed) / float(total))
+                    pct_text = f"{int(calc_percent * 100)}%"
+                    self.status_label.configure(text=f"Processed {processed}/{total} {pct_text} {status}".strip())
+                    self.progress.set(calc_percent)
                 else:
+                    # No total available: use heuristic progress (0-95%)
                     self.status_label.configure(text=f"Processed {processed} {status}".strip())
                     self.progress.set(min(0.95, float(processed) / 200.0))
 
