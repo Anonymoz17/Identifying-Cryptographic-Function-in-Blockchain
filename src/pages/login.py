@@ -1,20 +1,11 @@
 # src/pages/login.py
-"""
-CryptoScope Login Page
-- No autofocus on fields when page is shown (no caret blink)
-- Password field same width as others
-- 'Show password' below the password field
-- Uses shared theme (ui.theme)
-"""
-
+import os
 import customtkinter as ctk
-from PIL import Image, ImageDraw 
+from PIL import Image, ImageDraw
 
-from api_client_supabase import (
-    login as sb_login,
-    ensure_role_row as sb_ensure_role_row,
-    get_my_role as sb_get_role,
-)
+from api_client_supabase import ensure_role_row as sb_ensure_role_row
+from api_client_supabase import get_my_role as sb_get_role
+from api_client_supabase import login as sb_login
 from api_client_google import login_with_google
 from api_client_github import login_with_github
 
@@ -33,7 +24,86 @@ from ui.theme import (
     TITLE_FONT,
 )
 
-ENTRY_WIDTH = 420  # unify widths
+# =========================================
+# Choose where to go after successful login
+# =========================================
+NEXT_PAGE = "landing"
+
+# ------------ icon helpers (assets/) ------------
+HERE = os.path.dirname(os.path.abspath(__file__))
+ASSET_DIRS = [
+    os.path.normpath(os.path.join(HERE, "..", "assets")),              # <repo>/src/assets
+    os.path.normpath(os.path.join(HERE, "assets")),                    # <repo>/src/pages/assets (fallback)
+    os.path.normpath(os.path.join(HERE, "..", "..", "assets")),        # <repo>/assets
+]
+
+def _find_asset(name: str) -> str | None:
+    for d in ASSET_DIRS:
+        p = os.path.join(d, name)
+        if os.path.exists(p):
+            return p
+    return None
+
+def _load_icon(name: str, size=(28, 28), circle_bg="#0E1624"):
+    """
+    Round 'chip' icon (kept for optional reuse elsewhere).
+    """
+    path = _find_asset(name)
+    if not path:
+        return None
+
+    W, H = size
+    bg = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    mask = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(mask).ellipse([(0, 0), (W - 1, H - 1)], fill=255)
+    circle = Image.new("RGBA", (W, H), circle_bg)
+    bg = Image.composite(circle, bg, mask)
+
+    fg = Image.open(path).convert("RGBA")
+    fg.thumbnail((int(W * 0.7), int(H * 0.7)), Image.LANCZOS)
+    bg.alpha_composite(fg, ((W - fg.width) // 2, (H - fg.height) // 2))
+
+    return ctk.CTkImage(light_image=bg, dark_image=bg, size=(W, H))
+
+def _ctk_logo(name: str, size=(18, 18)):
+    """
+    Crisp logo (no circle) for the full-width SocialButton.
+    """
+    path = _find_asset(name)
+    if not path:
+        return None
+    img = Image.open(path).convert("RGBA")
+    img.thumbnail(size, Image.LANCZOS)
+    return ctk.CTkImage(light_image=img, dark_image=img, size=size)
+
+# --- polished social button (no unsupported kwargs) ---
+class SocialButton(ctk.CTkButton):
+    """
+    Full-width, left-aligned icon + label with subtle border & hover.
+    Uses your theme constants. No 'padx' kwarg (CTkButton doesn't support it).
+    """
+    def __init__(self, master, text, icon=None, command=None, **kwargs):
+        super().__init__(
+            master,
+            text=text,
+            image=icon,
+            compound="left",
+            anchor="w",
+            height=44,
+            corner_radius=10,
+            font=BODY_FONT,
+            text_color=TEXT,
+            fg_color=CARD_BG,
+            hover_color=OUTLINE_H,
+            border_width=1,
+            border_color=OUTLINE_BR,
+            command=command,
+            **kwargs
+        )
+        self._default_border = OUTLINE_BR
+        self.bind("<FocusIn>",  lambda e: self.configure(border_color=PRIMARY))
+        self.bind("<FocusOut>", lambda e: self.configure(border_color=self._default_border))
+        self.bind("<Return>",   lambda e: self.invoke())
 
 
 class LoginPage(ctk.CTkFrame):
@@ -41,29 +111,29 @@ class LoginPage(ctk.CTkFrame):
         super().__init__(master, fg_color=BG)
         self.switch_page = switch_page
 
-        # -------- state --------
+        # ---------- State ----------
         self._show_password = ctk.BooleanVar(value=False)
         self._busy = False
 
-        # -------- layout wrappers --------
+        # ---------- Wrapper ----------
         wrapper = ctk.CTkFrame(self, fg_color="transparent")
         wrapper.pack(fill="both", expand=True)
 
-        # Center container (card)
-        self.card = ctk.CTkFrame(
+        # Center container
+        center = ctk.CTkFrame(
             wrapper,
             corner_radius=12,
             border_width=1,
             border_color=BORDER,
             fg_color=CARD_BG,
         )
-        self.card.place(relx=0.5, rely=0.5, anchor="center")
-        self.card.grid_columnconfigure(0, weight=1)
+        center.place(relx=0.5, rely=0.5, anchor="center")
+        center.grid_columnconfigure(0, weight=1)
 
         # ---------- Header ----------
-        title = ctk.CTkLabel(self.card, text="Welcome back", font=TITLE_FONT, text_color=TEXT)
+        title = ctk.CTkLabel(center, text="Welcome back", font=TITLE_FONT, text_color=TEXT)
         subtitle = ctk.CTkLabel(
-            self.card,
+            center,
             text="Sign in to continue to CryptoScope",
             font=SUB_FONT,
             text_color=MUTED,
@@ -72,52 +142,92 @@ class LoginPage(ctk.CTkFrame):
         subtitle.grid(row=1, column=0, sticky="w", padx=26, pady=(0, 10))
 
         # ---------- Form ----------
-        form = ctk.CTkFrame(self.card, fg_color="transparent")
+        form = ctk.CTkFrame(center, fg_color="transparent")
         form.grid(row=2, column=0, sticky="ew", padx=26)
         form.grid_columnconfigure(0, weight=1)
 
         self.email_entry = ctk.CTkEntry(
             form,
             placeholder_text="Email address",
-            placeholder_text_color=MUTED,   # 👈 add
-            height=38, width=ENTRY_WIDTH, corner_radius=8,
-            fg_color=BG, border_color=BORDER, border_width=1, text_color=TEXT,
+            height=38,
+            corner_radius=8,
+            fg_color=BG,
+            border_color=BORDER,
+            border_width=1,
+            text_color=TEXT,
         )
         self.email_entry.grid(row=0, column=0, sticky="ew", pady=(2, 8))
 
+        pw_row = ctk.CTkFrame(form, fg_color="transparent")
+        pw_row.grid(row=1, column=0, sticky="ew", pady=(0, 6))
+        pw_row.grid_columnconfigure(0, weight=1)
+
         self.password_entry = ctk.CTkEntry(
-            form,
+            pw_row,
             placeholder_text="Password",
-            placeholder_text_color=MUTED,   # 👈 add
-            height=38, width=ENTRY_WIDTH, corner_radius=8,
-            fg_color=BG, border_color=BORDER, border_width=1, text_color=TEXT,
+            height=38,
+            corner_radius=8,
+            fg_color=BG,
+            border_color=BORDER,
+            border_width=1,
+            text_color=TEXT,
             show="*",
         )
-        self.password_entry.grid(row=1, column=0, sticky="ew")
+        self.password_entry.grid(row=0, column=0, sticky="ew")
 
-        # show password BELOW password field
         show_pw = ctk.CTkCheckBox(
-            form,
+            pw_row,
             text="Show password",
             variable=self._show_password,
             command=self._toggle_password,
             text_color=MUTED,
             border_color=OUTLINE_BR,
-            fg_color=PRIMARY,   # must be a real color
+            fg_color=PRIMARY,
             hover_color=OUTLINE_H,
             checkbox_height=16,
             checkbox_width=16,
             corner_radius=4,
         )
-        show_pw.grid(row=2, column=0, sticky="w", pady=(6, 8), padx=(6,0))
+        show_pw.grid(row=0, column=1, padx=(10, 0))
+
+        # ---------- Social sign-in (full-width buttons) ----------
+        social = ctk.CTkFrame(center, fg_color="transparent")
+        social.grid(row=3, column=0, sticky="ew", padx=26, pady=(6, 8))
+        social.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(social, text="Continue with", font=BODY_FONT, text_color=MUTED)\
+            .grid(row=0, column=0, sticky="w", pady=(0, 6))
+
+        # Logos; if missing, buttons still render with text
+        google_logo = _ctk_logo("google.png", size=(18, 18))
+        github_logo = _ctk_logo("github.png", size=(18, 18))
+
+        # small visual gap between icon and text
+        ICON_GAP = "  "  # two spaces (could use "\u2007" for figure-space)
+
+        self.google_btn = SocialButton(
+            social,
+            text=ICON_GAP + "Continue with Google",
+            icon=google_logo,
+            command=self._do_google_signin,
+        )
+        self.google_btn.grid(row=1, column=0, sticky="ew")
+
+        self.github_btn = SocialButton(
+            social,
+            text=ICON_GAP + "Continue with GitHub",
+            icon=github_logo,
+            command=self._do_github_signin,
+        )
+        self.github_btn.grid(row=2, column=0, sticky="ew", pady=(6, 0))
 
         # Status label
-        self.status = ctk.CTkLabel(self.card, text="", font=BODY_FONT, text_color=MUTED)
-        self.status.grid(row=3, column=0, sticky="w", padx=26, pady=(0, 8))
+        self.status = ctk.CTkLabel(center, text="", font=BODY_FONT, text_color=MUTED)
+        self.status.grid(row=4, column=0, sticky="w", padx=26, pady=(0, 8))
 
         # ---------- Actions ----------
-        actions = ctk.CTkFrame(self.card, fg_color="transparent")
-        actions.grid(row=4, column=0, sticky="ew", padx=26, pady=(4, 22))
+        actions = ctk.CTkFrame(center, fg_color="transparent")
+        actions.grid(row=5, column=0, sticky="ew", padx=26, pady=(4, 22))
         actions.grid_columnconfigure(0, weight=1)
         actions.grid_columnconfigure(1, weight=0)
 
@@ -149,43 +259,18 @@ class LoginPage(ctk.CTkFrame):
         )
         register_btn.grid(row=0, column=1, sticky="e", padx=(10, 0))
 
-        # Card default size
-        self.card.configure(width=560, height=400)
+        # size hint
+        center.configure(width=560, height=420)
 
-        # Ensure no widget is focused initially
-        self.after(10, self._defocus)
-
-    # ---------- Refresh placeholders -----------
-    def _refresh_placeholders(self):
-    # Re-apply placeholder text so CTk renders it if the field is empty
-        try:
-            if (self.email_entry.get() or "").strip() == "":
-                self.email_entry.configure(placeholder_text="Email address")
-            if (self.password_entry.get() or "").strip() == "":
-                self.password_entry.configure(placeholder_text="Password")
-        except Exception:
-            pass
-
-    # -------- lifecycle --------
+    # ---------- Lifecycle ----------
     def on_enter(self):
-        # Clear fields and remove focus to avoid blinking caret
         self._reset_fields()
         self._set_status("")
-        self._defocus()
-        self.after(30, self._refresh_placeholders)   # 👈 ensure placeholders show
-
 
     def on_resize(self, w: int, h: int):
         pass
 
-    # -------- helpers --------
-    def _defocus(self):
-        # move focus to the frame itself so no Entry shows the caret
-        try:
-            self.focus_set()
-        except Exception:
-            pass
-
+    # ---------- UI helpers ----------
     def _toggle_password(self):
         self.password_entry.configure(show="" if self._show_password.get() else "*")
 
@@ -195,12 +280,12 @@ class LoginPage(ctk.CTkFrame):
     def _set_busy(self, busy: bool):
         self._busy = busy
         state = "disabled" if busy else "normal"
-        for b in (self.login_btn, getattr(self, "google_btn", None), getattr(self, "github_btn", None)):
-            try:
-                if b:
-                    b.configure(state=state)
-            except Exception:
-                pass
+        try:
+            self.login_btn.configure(state=state)
+            self.google_btn.configure(state=state)
+            self.github_btn.configure(state=state)
+        except Exception:
+            pass
 
     def _reset_fields(self):
         try:
@@ -210,9 +295,8 @@ class LoginPage(ctk.CTkFrame):
             self.password_entry.configure(show="*")
         except Exception:
             pass
-        self._refresh_placeholders()                 # 👈 refresh
 
-    # -------- login flows --------
+    # ---------- Email/password login ----------
     def _do_login(self):
         if self._busy:
             return
@@ -236,21 +320,59 @@ class LoginPage(ctk.CTkFrame):
             self._set_status(f"{token_or_err}", error=True)
             return
 
+        self._finish_login(token_or_err, user)
+
+    # ---------- Google ----------
+    def _do_google_signin(self):
+        if self._busy:
+            return
+        self._set_busy(True)
+        self._set_status("Opening Google…")
+        try:
+            ok, token_or_err, user = login_with_google()
+        except Exception as e:
+            self._set_busy(False)
+            self._set_status(f"Google sign-in error: {e}", error=True)
+            return
+        if not ok:
+            self._set_busy(False)
+            self._set_status(f"Google sign-in failed: {token_or_err}", error=True)
+            return
+        self._finish_login(token_or_err, user or {})
+
+    # ---------- GitHub ----------
+    def _do_github_signin(self):
+        if self._busy:
+            return
+        self._set_busy(True)
+        self._set_status("Opening GitHub…")
+        try:
+            ok, token_or_err, user = login_with_github()
+        except Exception as e:
+            self._set_busy(False)
+            self._set_status(f"GitHub sign-in error: {e}", error=True)
+            return
+        if not ok:
+            self._set_busy(False)
+            self._set_status(f"GitHub sign-in failed: {token_or_err}", error=True)
+            return
+        self._finish_login(token_or_err, user or {})
+
+    # ---------- Finalize shared ----------
+    def _finish_login(self, token: str, user: dict):
         uid = user.get("id")
-        token = token_or_err
-
-        # ensure role exists and fetch role
         try:
-            sb_ensure_role_row(token, uid)
-        except Exception:
-            pass
-
-        try:
-            role = sb_get_role(token, uid) or "free"
+            if uid:
+                try:
+                    sb_ensure_role_row(token, uid)
+                except Exception:
+                    pass
+                role = sb_get_role(token, uid) or "free"
+            else:
+                role = "free"
         except Exception:
             role = "free"
 
-        # attach to the app
         app = self.winfo_toplevel()
         try:
             app.auth_token = token
@@ -259,9 +381,7 @@ class LoginPage(ctk.CTkFrame):
         except Exception:
             pass
 
-        # clear, defocus, go landing
         self._reset_fields()
         self._set_status("")
         self._set_busy(False)
-        self._defocus()
-        self.switch_page("landing")
+        self.switch_page(NEXT_PAGE)
