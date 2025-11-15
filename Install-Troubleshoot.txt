@@ -3,30 +3,31 @@
 ║                        Windows Installation & Launch                       ║
 ╚════════════════════════════════════════════════════════════════════════════╝
 
-┌─ FIRST TIME SETUP ─────────────────────────────────────────────────────────┐
+┌─ FIRST TIME SETUP (QUICK!) ────────────────────────────────────────────────┐
 │                                                                             │
 │  1. Open PowerShell                                                        │
 │  2. Navigate to project folder:                                            │
 │     $ cd C:\path\to\project                                                │
-│  3. Install everything:                                                    │
-│     $ .\install.ps1                                                        │
-│     (This will take 5-10 minutes)                                          │
-│  4. Run the app:                                                           │
-│     $ .\run.ps1                                                            │
-│  5. App should open!                                                     │
+│  3. Run setup (installs + launches):                                       │
+│     $ .\setup.ps1                                                          │
+│     (This will take 5-10 minutes, then app opens automatically)            │
+│                                                                             │
+│  THAT'S IT!                                                                │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─ NEXT TIME (Just Run!) ────────────────────────────────────────────────────┐
 │                                                                             │
 │  $ .\run.ps1                                                               │
-│  (or .\run.bat if using Command Prompt)                                    │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─ COMMON COMMANDS ──────────────────────────────────────────────────────────┐
 │                                                                             │
-│  Install (full setup + Ghidra):                                            │
+│  First-time setup (installs + launches):                                   │
+│    $ .\setup.ps1                                                           │
+│                                                                             │
+│  Install only (Python + Ghidra):                                           │
 │    $ .\install.ps1                                                         │
 │                                                                             │
 │  Install (Python only, skip Ghidra):                                       │
@@ -35,11 +36,8 @@
 │  Reinstall everything:                                                     │
 │    $ .\install.ps1 -Force                                                  │
 │                                                                             │
-│  Run app (PowerShell):                                                     │
+│  Run app:                                                                  │
 │    $ .\run.ps1                                                             │
-│                                                                             │
-│  Run app (Command Prompt):                                                 │
-│    $ .\run.bat                                                             │
 │                                                                             │
 │  Activate virtual environment manually:                                    │
 │    $ .venv\Scripts\Activate.ps1                                            │
@@ -69,9 +67,9 @@
 
 ┌─ FILES YOU NEED TO KNOW ABOUT ─────────────────────────────────────────────┐
 │                                                                             │
-│  ✅ install.ps1     ← Run this first (one-time setup)                      │
-│  ✅ run.ps1         ← Run this every time (launches app)                   │
-│  ✅ run.bat         ← Alternative launcher for Command Prompt              │
+│  ✅ setup.ps1       ← Run this first (installs + launches)                 │
+│  ✅ install.ps1     ← Run this if you want just installation               │
+│  ✅ run.ps1         ← Run this every time after setup (launches app)       │
 │  📖 README.md       ← Full documentation                                   │
 │  📖 QUICKSTART.md   ← Quick reference guide                                │
 │                                                                             │
@@ -128,12 +126,11 @@
 
 ═════════════════════════════════════════════════════════════════════════════════
 
-                              TWO SIMPLE STEPS:
+                              ONE SIMPLE STEP:
 
-                          Step 1: .\install.ps1
-                          Step 2: .\run.ps1
+                             .\setup.ps1
 
-                               That's it!
+                  (Installs everything and launches the app!)
 
 ═════════════════════════════════════════════════════════════════════════════════
 
