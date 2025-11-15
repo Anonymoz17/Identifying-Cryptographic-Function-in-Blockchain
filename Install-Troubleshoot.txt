@@ -27,16 +27,13 @@
 │  First-time setup (installs + launches):                                   │
 │    > setup.bat                                                             │
 │                                                                             │
-│  Install only (Python + Ghidra):                                           │
+│  Install only:                                                             │
 │    > install.bat                                                           │
 │                                                                             │
-│  Install (Python only, skip Ghidra):                                       │
-│    > install.bat -SkipGhidra                                               │
-│                                                                             │
-│  Reinstall everything:                                                     │
+│  Reinstall everything (clears .venv and reinstalls):                       │
 │    > install.bat -Force                                                    │
 │                                                                             │
-│  Run app:                                                                  │
+│  Run app (after setup):                                                    │
 │    > run.bat                                                               │
 │                                                                             │
 │  Activate virtual environment manually:                                    │
@@ -87,31 +84,21 @@
 
 ┌─ ADVANCED OPTIONS ─────────────────────────────────────────────────────────┐
 │                                                                             │
-│  Custom Ghidra version:                                                    │
-│    > install.bat -GhidraVersion 10.0                                       │
-│                                                                             │
-│  Python only (no Ghidra):                                                  │
-│    > install.bat -SkipGhidra                                               │
-│                                                                             │
 │  Force reinstall (removes .venv and starts over):                          │
 │    > install.bat -Force                                                    │
-│                                                                             │
-│  Combine options:                                                          │
-│    > install.bat -Force -SkipGhidra                                        │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─ WHAT INSTALL.BAT DOES ────────────────────────────────────────────────────┐
 │                                                                             │
-│  ✅ Checks Python version (3.10-3.13)                                      │
+│  ✅ Checks Python 3.10+ is installed                                       │
 │  ✅ Creates virtual environment (.venv folder)                             │
-│  ✅ Installs Python packages (from requirements.txt)                       │
-│  ✅ Downloads Ghidra (if not already installed)                            │
-│  ✅ Verifies everything works                                              │
+│  ✅ Installs all Python packages (from requirements.txt)                   │
+│  ✅ Verifies imports work correctly                                        │
 │  ✅ Shows "Installation Complete!" when done                               │
 │                                                                             │
-│  Total Time: 5-10 minutes (first time)                                     │
-│              ~30 seconds (if already installed)                            │
+│  Total Time: 2-5 minutes (first time)                                      │
+│              ~10 seconds (if already installed)                            │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 
