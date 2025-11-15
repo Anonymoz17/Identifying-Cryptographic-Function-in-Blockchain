@@ -1,8 +1,7 @@
 {
-  "name": "cryptoscope-landing",
+  "name": "cryptoscope-web",
+  "version": "1.0.0",
   "private": true,
-  "version": "0.0.1",
-  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -10,17 +9,17 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.76.1",
-    "cryptoscope": "file:..",
-    "framer-motion": "^11.18.2",
-    "lucide-react": "^0.453.0",
+    "framer-motion": "^12.23.24",
+    "lucide-react": "^0.553.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.1",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.47",
-    "tailwindcss": "^3.4.13",
-    "vite": "^5.4.10"
+    "@tailwindcss/postcss": "^4.1.17",
+    "@vitejs/plugin-react": "^4.1.0",
+    "autoprefixer": "^10.4.22",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.17",
+    "vite": "^5.4.0"
   }
 }
