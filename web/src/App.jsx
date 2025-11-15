@@ -248,7 +248,7 @@ function Hero() {
             and provides NIST-informed scoring so you can justify findings with evidence.
           </p>
           <div className="flex flex-wrap gap-3 pt-2">
-            <Button as="a" href="https://github.com/Anonymoz17/Identifying-Cryptographic-Function-in-Blockchain/archive/refs/tags/1.0.0.zip" className="bg-gradient-to-r from-emerald-400 to-cyan-500 text-black">
+            <Button as="a" href="https://github.com/Anonymoz17/Identifying-Cryptographic-Function-in-Blockchain/archive/refs/tags/1.0.1.zip" className="bg-gradient-to-r from-emerald-400 to-cyan-500 text-black">
               <Download className="h-4 w-4" /> Download (Desktop)
             </Button>
 
