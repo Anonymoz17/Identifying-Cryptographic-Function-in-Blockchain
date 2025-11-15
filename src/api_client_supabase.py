@@ -95,7 +95,7 @@ def register_user(
             "email": email,
             "full_name": full_name,
             "username": username,
-            "message": "Sign up successful. Please verify your email before logging in.",
+            "message": "Sign up successful. Please Return to Login to Log In.",
         }
 
     # 3) If session returned, user is effectively active; create profile + role
@@ -127,7 +127,7 @@ def register_user(
         "email": email,
         "full_name": full_name,
         "username": username,
-        "message": "Registration successful. Please verify your email before logging in.",
+        "message": "Registration successful. Please Return to Login to Log In.",
     }
 
 
