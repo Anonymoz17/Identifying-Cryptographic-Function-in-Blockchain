@@ -49,50 +49,86 @@ def _auth_with_token(token: Optional[str]):
 # AUTH / USER MANAGEMENT
 # ---------------------------------------------------------------------
 def register_user(
-    email: str, password: str, full_name: str, username: str
-) -> Tuple[bool, Any]:
-    """Sign up a new user and seed their profile + role rows."""
+    email: str,
+    password: str,
+    full_name: str = "",
+    username: str = "",
+):
+    """
+    Register a new user.
+
+    Behaviour:
+      - Call Supabase auth.sign_up().
+      - If email confirmation is enabled, sign_up succeeds but there is
+        no session yet. We STILL treat that as a successful registration.
+      - If Supabase returns a session (email confirmation disabled),
+        we opportunistically create profile + user_roles.
+      - If the email is already registered, return a clear error message.
+    """
     _require_client()
+
+    # 1) Attempt to sign up
     try:
         res = _sb.auth.sign_up({"email": email, "password": password})
     except Exception as e:
-        return False, f"Registration failed: {e}"
+        msg = str(e)
+        # Supabase often uses "already registered" / "already exists" wording
+        lowered = msg.lower()
+        if "already registered" in lowered or "already exists" in lowered:
+            return False, "User already signed up with this email."
+        return False, f"Sign up failed: {msg}"
 
     user = getattr(res, "user", None)
     session = getattr(res, "session", None)
 
-    # If sign-up requires email verification, session may be None.
-    if not session:
-        try:
-            login_res = _sb.auth.sign_in_with_password(
-                {"email": email, "password": password}
-            )
-            session = getattr(login_res, "session", None)
-            user = getattr(login_res, "user", None)
-        except Exception:
-            return (
-                False,
-                "Sign up OK. Please verify your email before logging in.",
-            )
+    if not user:
+        return False, "Sign up failed: Supabase did not return a user."
 
-    if not user or not session:
-        return False, "Sign up failed (no session). Check Supabase Auth settings."
+    user_id = user.id
+    access_token = getattr(session, "access_token", None)
 
-    uid = str(user.id)
-    token = getattr(session, "access_token", None)
-    if not token:
-        return False, "Missing Supabase access token."
+    # 2) If email verification is required, there will be NO session.
+    #    This is still a success: they just need to check their email.
+    if not access_token:
+        return True, {
+            "id": user_id,
+            "email": email,
+            "full_name": full_name,
+            "username": username,
+            "message": "Sign up successful. Please verify your email before logging in.",
+        }
 
+    # 3) If session returned, user is effectively active; create profile + role
     try:
-        _auth_with_token(token)
-        _sb.table("profiles").upsert(
-            {"id": uid, "full_name": full_name, "username": username}
-        ).execute()
-        _sb.table("user_roles").upsert({"id": uid, "tier": "free"}).execute()
+        _auth_with_token(access_token)
+
+        # profiles row (full_name / username)
+        try:
+            _sb.table("profiles").upsert(
+                {
+                    "id": user_id,
+                    "full_name": full_name or None,
+                    "username": username or None,
+                }
+            ).execute()
+        except Exception:
+            pass
+
+        # user_roles row (without overwriting any existing tier)
+        try:
+            ensure_role_row(access_token, user_id)
+        except Exception:
+            pass
     finally:
         _auth_with_token(None)
 
-    return True, {"id": uid, "email": email, "username": username}
+    return True, {
+        "id": user_id,
+        "email": email,
+        "full_name": full_name,
+        "username": username,
+        "message": "Registration successful. Please verify your email before logging in.",
+    }
 
 
 def login(
@@ -157,39 +193,33 @@ def get_my_role(token: str, user_id: str) -> str:
         _auth_with_token(None)
 
 
-def ensure_role_row(token: str, user_id: str):
+def ensure_role_row(token: str, user_id: str) -> None:
     """
-    Guarantee a user_roles row exists WITHOUT overwriting an existing tier.
+    Ensure there's a user_roles row for this user WITHOUT changing an existing tier.
 
-    - If a row exists: leave it exactly as-is (so premium/admin is preserved).
-    - If no row exists: insert a new one and let DB defaults set tier='free'.
+    - If a row already exists, do nothing.
+    - If no row exists, insert one and let the DB default tier to 'free'.
     """
+    _require_client()
+    if not user_id:
+        return
+
     try:
-        if not token or not user_id:
-            return
-        _require_client()
-        _auth_with_token(token)
+        if token:
+            _auth_with_token(token)
 
-        # 1) Check if the row already exists
-        res = (
-            _sb.table("user_roles")
-            .select("id")
-            .eq("id", user_id)
-            .execute()
-        )
-        data = getattr(res, "data", None)
-
-        # If we already have a row, do NOTHING (do not touch tier)
-        if isinstance(data, list) and data:
-            return
-        if isinstance(data, dict) and data:
+        # Check if a row already exists
+        resp = _sb.table("user_roles").select("id").eq("id", user_id).execute()
+        if resp.data:
+            # Row exists: do NOT overwrite tier
             return
 
-        # 2) Insert a new row, relying on DB defaults (tier defaults to 'free')
+        # Insert a brand-new row; DB default handles tier ('free')
         _sb.table("user_roles").insert({"id": user_id}).execute()
-
     finally:
-        _auth_with_token(None)
+        if token:
+            _auth_with_token(None)
+
 
 
 
