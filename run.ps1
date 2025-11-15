@@ -13,7 +13,7 @@
 param()
 
 # Get script directory (project root)
-$repoRoot = Split-Path -Parent $PSScriptRoot
+$repoRoot = $PSScriptRoot
 if (-not $repoRoot) { $repoRoot = Get-Location }
 
 $venvPath = Join-Path $repoRoot ".venv"
