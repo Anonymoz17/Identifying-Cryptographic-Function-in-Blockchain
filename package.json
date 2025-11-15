@@ -2,11 +2,11 @@
     "private": true,
     "name": "cryptoscope",
     "scripts": {
-        "landing:install": "npm --prefix src/web/landing install",
-        "landing:dev": "npm --prefix src/web/landing run dev",
-        "landing:build": "npm --prefix src/web/landing run build"
+      "landing:install": "npm --prefix ./web install",
+      "landing:dev": "npm --prefix ./web run dev",
+      "landing:build": "npm --prefix ./web run build"
     },
     "dependencies": {
-        "@supabase/supabase-js": "^2.76.1"
+      "@supabase/supabase-js": "^2.76.1"
     }
-}
+  }
