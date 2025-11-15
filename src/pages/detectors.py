@@ -27,7 +27,7 @@ from ui.theme import (
     PLATE_BG, PLATE_BORDER,
 )
 
-UPGRADE_URL = "https://your-cryptoscope-landing-url.example.com/#pricing"
+UPGRADE_URL = "https://anonymoz17.github.io/Identifying-Cryptographic-Function-in-Blockchain/"
 
 
 class DetectorsPage(ctk.CTkFrame):
