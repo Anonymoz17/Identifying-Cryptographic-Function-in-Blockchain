@@ -57,6 +57,25 @@ function Exit-WithError {
     exit $Code
 }
 
+# Check if running as Administrator
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if ($isAdmin) {
+    Write-Log "Running as Administrator" "WARN"
+    Write-Log ""
+    Write-Log "WARNING: It is recommended to run this script as a regular user, not as Administrator." "WARN"
+    Write-Log ""
+    Write-Log "Running as admin may cause permission issues when launching the application later." "WARN"
+    Write-Log "Please close this window and run 'setup.ps1' or 'install.ps1' as your regular user account." "WARN"
+    Write-Log ""
+
+    $response = Read-Host "Press Enter to continue anyway, or type 'exit' to cancel"
+    if ($response -eq "exit") {
+        Write-Log "Cancelled by user" "WARN"
+        exit 0
+    }
+    Write-Log ""
+}
+
 Write-Log "Step 1: Validating Python installation..."
 
 $pythonCmd = $null
