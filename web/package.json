@@ -1,26 +1,17 @@
 {
-  "name": "web",
   "private": true,
-  "version": "0.0.1",
-  "type": "module",
+  "name": "cryptoscope",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "landing:install": "npm --prefix ./web install",
+    "landing:dev": "npm --prefix ./web run dev",
+    "landing:build": "npm --prefix ./web run build",
+    "dev": "npm run landing:dev",
+    "build": "npm run landing:build"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.76.1",
-    "cryptoscope": "file:..",
-    "framer-motion": "^11.18.2",
-    "lucide-react": "^0.453.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "@supabase/supabase-js": "^2.76.1"
   },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.1",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.47",
-    "tailwindcss": "^3.4.13",
-    "vite": "^5.4.10"
-  }
+  "workspaces": [
+    "web"
+  ]
 }
