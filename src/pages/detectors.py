@@ -1426,27 +1426,17 @@ class DetectorsPage(ctk.CTkFrame):
                     pass
 
             # ----- Refresh Account Bubble (non-fatal if anything fails) -----
-            # Refresh the bubble instead of recreating it
-            # Refresh account bubble details (don't recreate it)
             try:
                 profile = None
-                if hasattr(self.master, "user_overview") and self.master.user_overview:
-                    u = self.master.user_overview or {}
-                    roles_val = u.get("roles")
-                    if isinstance(roles_val, (list, tuple)):
-                        roles_str = ", ".join(str(r) for r in roles_val)
-                    else:
-                        roles_str = roles_val or ""
-
-                    profile = {
-                        "full_name": u.get("full_name") or u.get("name") or "User",
-                        "email": u.get("email", ""),
-                        "role": roles_str or "free",
-                        "plan": u.get("plan") or getattr(self.master, "plan", "Free"),
-                    }
+                app = self.master
+                if hasattr(app, "fetch_user_profile"):
+                    try:
+                        profile = app.fetch_user_profile()
+                    except Exception:
+                        profile = None
 
                 if hasattr(self, "_acct") and hasattr(self._acct, "refresh"):
-                    # None → clear override and fall back to Supabase / app defaults
+                    # None → bubble will fall back to its internal fetching logic
                     self._acct.refresh(profile)
                     if getattr(self._acct, "button", None) is not None:
                         self._acct.button.lift()

@@ -141,15 +141,14 @@ class AccountBubble:
         )
         title.grid(row=0, column=0, columnspan=2, sticky="w", padx=12, pady=(12, 2))
 
-        # Plan / tier
-        self._kv(wrap, row=1, key="Plan", value=profile["plan"])
-        # Name
-        self._kv(wrap, row=2, key="Name", value=profile["full_name"])
-        # Email
-        self._kv(wrap, row=3, key="Email", value=profile["email"])
+        # Name, Email, Role (standardised across pages)
+        self._kv(wrap, row=1, key="Name", value=profile["full_name"])
+        self._kv(wrap, row=2, key="Email", value=profile["email"])
+        self._kv(wrap, row=3, key="Role", value=profile["role"])
 
         # Buttons row
         btn_row = ctk.CTkFrame(wrap, fg_color="transparent")
+
         btn_row.grid(row=99, column=0, columnspan=2, sticky="e", padx=12, pady=(16, 12))
         ctk.CTkButton(
             btn_row,
@@ -204,7 +203,7 @@ class AccountBubble:
         """
         Decide what to show:
           1) Override profile (from refresh())
-          2) App.fetch_user_profile()
+          2) Supabase user_overview
           3) App current_user/current_user_role
         """
         # 1) Override from page/app
@@ -216,12 +215,29 @@ class AccountBubble:
             else:
                 roles_str = roles_val or ""
 
-            plan = p.get("plan") or roles_str or "free"
+            role = roles_str or "free"
+            plan = p.get("plan") or role
+
             return {
                 "plan": str(plan).capitalize(),
                 "full_name": p.get("full_name") or "—",
                 "email": p.get("email") or "—",
+                "role": str(role),
             }
+
+        # 2) Supabase / user_overview
+        data = self._fetch_account_overview()
+        role = data.get("role") or self._fallback_role() or "free"
+        email = data.get("email") or self._fallback_email()
+        full_name = data.get("full_name") or self._fallback_full_name()
+
+        plan_text = str(role).capitalize() if role else "Free"
+        return {
+            "plan": plan_text,
+            "full_name": full_name or "—",
+            "email": email or "—",
+            "role": str(role),
+        }
 
         # 2) Ask the app for its current profile snapshot
         app = self.page.winfo_toplevel()

@@ -736,20 +736,12 @@ class ResultsPage(ctk.CTkFrame):
         # --- Refresh Account Bubble (non-fatal if anything fails) ---
         try:
             profile = None
-            if hasattr(self.parent, "user_overview") and self.parent.user_overview:
-                u = self.parent.user_overview or {}
-                roles_val = u.get("roles")
-                if isinstance(roles_val, (list, tuple)):
-                    roles_str = ", ".join(str(r) for r in roles_val)
-                else:
-                    roles_str = roles_val or ""
-
-                profile = {
-                    "full_name": u.get("full_name") or u.get("name") or "User",
-                    "email": u.get("email", ""),
-                    "role": roles_str or "free",
-                    "plan": u.get("plan") or getattr(self.parent, "plan", "Free"),
-                }
+            app = self.parent
+            if hasattr(app, "fetch_user_profile"):
+                try:
+                    profile = app.fetch_user_profile()
+                except Exception:
+                    profile = None
 
             if hasattr(self, "_acct") and hasattr(self._acct, "refresh"):
                 self._acct.refresh(profile)
