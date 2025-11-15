@@ -13,7 +13,7 @@ A desktop application that identifies and analyzes cryptographic functions withi
 
 ### Installation & First Run
 
-**Option 1: Quick Setup (Recommended)**
+**Quick Setup (Recommended)**
 
 Simply run the setup batch file:
 
@@ -21,23 +21,22 @@ Simply run the setup batch file:
 setup.bat
 ```
 
-This runs installation and launches the app in one command.
+This installs dependencies and launches the app in one command.
 
-**Option 2: Manual Steps**
+**Manual Steps** (if you prefer)
 
 ```cmd
-# Install dependencies
+# Just install (without launching app)
 install.bat
 
-# Run the app
+# Launch app later
 run.bat
 ```
 
 The installer will:
-- Validate Python installation
-- Create virtual environment
-- Install all dependencies
-- Optionally download Ghidra for binary analysis
+- Validate Python 3.10+ installation
+- Create a virtual environment (`.venv` folder)
+- Install all Python packages from `requirements.txt`
 
 ### Launch Application (After Setup)
 
@@ -95,10 +94,9 @@ This will delete and recreate the virtual environment fresh.
 
 ### Installation hangs or stalls
 
-Check your antivirus software. It may be blocking Python package downloads or Ghidra installation. You can either:
+Check your antivirus software. It may be blocking Python package downloads. You can either:
 - Add the project folder to antivirus exclusions
 - Temporarily disable antivirus scanning during setup
-- Use `install.bat -SkipGhidra` to skip Ghidra and install Python dependencies only
 
 ### Files missing or corrupted
 
