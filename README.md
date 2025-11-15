@@ -11,11 +11,21 @@ A desktop application that identifies and analyzes cryptographic functions withi
 - **Disk Space:** 2GB free (for Ghidra, optional)
 - **Internet:** For initial setup and cloud features
 
-### Installation
+### Installation & First Run
 
+**Option 1: Quick Setup (Recommended)**
 ```powershell
-# Run the installer (from project root)
+.\setup.ps1
+```
+This runs installation and launches the app in one command.
+
+**Option 2: Manual Steps**
+```powershell
+# Install dependencies
 .\install.ps1
+
+# Run the app
+.\run.ps1
 ```
 
 The installer will:
@@ -24,16 +34,10 @@ The installer will:
 - Install all dependencies
 - Optionally download Ghidra for binary analysis
 
-### Launch Application
+### Launch Application (After Setup)
 
 ```powershell
 .\run.ps1
-```
-
-Or use the batch file launcher:
-
-```powershell
-.\run.bat
 ```
 
 ## Key Features
@@ -61,6 +65,7 @@ Leave blank for offline-only mode.
 ## Project Structure
 
 ```
+├── setup.ps1                    # First-time setup (recommended)
 ├── install.ps1                  # Installation script
 ├── run.ps1                      # Application launcher
 ├── src/

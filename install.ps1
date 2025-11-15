@@ -32,10 +32,6 @@ param(
     [string]$GhidraVersion = "10.1.5"
 )
 
-# ============================================================================
-# LOGGING & UTILITIES
-# ============================================================================
-
 function Write-Log {
     param([string]$Message, [string]$Level = "INFO")
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -61,10 +57,6 @@ function Exit-WithError {
     exit $Code
 }
 
-# ============================================================================
-# STEP 1: VALIDATE PYTHON
-# ============================================================================
-
 Write-Log "Step 1: Validating Python installation..."
 
 $pythonCmd = $null
@@ -76,12 +68,11 @@ foreach ($candidate in @("python", "python3", "py")) {
 }
 
 if (-not $pythonCmd) {
-    Exit-WithError "Python not found on PATH. Please install Python 3.10-3.13 and ensure it's added to PATH."
+    Exit-WithError "Python not found on PATH. Please install Python 3.10-3.13 and ensure it is added to PATH."
 }
 
 Write-Log "Found Python: $pythonCmd"
 
-# Get Python version
 $versionOutput = & $pythonCmd --version 2>&1
 $versionMatch = $versionOutput -match "(\d+\.\d+)"
 if (-not $versionMatch) {
@@ -97,13 +88,9 @@ if ($pyVersion -lt [version]"3.10" -or $pyVersion -ge [version]"3.14") {
 
 Write-Log "Python version OK" "SUCCESS"
 
-# ============================================================================
-# STEP 2: CREATE VIRTUAL ENVIRONMENT
-# ============================================================================
-
 Write-Log "Step 2: Setting up virtual environment..."
 
-$repoRoot = Split-Path -Parent $PSScriptRoot
+$repoRoot = $PSScriptRoot
 if (-not $repoRoot) { $repoRoot = Get-Location }
 
 $venvPath = Join-Path $repoRoot ".venv"
@@ -111,9 +98,15 @@ $venvPath = Join-Path $repoRoot ".venv"
 if (Test-Path $venvPath) {
     if ($Force) {
         Write-Log "Removing existing venv..."
-        Remove-Item -LiteralPath $venvPath -Recurse -Force -ErrorAction SilentlyContinue
+        try {
+            Remove-Item -LiteralPath $venvPath -Recurse -Force -ErrorAction Stop
+            Write-Log "venv deleted successfully" "SUCCESS"
+        } catch {
+            Exit-WithError "Failed to delete existing venv. Try closing terminals or run with admin privileges."
+        }
     } else {
         Write-Log "Virtual environment already exists at $venvPath" "SUCCESS"
+        Write-Log "Use -Force flag to reinstall: .\install.ps1 -Force"
     }
 }
 
@@ -127,15 +120,10 @@ if (-not (Test-Path $venvPath)) {
 
 Write-Log "Virtual environment ready" "SUCCESS"
 
-# Determine pip command
 $pipPath = Join-Path $venvPath "Scripts\pip.exe"
 if (-not (Test-Path $pipPath)) {
     Exit-WithError "pip not found in venv at $pipPath"
 }
-
-# ============================================================================
-# STEP 3: INSTALL PYTHON DEPENDENCIES
-# ============================================================================
 
 Write-Log "Step 3: Installing Python dependencies..."
 
@@ -145,30 +133,28 @@ if (-not (Test-Path $requirementsPath)) {
 }
 
 Write-Log "Installing packages from $requirementsPath..."
-& $pipPath install -r $requirementsPath
+& $pipPath install -q --no-cache-dir -r $requirementsPath
 if ($LASTEXITCODE -ne 0) {
-    Exit-WithError "Failed to install Python dependencies"
+    Write-Log "Retrying without cache optimization..."
+    & $pipPath install -r $requirementsPath
+    if ($LASTEXITCODE -ne 0) {
+        Exit-WithError "Failed to install Python dependencies"
+    }
 }
 
 Write-Log "Python dependencies installed" "SUCCESS"
-
-# ============================================================================
-# STEP 4: SETUP GHIDRA (Optional)
-# ============================================================================
 
 if ($SkipGhidra) {
     Write-Log "Skipping Ghidra setup (--SkipGhidra)"
 } else {
     Write-Log "Step 4: Setting up Ghidra..."
 
-    # Determine install directory
     $localApp = $env:LOCALAPPDATA
     if (-not $localApp) { $localApp = "$env:USERPROFILE\AppData\Local" }
 
     $ghidraBase = Join-Path $localApp "Ghidra"
     $ghidraInstallDir = Join-Path $ghidraBase ("ghidra_" + $GhidraVersion)
 
-    # Check if already installed
     $ghidraAnalyzer = @(
         (Join-Path $ghidraInstallDir "support\analyzeHeadless.bat"),
         (Join-Path $ghidraInstallDir "analyzeHeadless.bat")
@@ -183,7 +169,6 @@ if ($SkipGhidra) {
         New-Item -ItemType Directory -Path $tempDir | Out-Null
 
         try {
-            # Download
             $downloadUrl = "https://ghidra-sre.org/ghidra_${GhidraVersion}_PUBLIC.zip"
             $zipFile = Join-Path $tempDir "ghidra.zip"
 
@@ -191,14 +176,12 @@ if ($SkipGhidra) {
             Invoke-WebRequest -Uri $downloadUrl -OutFile $zipFile -UseBasicParsing -ErrorAction Stop
             Write-Log "Download complete" "SUCCESS"
 
-            # Extract
             $extractDir = Join-Path $tempDir "extract"
             New-Item -ItemType Directory -Path $extractDir | Out-Null
 
             Write-Log "Extracting archive..."
             Expand-Archive -LiteralPath $zipFile -DestinationPath $extractDir -Force
 
-            # Find the extracted folder
             $children = @(Get-ChildItem -Path $extractDir -Directory)
             if ($children.Count -eq 1) {
                 $extractedDir = $children[0].FullName
@@ -206,7 +189,6 @@ if ($SkipGhidra) {
                 $extractedDir = $extractDir
             }
 
-            # Move to final location
             if (Test-Path $ghidraInstallDir) {
                 if ($Force) {
                     Write-Log "Force remove existing installation..."
@@ -223,7 +205,6 @@ if ($SkipGhidra) {
             Write-Log "Installing Ghidra to $ghidraInstallDir..."
             Move-Item -LiteralPath $extractedDir -Destination $ghidraInstallDir -Force
 
-            # Verify installation
             $analyzerPath = @(
                 (Join-Path $ghidraInstallDir "support\analyzeHeadless.bat"),
                 (Join-Path $ghidraInstallDir "analyzeHeadless.bat")
@@ -236,21 +217,15 @@ if ($SkipGhidra) {
                 Write-Log "Warning: analyzeHeadless not found (installation may be incomplete)" "WARN"
             }
 
-            # Persist install path to config
             Persist-GhidraConfig $ghidraInstallDir
 
         } finally {
-            # Cleanup temp files
             if (Test-Path $tempDir) {
                 Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
             }
         }
     }
 }
-
-# ============================================================================
-# STEP 5: VALIDATE INSTALLATION
-# ============================================================================
 
 Write-Log "Step 5: Validating installation..."
 
@@ -259,7 +234,6 @@ if (-not (Test-Path $appPyPath)) {
     Exit-WithError "app.py not found at $appPyPath"
 }
 
-# Test Python can import basic modules
 $pythonExe = Join-Path $venvPath "Scripts\python.exe"
 & $pythonExe -c "import customtkinter; import supabase" 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
@@ -268,14 +242,8 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Log "All dependencies validated" "SUCCESS"
 
-# ============================================================================
-# COMPLETION
-# ============================================================================
-
 Write-Log ""
-Write-Log "╔════════════════════════════════════════════════════════════╗" -Level "SUCCESS"
-Write-Log "║           Installation Complete! 🎉                       ║" -Level "SUCCESS"
-Write-Log "╚════════════════════════════════════════════════════════════╝" -Level "SUCCESS"
+Write-Log "Installation Complete!" -Level "SUCCESS"
 Write-Log ""
 Write-Log "Next step: Run the application with:"
 Write-Log ""
@@ -283,10 +251,6 @@ Write-Log "  .\run.ps1"
 Write-Log ""
 
 exit 0
-
-# ============================================================================
-# HELPER FUNCTIONS
-# ============================================================================
 
 function Persist-GhidraConfig {
     param([string]$GhidraPath)
@@ -324,6 +288,6 @@ function Persist-GhidraConfig {
 
         Write-Log "Ghidra config saved to $configPath"
     } catch {
-        Write-Log "Failed to persist Ghidra config: $_" "WARN"
+        Write-Log "Warning: Could not save Ghidra config" "WARN"
     }
 }
