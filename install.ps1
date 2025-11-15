@@ -180,7 +180,20 @@ if ($SkipGhidra) {
             New-Item -ItemType Directory -Path $extractDir | Out-Null
 
             Write-Log "Extracting archive..."
-            Expand-Archive -LiteralPath $zipFile -DestinationPath $extractDir -Force
+            try {
+                Expand-Archive -LiteralPath $zipFile -DestinationPath $extractDir -Force -ErrorAction Stop
+            } catch {
+                Write-Log "Failed to extract with Expand-Archive, attempting workaround..." "WARN"
+                Write-Log "Using alternative extraction method..."
+
+                # Fallback: Try using .NET compression directly
+                try {
+                    Add-Type -AssemblyName System.IO.Compression.FileSystem
+                    [System.IO.Compression.ZipFile]::ExtractToDirectory($zipFile, $extractDir, $true)
+                } catch {
+                    Exit-WithError "Failed to extract Ghidra archive: $($_.Exception.Message). The downloaded file may be corrupted. Try again or download manually from https://ghidra-sre.org/"
+                }
+            }
 
             $children = @(Get-ChildItem -Path $extractDir -Directory)
             if ($children.Count -eq 1) {
