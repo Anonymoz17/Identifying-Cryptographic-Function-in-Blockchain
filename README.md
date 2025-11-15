@@ -13,27 +13,34 @@ A desktop application that identifies and analyzes cryptographic functions withi
 
 ### Installation & First Run
 
-Run this command **once** in PowerShell:
+**Option 1: Quick Setup (Easiest - Recommended)**
 
+Double-click `setup.bat` in the project folder. That's it! It will:
+- Handle all technical setup automatically
+- Launch the app when done
+
+Or from PowerShell:
 ```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+.\setup.bat
 ```
 
-This allows locally-created scripts (like setup.ps1) to run while maintaining security for downloaded scripts. You will not need to run this again. **Note:** If multiple users share the computer, each user must run this command once in their own session.
+**Option 2: Manual Steps (PowerShell)**
 
-**Option 1: Quick Setup (Recommended)**
-```powershell
-.\setup.ps1
-```
-This runs installation and launches the app in one command.
-
-**Option 2: Manual Steps**
 ```powershell
 # Install dependencies
-.\install.ps1
+.\install.bat
 
-# Run the app
-.\run.ps1
+# Run the app (after setup completes)
+.\run.bat
+```
+
+Or use PowerShell directly:
+```powershell
+# First, set execution policy (one-time only)
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+# Then:
+.\setup.ps1
 ```
 
 The installer will:
@@ -70,6 +77,26 @@ Leave blank for offline-only mode.
 
 ---
 
+## Troubleshooting
+
+### Setup fails with "cannot be loaded" or "not digitally signed"
+
+Use the batch file instead of PowerShell:
+
+```powershell
+.\setup.bat
+```
+
+Or double-click `setup.bat` in File Explorer. The batch file automatically handles PowerShell execution policies.
+
+If you prefer using PowerShell directly, run this once:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+Then you can use `.\setup.ps1` directly.
+
 ### Python version error
 
 Ensure Python 3.10, 3.11, or 3.13 is installed and in your PATH:
@@ -90,6 +117,11 @@ Running as admin can cause permission issues when launching the application late
 
 If you see errors about the virtual environment or modules not found:
 
+```powershell
+.\install.bat
+```
+
+Or with PowerShell:
 ```powershell
 .\install.ps1 -Force
 ```
@@ -124,9 +156,12 @@ Make sure you ran the setup process completely and didn't move the project folde
 ## Project Structure
 
 ```
-├── setup.ps1                    # First-time setup (recommended)
-├── install.ps1                  # Installation script
-├── run.ps1                      # Application launcher
+├── setup.bat                    # Quick setup (double-click or run)
+├── setup.ps1                    # First-time setup (PowerShell)
+├── install.bat                  # Install dependencies
+├── install.ps1                  # Installation script (PowerShell)
+├── run.bat                      # Launch app (double-click or run)
+├── run.ps1                      # Application launcher (PowerShell)
 ├── src/
 │   ├── app.py                   # Main application
 │   ├── auditor/                 # Analysis engine
