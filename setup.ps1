@@ -32,6 +32,43 @@ Write-Host ""
 Write-Host "CryptoScope - First-Time Setup" -ForegroundColor Cyan
 Write-Host ""
 
+# Validate required files
+Write-Host "Validating project files..." -ForegroundColor Yellow
+$requiredFiles = @(
+    "install.ps1",
+    "run.ps1",
+    "requirements.txt",
+    "src\app.py"
+)
+
+$missingFiles = @()
+foreach ($file in $requiredFiles) {
+    $filePath = Join-Path $repoRoot $file
+    if (-not (Test-Path $filePath)) {
+        $missingFiles += $file
+    }
+}
+
+if ($missingFiles.Count -gt 0) {
+    Write-Host ""
+    Write-Host "ERROR: Missing required files:" -ForegroundColor Red
+    foreach ($file in $missingFiles) {
+        Write-Host "  - $file" -ForegroundColor Red
+    }
+    Write-Host ""
+    Write-Host "This may indicate:" -ForegroundColor Yellow
+    Write-Host "  1. Incomplete download or extraction" -ForegroundColor Yellow
+    Write-Host "  2. Files were deleted or moved" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Please download the complete project from:" -ForegroundColor Cyan
+    Write-Host "  https://github.com/Anonymoz17/Identifying-Cryptographic-Function-in-Blockchain" -ForegroundColor Cyan
+    Write-Host ""
+    exit 1
+}
+
+Write-Host "Project files validated" -ForegroundColor Green
+Write-Host ""
+
 $installArgs = @()
 if ($SkipGhidra) { $installArgs += "-SkipGhidra" }
 if ($Force) { $installArgs += "-Force" }
