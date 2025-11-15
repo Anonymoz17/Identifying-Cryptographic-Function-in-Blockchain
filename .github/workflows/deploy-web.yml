@@ -1,10 +1,10 @@
-name: Deploy Vite React app to GitHub Pages
+name: Deploy Cryptoscope web to GitHub Pages
 
 on:
   push:
     branches:
-      - main   # change if your default branch is different
-  workflow_dispatch:  # allow manual runs from Actions tab
+      - main        # change if your default branch is different
+  workflow_dispatch:  # allow manual trigger in Actions tab
 
 permissions:
   contents: read
@@ -14,6 +14,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web   # <<< all commands run inside web/
 
     steps:
       - name: Checkout
@@ -24,19 +27,16 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install dependencies (web/)
-        working-directory: web
-        run: npm install
+      - name: Install dependencies
+        run: npm ci || npm install
 
-      - name: Build (web/)
-        working-directory: web
-        run: npm run build
+      - name: Build
+        run: npm run build       # uses web/package.json → "vite build"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # IMPORTANT: point to web/dist, not just dist
-          path: web/dist
+          path: web/dist         # built files are in web/dist
 
   deploy:
     needs: build
