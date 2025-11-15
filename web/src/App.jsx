@@ -367,7 +367,7 @@ function Pricing({ onRequireAuth }) {
       price: "$0",
       tagline: "For quick checks & students",
       cta: plan === "free" ? "Current plan" : "Start Free",
-      features: ["Single-file scans", "Pay-per file scan"],
+      features: ["File scanning", "5 free scans"],
     },
     {
       name: "Premium",
@@ -375,7 +375,7 @@ function Pricing({ onRequireAuth }) {
       tagline: "For professional audits",
       cta: plan === "premium" ? "Current plan" : "Go Premium",
       featured: true,
-      features: ["Unlimited scans", "NDJSON streaming", "Diffable audit history"],
+      features: ["File Scanning", "Unlimited scans"],
     },
   ];
 
