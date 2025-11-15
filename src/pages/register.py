@@ -274,10 +274,10 @@ class RegisterPage(ctk.CTkFrame):
         if isinstance(result, dict):
             msg = result.get(
                 "message",
-                "Registration successful! Check your email to verify.",
+                "Registration successful! Return to Login to Log in.",
             )
         else:
-            msg = "Registration successful! Check your email to verify."
+            msg = "Registration successful! Return to Login to Log in."
 
         self._set_status(msg, error=False)
 
