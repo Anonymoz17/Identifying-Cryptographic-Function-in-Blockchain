@@ -346,15 +346,34 @@ class SetupPage(ctk.CTkFrame):
         AdvancedOptionsWindow(self._parent_win(), initial=self.adv_config, on_apply=_apply)
 
     def _open_workdir(self):
-        import webbrowser
+        """Open the workdir (case path) in the file explorer."""
+        import os
+        import sys
+
         wd = (self.workdir_entry.get() or "").strip() or str(Path.cwd() / "case_demo")
         case_id = (self.case_entry.get() or "").strip() or "CASE-000"
+
         try:
-            from auditor.workspace import Workspace
-            ws = Workspace(Path(wd), case_id); ws.ensure()
-            webbrowser.open(ws.root.as_uri())
-        except Exception:
-            self._set_status(f"Could not open folder: {wd}", True)
+            # Construct the full case path
+            case_path = Path(wd) / case_id
+
+            # Ensure the path exists (create if needed)
+            case_path.mkdir(parents=True, exist_ok=True)
+
+            # Convert to absolute path
+            case_path = case_path.resolve()
+
+            # Open in file explorer based on platform
+            if sys.platform == "win32":
+                os.startfile(str(case_path))
+            elif sys.platform == "darwin":  # macOS
+                os.system(f"open '{case_path}'")
+            else:  # Linux and others
+                os.system(f"xdg-open '{case_path}'")
+
+            self._set_status(f"✓ Opened: {case_path}")
+        except Exception as e:
+            self._set_status(f"Could not open folder: {wd} ({str(e)})", True)
 
     def _toggle_console(self):
         try:
