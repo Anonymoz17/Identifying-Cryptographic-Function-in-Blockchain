@@ -8,9 +8,18 @@
     "preview": "vite preview"
   },
   "dependencies": {
-
+    "@supabase/supabase-js": "^2.76.1",
+    "framer-motion": "^12.23.24",
+    "lucide-react": "^0.553.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
-
+    "@tailwindcss/postcss": "^4.1.17",
+    "@vitejs/plugin-react": "^4.1.0",
+    "autoprefixer": "^10.4.22",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.17",
+    "vite": "^5.4.0"
   }
 }
