@@ -13,27 +13,24 @@ A desktop application that identifies and analyzes cryptographic functions withi
 
 ### Installation & First Run
 
-Run this command **once** in PowerShell:
-
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-
-This allows locally-created scripts (like setup.ps1) to run while maintaining security for downloaded scripts. You will not need to run this again. **Note:** If multiple users share the computer, each user must run this command once in their own session.
-
 **Option 1: Quick Setup (Recommended)**
-```powershell
-.\setup.ps1
+
+Simply run the setup batch file:
+
+```cmd
+setup.bat
 ```
+
 This runs installation and launches the app in one command.
 
 **Option 2: Manual Steps**
-```powershell
+
+```cmd
 # Install dependencies
-.\install.ps1
+install.bat
 
 # Run the app
-.\run.ps1
+run.bat
 ```
 
 The installer will:
@@ -44,8 +41,8 @@ The installer will:
 
 ### Launch Application (After Setup)
 
-```powershell
-.\run.ps1
+```cmd
+run.bat
 ```
 
 ## Key Features
@@ -72,9 +69,9 @@ Leave blank for offline-only mode.
 
 ### Python version error
 
-Ensure Python 3.10, 3.11, or 3.13 is installed and in your PATH:
+Ensure Python 3.10, 3.11, 3.12, or 3.13 is installed and in your PATH:
 
-```powershell
+```cmd
 python --version
 ```
 
@@ -82,7 +79,7 @@ If this doesn't work, you may need to add Python to PATH. During Python installa
 
 ### "Running as Administrator" warning
 
-**Do not run as Administrator.** Close the PowerShell window and run setup.ps1 or install.ps1 as your regular user.
+**Do not run as Administrator.** Close the command prompt and run `setup.bat` or `install.bat` as your regular user.
 
 Running as admin can cause permission issues when launching the application later.
 
@@ -90,8 +87,8 @@ Running as admin can cause permission issues when launching the application late
 
 If you see errors about the virtual environment or modules not found:
 
-```powershell
-.\install.ps1 -Force
+```cmd
+install.bat -Force
 ```
 
 This will delete and recreate the virtual environment fresh.
@@ -101,14 +98,14 @@ This will delete and recreate the virtual environment fresh.
 Check your antivirus software. It may be blocking Python package downloads or Ghidra installation. You can either:
 - Add the project folder to antivirus exclusions
 - Temporarily disable antivirus scanning during setup
-- Use `.\install.ps1 -SkipGhidra` to skip Ghidra and install Python dependencies only
+- Use `install.bat -SkipGhidra` to skip Ghidra and install Python dependencies only
 
 ### Files missing or corrupted
 
-If setup.ps1 fails with "Missing required files" errors:
+If setup.bat fails with "Missing required files" errors:
 1. Download the complete project again from GitHub
 2. Extract it to a new folder
-3. Run `.\setup.ps1`
+3. Run `setup.bat`
 
 Do not delete or move files from the project folder after extraction.
 
@@ -116,17 +113,17 @@ Do not delete or move files from the project folder after extraction.
 
 Make sure you ran the setup process completely and didn't move the project folder:
 1. Close any running Python processes or IDE terminals
-2. Run: `.\install.ps1 -Force`
-3. Then run: `.\run.ps1`
+2. Run: `install.bat -Force`
+3. Then run: `run.bat`
 
 ---
 
 ## Project Structure
 
 ```
-├── setup.ps1                    # First-time setup (recommended)
-├── install.ps1                  # Installation script
-├── run.ps1                      # Application launcher
+├── setup.bat                    # First-time setup (recommended)
+├── install.bat                  # Installation script
+├── run.bat                      # Application launcher
 ├── src/
 │   ├── app.py                   # Main application
 │   ├── auditor/                 # Analysis engine
