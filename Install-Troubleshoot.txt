@@ -5,11 +5,11 @@
 
 ┌─ FIRST TIME SETUP (QUICK!) ────────────────────────────────────────────────┐
 │                                                                             │
-│  1. Open PowerShell                                                        │
+│  1. Open Command Prompt or PowerShell                                      │
 │  2. Navigate to project folder:                                            │
-│     $ cd C:\path\to\project                                                │
+│     > cd C:\path\to\project                                                │
 │  3. Run setup (installs + launches):                                       │
-│     $ .\setup.ps1                                                          │
+│     > setup.bat                                                            │
 │     (This will take 5-10 minutes, then app opens automatically)            │
 │                                                                             │
 │  THAT'S IT!                                                                │
@@ -18,29 +18,26 @@
 
 ┌─ NEXT TIME (Just Run!) ────────────────────────────────────────────────────┐
 │                                                                             │
-│  $ .\run.ps1                                                               │
+│  > run.bat                                                                 │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─ COMMON COMMANDS ──────────────────────────────────────────────────────────┐
 │                                                                             │
 │  First-time setup (installs + launches):                                   │
-│    $ .\setup.ps1                                                           │
+│    > setup.bat                                                             │
 │                                                                             │
-│  Install only (Python + Ghidra):                                           │
-│    $ .\install.ps1                                                         │
+│  Install only:                                                             │
+│    > install.bat                                                           │
 │                                                                             │
-│  Install (Python only, skip Ghidra):                                       │
-│    $ .\install.ps1 -SkipGhidra                                             │
+│  Reinstall everything (clears .venv and reinstalls):                       │
+│    > install.bat -Force                                                    │
 │                                                                             │
-│  Reinstall everything:                                                     │
-│    $ .\install.ps1 -Force                                                  │
-│                                                                             │
-│  Run app:                                                                  │
-│    $ .\run.ps1                                                             │
+│  Run app (after setup):                                                    │
+│    > run.bat                                                               │
 │                                                                             │
 │  Activate virtual environment manually:                                    │
-│    $ .venv\Scripts\Activate.ps1                                            │
+│    > .venv\Scripts\Activate.bat                                            │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 
@@ -48,18 +45,18 @@
 │                                                                             │
 │  "Python not found"                                                        │
 │    → Install Python 3.10-3.13 from python.org                              │
-│    → Restart PowerShell after install                                      │
-│    → Verify: $ python --version                                            │
+│    → Restart Command Prompt after install                                  │
+│    → Verify: > python --version                                            │
 │                                                                             │
 │  "Installation failed"                                                     │
 │    → Check internet connection                                             │
-│    → Try again: $ .\install.ps1 -Force                                     │
+│    → Try again: > install.bat -Force                                       │
 │    → Check if you have 2GB free disk space                                 │
 │                                                                             │
 │  "Can't run app"                                                           │
-│    → Make sure install.ps1 completed successfully                          │
-│    → Run .\run.ps1 from project root (not from subdirectories)             │
-│    → Try: .\install.ps1 -Force                                             │
+│    → Make sure install.bat completed successfully                          │
+│    → Run run.bat from project root (not from subdirectories)               │
+│    → Try: > install.bat -Force                                             │
 │                                                                             │
 │  For more help, see README.md or QUICKSTART.md                             │
 │                                                                             │
@@ -67,9 +64,9 @@
 
 ┌─ FILES YOU NEED TO KNOW ABOUT ─────────────────────────────────────────────┐
 │                                                                             │
-│  ✅ setup.ps1       ← Run this first (installs + launches)                 │
-│  ✅ install.ps1     ← Run this if you want just installation               │
-│  ✅ run.ps1         ← Run this every time after setup (launches app)       │
+│  ✅ setup.bat       ← Run this first (installs + launches)                 │
+│  ✅ install.bat     ← Run this if you want just installation               │
+│  ✅ run.bat         ← Run this every time after setup (launches app)       │
 │  📖 README.md       ← Full documentation                                   │
 │  📖 QUICKSTART.md   ← Quick reference guide                                │
 │                                                                             │
@@ -81,37 +78,27 @@
 │  • Python 3.10, 3.11, 3.12, or 3.13                                        │
 │  • ~2 GB free disk space (for Ghidra)                                      │
 │  • Internet connection (for downloads)                                     │
-│  • PowerShell (usually pre-installed on Windows)                           │
+│  • Command Prompt or PowerShell (usually pre-installed on Windows)         │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─ ADVANCED OPTIONS ─────────────────────────────────────────────────────────┐
 │                                                                             │
-│  Custom Ghidra version:                                                    │
-│    $ .\install.ps1 -GhidraVersion 10.0                                     │
-│                                                                             │
-│  Python only (no Ghidra):                                                  │
-│    $ .\install.ps1 -SkipGhidra                                             │
-│                                                                             │
 │  Force reinstall (removes .venv and starts over):                          │
-│    $ .\install.ps1 -Force                                                  │
-│                                                                             │
-│  View help:                                                                │
-│    $ Get-Help .\install.ps1                                                │
+│    > install.bat -Force                                                    │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 
-┌─ WHAT INSTALL.PS1 DOES ────────────────────────────────────────────────────┐
+┌─ WHAT INSTALL.BAT DOES ────────────────────────────────────────────────────┐
 │                                                                             │
-│  ✅ Checks Python version (3.10-3.13)                                      │
+│  ✅ Checks Python 3.10+ is installed                                       │
 │  ✅ Creates virtual environment (.venv folder)                             │
-│  ✅ Installs Python packages (from requirements.txt)                       │
-│  ✅ Downloads Ghidra (if not already installed)                            │
-│  ✅ Verifies everything works                                              │
+│  ✅ Installs all Python packages (from requirements.txt)                   │
+│  ✅ Verifies imports work correctly                                        │
 │  ✅ Shows "Installation Complete!" when done                               │
 │                                                                             │
-│  Total Time: 5-10 minutes (first time)                                     │
-│              ~30 seconds (if already installed)                            │
+│  Total Time: 2-5 minutes (first time)                                      │
+│              ~10 seconds (if already installed)                            │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 
@@ -128,7 +115,7 @@
 
                               ONE SIMPLE STEP:
 
-                             .\setup.ps1
+                             setup.bat
 
                   (Installs everything and launches the app!)
 
