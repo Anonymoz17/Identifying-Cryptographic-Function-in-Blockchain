@@ -13,6 +13,14 @@ A desktop application that identifies and analyzes cryptographic functions withi
 
 ### Installation & First Run
 
+Run this command **once** in PowerShell:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+This allows locally-created scripts (like setup.ps1) to run while maintaining security for downloaded scripts. You will not need to run this again. **Note:** If multiple users share the computer, each user must run this command once in their own session.
+
 **Option 1: Quick Setup (Recommended)**
 ```powershell
 .\setup.ps1
@@ -61,20 +69,6 @@ SUPABASE_ANON_KEY=your-anon-key
 Leave blank for offline-only mode.
 
 ---
-
-## Troubleshooting
-
-### "Cannot be loaded because running scripts is disabled"
-
-On Windows, you may need to allow PowerShell scripts to run. Run this command **once** in PowerShell:
-
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-
-This allows locally-created scripts (like setup.ps1) to run while maintaining security for downloaded scripts. You will not need to run this again.
-
-**Note:** If multiple users share the computer, each user must run this command once in their own session.
 
 ### Python version error
 
