@@ -698,6 +698,22 @@ class SetupPage(ctk.CTkFrame):
         except Exception:
             pass
 
+        # Refresh Account Bubble with the same profile as Detectors / Results
+        try:
+            app = self.master
+            profile = None
+            if hasattr(app, "fetch_user_profile"):
+                try:
+                    profile = app.fetch_user_profile()
+                except Exception:
+                    profile = None
+
+            if hasattr(self, "_acct") and hasattr(self._acct, "refresh"):
+                self._acct.refresh(profile)
+        except Exception:
+            pass
+
+
     def on_resize(self, w, h):
         pass
 

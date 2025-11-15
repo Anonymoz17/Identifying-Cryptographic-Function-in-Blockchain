@@ -276,18 +276,51 @@ class LandingPage(ctk.CTkFrame):
 
     # ===== Account bubble =====
     def _toggle_account_bubble(self):
-        """Open/close a small profile window with user info. Safe defaults if app has no user."""
+        """Open/close a small profile window with user info (Name, Email, Role)."""
         if self._acct_win and self._acct_win.winfo_exists():
             self._acct_win.destroy()
             self._acct_win = None
             return
 
         app = self.winfo_toplevel()
-        # Try to fetch details from app; fall back to safe defaults
-        user = getattr(app, "current_user", {}) or {}
-        email = user.get("email") or getattr(app, "user_email", "user@example.com")
-        name = user.get("name") or getattr(app, "user_name", "User")
-        tier = getattr(app, "account_tier", "Free")
+
+        # Defaults
+        profile = {
+            "full_name": "User",
+            "email": "user@example.com",
+            "role": "free",
+        }
+
+        # Prefer the same profile snapshot used by Detectors / Results / Setup
+        if hasattr(app, "fetch_user_profile"):
+            try:
+                p = app.fetch_user_profile() or {}
+                if p.get("full_name"):
+                    profile["full_name"] = p["full_name"]
+                if p.get("email"):
+                    profile["email"] = p["email"]
+                if p.get("role"):
+                    profile["role"] = p["role"]
+            except Exception:
+                pass
+        else:
+            # Fallback: read from app.current_user / current_user_role
+            try:
+                user = getattr(app, "current_user", {}) or {}
+                email = user.get("email") or getattr(app, "user_email", None)
+                name = user.get("name") or getattr(app, "user_name", None)
+                role = getattr(app, "current_user_role", None)
+
+                if name:
+                    profile["full_name"] = name
+                if email:
+                    profile["email"] = email
+                if role:
+                    profile["role"] = role
+            except Exception:
+                pass
+
+        role_label = str(profile["role"]).capitalize() if profile["role"] else "Free"
 
         win = ctk.CTkToplevel(self)
         win.title("Account")
@@ -306,12 +339,17 @@ class LandingPage(ctk.CTkFrame):
         body.grid_columnconfigure(1, weight=1)
 
         def row(r, k, v):
-            ctk.CTkLabel(body, text=k, font=BODY_FONT, text_color=MUTED).grid(row=r, column=0, sticky="w", padx=12, pady=6)
-            ctk.CTkLabel(body, text=v, font=BODY_FONT, text_color=TEXT).grid(row=r, column=1, sticky="w", padx=12, pady=6)
+            ctk.CTkLabel(body, text=k, font=BODY_FONT, text_color=MUTED).grid(
+                row=r, column=0, sticky="w", padx=12, pady=6
+            )
+            ctk.CTkLabel(body, text=v, font=BODY_FONT, text_color=TEXT).grid(
+                row=r, column=1, sticky="w", padx=12, pady=6
+            )
 
-        row(0, "Name", name)
-        row(1, "Email", email)
-        row(2, "Plan", tier)
+        # Standardised order: Name, Email, Role
+        row(0, "Name", profile["full_name"])
+        row(1, "Email", profile["email"])
+        row(2, "Role", role_label)
 
         btns = ctk.CTkFrame(win, fg_color="transparent")
         btns.grid(row=2, column=0, sticky="e", padx=16, pady=(0, 14))
