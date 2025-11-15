@@ -10,6 +10,7 @@ import json
 import os
 import threading
 import tkinter as tk
+import webbrowser
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 
@@ -26,6 +27,8 @@ from ui.theme import (
     PLATE_BG, PLATE_BORDER,
 )
 
+UPGRADE_URL = "https://your-cryptoscope-landing-url.example.com/#pricing"
+
 
 class DetectorsPage(ctk.CTkFrame):
     """Detectors page for static analysis."""
@@ -41,6 +44,11 @@ class DetectorsPage(ctk.CTkFrame):
         self._standalone_mode = False
         self._loaded_case_workdir: Optional[str] = None
         self._available_hashes: Dict[str, str] = {}
+
+        # Premium gate overlay (shown when free-tier limit reached)
+        self._premium_overlay: Optional[ctk.CTkFrame] = None
+        self._premium_message_label: Optional[ctk.CTkLabel] = None
+
 
         # ===== Main content container =====
         content = ctk.CTkFrame(self, fg_color=BG)
@@ -490,6 +498,25 @@ class DetectorsPage(ctk.CTkFrame):
         if self._analysis_running:
             return
 
+        # --- Access control: free vs premium scan quota ---
+        app = self.master  # App is the parent window/root
+
+        if hasattr(app, "can_run_scan"):
+            allowed, message = app.can_run_scan()
+
+            if not allowed:
+                # Hard block: no more scans for this plan
+                self._set_status("Scan limit reached for your plan.", error=True)
+                if message:
+                    self._log_console(message)
+                # Show full-page premium gate overlay with quota-aware message
+                self._show_premium_gate(message or "Free plan limit reached.")
+                return
+
+            # Allowed but show remaining scans, if any
+            if message:
+                self._log_console(message)
+
         try:
             if self._loaded_case_workdir:
                 self._case_workdir = self._loaded_case_workdir
@@ -504,6 +531,7 @@ class DetectorsPage(ctk.CTkFrame):
             return
 
         self._analysis_running = True
+
         self.run_static_btn.configure(state="disabled")
         self.cancel_static_btn.configure(state="normal")
         self.open_results_btn.configure(state="disabled")
@@ -695,7 +723,16 @@ class DetectorsPage(ctk.CTkFrame):
                 self._log_console(f"Batch analysis completed with {errors} error(s)")
             else:
                 self._set_status(f"✅ Batch completed: {successes} binaries analyzed ({cached} cached)", error=False)
-                self._log_console(f"Batch analysis completed successfully!")
+                self._log_console("Batch analysis completed successfully!")
+
+            # Record one completed scan for quota purposes
+            app = self.master
+            if hasattr(app, "record_scan_completed"):
+                try:
+                    app.record_scan_completed()
+                except Exception:
+                    # Never let quota bookkeeping crash the UI
+                    pass
 
             # Display aggregated results
             self._display_batch_results()
@@ -714,6 +751,146 @@ class DetectorsPage(ctk.CTkFrame):
             self._set_status(f"Batch completed: {successes} binaries analyzed ({cached} cached)")
 
         self._display_batch_results()
+
+    # ---------- Premium gate overlay ----------
+
+    def _show_premium_gate(self, message: str):
+        """
+        Show a full-page overlay that blocks interaction and prompts the
+        user to upgrade to premium on the landing website.
+
+        Uses App.user_overview to show how many free scans were used.
+        """
+        # Build a quota summary line from the App state
+        quota_summary = ""
+        try:
+            app = self.master
+            uo = getattr(app, "user_overview", None) or {}
+            tier = (uo.get("tier") or getattr(app, "current_user_role", "free")).lower()
+
+            if tier != "premium":
+                used = int(uo.get("analysis_count") or 0)
+                limit = int(
+                    uo.get("analysis_quota_limit")
+                    or getattr(app, "FREE_SCAN_LIMIT", 5)
+                )
+                quota_summary = f"Free plan usage: {used}/{limit} scans."
+        except Exception:
+            # Best-effort; overlay still works without quota text
+            quota_summary = ""
+
+        final_message_lines = [message]
+        if quota_summary:
+            final_message_lines.append("")
+            final_message_lines.append(quota_summary)
+        final_message = "\n".join(final_message_lines)
+
+        # If overlay already exists, just update message and re-show it
+        if self._premium_overlay is not None:
+            try:
+                if self._premium_message_label is not None:
+                    self._premium_message_label.configure(text=final_message)
+            except Exception:
+                pass
+            self._premium_overlay.lift()
+            self._premium_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+            return
+
+        # Full overlay over this page
+        overlay = ctk.CTkFrame(self, fg_color=BG)
+        overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+        overlay.grid_rowconfigure(0, weight=1)
+        overlay.grid_columnconfigure(0, weight=1)
+
+        # Centered card
+        card = ctk.CTkFrame(
+            overlay,
+            fg_color=CARD_BG,
+            corner_radius=16,
+            border_width=1,
+            border_color=BORDER,
+        )
+        card.grid(row=0, column=0, padx=40, pady=40, sticky="nsew")
+        card.grid_rowconfigure(3, weight=1)
+        card.grid_columnconfigure(0, weight=1)
+
+        title = ctk.CTkLabel(
+            card,
+            text="Upgrade to CryptoScope Premium",
+            font=TITLE_FONT,
+            text_color=TEXT,
+        )
+        title.grid(row=0, column=0, sticky="w", padx=24, pady=(24, 8))
+
+        desc = ctk.CTkLabel(
+            card,
+            text=(
+                "You’ve reached the free-tier scan limit.\n"
+                "Upgrade on the CryptoScope landing website to unlock unlimited analyses "
+                "and advanced detections."
+            ),
+            font=BODY_FONT,
+            text_color=MUTED,
+            justify="left",
+        )
+        desc.grid(row=1, column=0, sticky="w", padx=24, pady=(0, 8))
+
+        msg_label = ctk.CTkLabel(
+            card,
+            text=final_message,
+            font=BODY_FONT,
+            text_color=TEXT,
+            justify="left",
+        )
+        msg_label.grid(row=2, column=0, sticky="w", padx=24, pady=(0, 16))
+
+        # Button row
+        btn_row = ctk.CTkFrame(card, fg_color="transparent")
+        btn_row.grid(row=4, column=0, sticky="e", padx=24, pady=(0, 24))
+
+        upgrade_btn = ctk.CTkButton(
+            btn_row,
+            text="Upgrade on Website",
+            fg_color=PRIMARY,
+            hover_color=PRIMARY_H,
+            text_color="#041007",
+            command=self._open_upgrade_website,
+        )
+        upgrade_btn.pack(side="right", padx=(8, 0))
+
+        close_btn = ctk.CTkButton(
+            btn_row,
+            text="Close",
+            fg_color="transparent",
+            border_width=1,
+            border_color=OUTLINE_BR,
+            hover_color=OUTLINE_H,
+            text_color=TEXT,
+            command=self._hide_premium_gate,
+        )
+        close_btn.pack(side="right")
+
+        self._premium_overlay = overlay
+        self._premium_message_label = msg_label
+        self._premium_overlay.lift()
+
+
+    def _hide_premium_gate(self):
+        """Hide the premium overlay if it exists."""
+        if self._premium_overlay is not None:
+            try:
+                self._premium_overlay.place_forget()
+            except Exception:
+                pass
+
+    def _open_upgrade_website(self):
+        """Open the external landing website where users can purchase Premium."""
+        try:
+            webbrowser.open(UPGRADE_URL)
+            self._log_console(f"[premium] Opened upgrade page: {UPGRADE_URL}")
+        except Exception as e:
+            self._log_console(f"[premium] Failed to open upgrade page: {e}")
+
 
     def _display_results(self, result):
         try:

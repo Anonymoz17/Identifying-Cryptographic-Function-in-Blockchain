@@ -3,9 +3,13 @@ import os
 import customtkinter as ctk
 from PIL import Image, ImageDraw
 
-from api_client_supabase import ensure_role_row as sb_ensure_role_row
-from api_client_supabase import get_my_role as sb_get_role
-from api_client_supabase import login as sb_login
+from api_client_supabase import (
+    login as sb_login,
+    ensure_role_row as sb_ensure_role_row,
+    get_my_role as sb_get_role,
+    get_user_overview as sb_get_user_overview,
+)
+
 from api_client_google import login_with_google
 from api_client_github import login_with_github
 
@@ -365,6 +369,8 @@ class LoginPage(ctk.CTkFrame):
     # ---------- Finalize shared ----------
     def _finish_login(self, token: str, user: dict):
         uid = user.get("id")
+
+        # --- Ensure role row + resolve role tier ---
         try:
             if uid:
                 try:
@@ -377,11 +383,20 @@ class LoginPage(ctk.CTkFrame):
         except Exception:
             role = "free"
 
+        # --- Fetch user_overview so quota state is restored on login ---
+        user_overview = None
+        try:
+            if uid:
+                user_overview = sb_get_user_overview(token, uid)
+        except Exception:
+            user_overview = None
+
         app = self.winfo_toplevel()
         try:
             app.auth_token = token
             app.current_user = user
             app.current_user_role = role
+            app.user_overview = user_overview
         except Exception:
             pass
 
