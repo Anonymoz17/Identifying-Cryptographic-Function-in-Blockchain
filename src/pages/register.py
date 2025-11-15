@@ -233,6 +233,7 @@ class RegisterPage(ctk.CTkFrame):
         self._refresh_placeholders()
 
     # ---------- Registration Logic ----------
+    # ---------- Registration Logic ----------
     def _do_register(self):
         if self._busy:
             return
@@ -262,11 +263,29 @@ class RegisterPage(ctk.CTkFrame):
             return
 
         if not ok:
+            # result is an error string from api_client_supabase.register_user
             self._busy = False
             self._set_status(str(result), error=True)
             return
 
-        self._set_status("Registration successful! Check your email to verify.")
-        self.after(1000, lambda: self.switch_page("verify_email"))
-        self._reset_fields()
+        # ----- SUCCESS PATH -----
+        # Show the success message on this same Register page
+        msg = ""
+        if isinstance(result, dict):
+            msg = result.get(
+                "message",
+                "Registration successful! Return to Login to Log in.",
+            )
+        else:
+            msg = "Registration successful! Return to Login to Log in."
+
+        self._set_status(msg, error=False)
+
+        # Clear only passwords; keep email/name so user knows what they used
+        try:
+            self.password_entry.delete(0, "end")
+            self.confirm_password_entry.delete(0, "end")
+        except Exception:
+            pass
+
         self._busy = False

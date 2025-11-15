@@ -396,9 +396,12 @@ class LoginPage(ctk.CTkFrame):
             app.auth_token = token
             app.current_user = user
             app.current_user_role = role
+            app.current_user_email = user.get("email")
             app.user_overview = user_overview
+            app.account_tier = str(role).capitalize()
         except Exception:
             pass
+
 
         self._reset_fields()
         self._set_status("")

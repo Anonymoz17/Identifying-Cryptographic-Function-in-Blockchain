@@ -204,7 +204,7 @@ class AccountBubble:
         """
         Decide what to show:
           1) Override profile (from refresh())
-          2) Supabase user_overview
+          2) App.fetch_user_profile()
           3) App current_user/current_user_role
         """
         # 1) Override from page/app
@@ -223,11 +223,28 @@ class AccountBubble:
                 "email": p.get("email") or "—",
             }
 
-        # 2) Supabase / user_overview
-        data = self._fetch_account_overview()
-        role = data.get("role") or self._fallback_role()
-        email = data.get("email") or self._fallback_email()
-        full_name = data.get("full_name") or self._fallback_full_name()
+        # 2) Ask the app for its current profile snapshot
+        app = self.page.winfo_toplevel()
+        profile: Dict[str, Any] = {}
+        if hasattr(app, "fetch_user_profile"):
+            try:
+                profile = app.fetch_user_profile() or {}
+            except Exception:
+                profile = {}
+
+        if profile:
+            role = profile.get("role")
+            plan = profile.get("plan") or role or "free"
+            return {
+                "plan": str(plan).capitalize(),
+                "full_name": profile.get("full_name") or "—",
+                "email": profile.get("email") or "—",
+            }
+
+        # 3) Final fallback: use app.current_user/current_user_role
+        role = self._fallback_role()
+        email = self._fallback_email()
+        full_name = self._fallback_full_name()
 
         plan_text = str(role).capitalize() if role else "Free"
         return {
@@ -235,6 +252,7 @@ class AccountBubble:
             "full_name": full_name or "—",
             "email": email or "—",
         }
+
 
     def _fetch_account_overview(self) -> Dict[str, Any]:
         """

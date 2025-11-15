@@ -202,34 +202,67 @@ class App(ctk.CTk):
             self._resize_job = None
         self.destroy()
 
-    def fetch_user_profile(self):
+    def fetch_user_profile(self) -> dict:
         """
-        Return dict: {full_name, email, role, plan}.
-        Prefer self.user_overview from Supabase if present.
+        Return a normalized snapshot of the signed-in user:
+
+            {
+                "full_name": str,
+                "email": str,
+                "role": "free" | "premium" | ...,
+                "plan": "Free" | "Premium" | ...
+            }
+
+        - Prefer data from user_overview (view).
+        - Fall back to current_user / current_user_role.
         """
         try:
             u = getattr(self, "user_overview", None) or {}
-            roles_val = u.get("roles")
-            if isinstance(roles_val, (list, tuple)):
-                roles_str = ", ".join(str(r) for r in roles_val)
-            else:
-                roles_str = roles_val or ""
+            # Tier / role
+            tier = u.get("tier") or getattr(self, "current_user_role", "free")
+            role = str(tier or "free").lower()
 
-            plan_val = u.get("plan") or getattr(self, "plan", "Free")
+            # Email
+            email = u.get("email")
+            if not email:
+                user = getattr(self, "current_user", None) or {}
+                email = user.get("email", "")
+
+            # Name
+            if u.get("full_name"):
+                full_name = u["full_name"]
+            elif u.get("username"):
+                full_name = u["username"]
+            elif email:
+                full_name = email.split("@", 1)[0]
+            else:
+                full_name = "User"
+
+            plan = role.capitalize() if role else "Free"
 
             return {
-                "full_name": u.get("full_name") or u.get("name") or "User",
-                "email": u.get("email", ""),
-                "role": roles_str or getattr(self, "current_user_role", "free"),
-                "plan": plan_val,
+                "full_name": full_name,
+                "email": email or "",
+                "role": role,
+                "plan": plan,
             }
         except Exception:
+            # Very defensive fallback
+            email = ""
+            try:
+                user = getattr(self, "current_user", None) or {}
+                email = user.get("email", "")
+            except Exception:
+                pass
+
+            role = getattr(self, "current_user_role", "free")
             return {
-                "full_name": "User",
-                "email": "",
-                "role": getattr(self, "current_user_role", "free"),
-                "plan": getattr(self, "plan", "Free"),
+                "full_name": email.split("@", 1)[0] if email else "User",
+                "email": email,
+                "role": role,
+                "plan": str(role).capitalize() if role else "Free",
             }
+
 
         
     # ---------------------------------------------------------------
