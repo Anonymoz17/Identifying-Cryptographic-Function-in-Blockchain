@@ -1,12 +1,15 @@
-// src/lib/supabase.js
+// src/lib/supabase.js  (or ./lib/supabase.js depending on your project)
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// 👇 These MUST be strings
+const SUPABASE_URL = "https://sejbpcqnokkzvcoqrxcv.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlamJwY3Fub2trenZjb3FyeGN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMDg0NjksImV4cCI6MjA3Mzc4NDQ2OX0.exinB4la2wvNTMKL1f2-tQEuRY1N5PCna6huaIR2Qck";
 
-// Create a dummy client if credentials are missing (for static deployments)
-export const supabase = (SUPABASE_URL && SUPABASE_ANON_KEY)
-  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
-    })
-  : null;
+// Create the Supabase client (no env vars needed in this setup)
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
+});
